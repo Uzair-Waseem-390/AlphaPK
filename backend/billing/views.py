@@ -1,3 +1,285 @@
-from django.shortcuts import render
+from rest_framework import generics, status
+from rest_framework.response import Response
 
-# Create your views here.
+from .models import Invoice
+from .permissions import IsAdminOrSuperuser, IsAdminOrSuperuserOrReadOnly, IsAuthenticated
+from .selectors import (
+    get_all_customers,
+    get_all_invoices,
+    get_customer_by_id,
+    get_draft_invoices,
+    get_invoice_by_id,
+    get_payment_by_id,
+    get_payments_for_invoice,
+    get_return_by_id,
+    get_returns_for_invoice,
+)
+from .serializers import (
+    CustomerReadSerializer,
+    CustomerWriteSerializer,
+    InvoiceCreateSerializer,
+    InvoiceReadSerializer,
+    InvoiceUpdateSerializer,
+    PaymentReadSerializer,
+    PaymentWriteSerializer,
+    ReturnCreateSerializer,
+    ReturnReadSerializer,
+)
+from .services import (
+    accept_return,
+    confirm_invoice,
+    create_customer,
+    create_invoice,
+    create_payment,
+    create_return,
+    delete_customer,
+    delete_invoice,
+    delete_payment,
+    update_customer,
+    update_invoice_items,
+)
+
+
+# ---------------------------------------------------------------------------
+# Customer
+# ---------------------------------------------------------------------------
+
+class CustomerListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /billing/customers/       — list all customers (search: ?search=)
+    POST /billing/customers/       — create customer (all authenticated)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        return CustomerWriteSerializer if self.request.method == "POST" else CustomerReadSerializer
+
+    def get_queryset(self):
+        return get_all_customers(search=self.request.query_params.get("search"))
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        customer = create_customer(
+            name=d["name"], code=d["code"],
+            address=d["address"], mobile=d.get("mobile", ""),
+            user=request.user,
+        )
+        return Response(CustomerReadSerializer(customer).data, status=status.HTTP_201_CREATED)
+
+
+class CustomerRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /billing/customers/<pk>/
+    PATCH  /billing/customers/<pk>/
+    DELETE /billing/customers/<pk>/
+    """
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "patch", "delete"]
+
+    def get_serializer_class(self):
+        return CustomerWriteSerializer if self.request.method == "PATCH" else CustomerReadSerializer
+
+    def get_object(self):
+        return get_customer_by_id(self.kwargs["pk"])
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(self.get_object(), data=request.data, partial=True)
+        serializer.is_valid(raise_exception=True)
+        customer = update_customer(pk=self.kwargs["pk"], user=request.user, **serializer.validated_data)
+        return Response(CustomerReadSerializer(customer).data)
+
+    def destroy(self, request, *args, **kwargs):
+        delete_customer(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Customer deleted."}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Invoice — list + create
+# ---------------------------------------------------------------------------
+
+class InvoiceListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /billing/invoices/         — all invoices (?status=draft|confirmed|returned|partial, ?customer_id=)
+    POST /billing/invoices/         — create draft (all authenticated)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        return InvoiceCreateSerializer if self.request.method == "POST" else InvoiceReadSerializer
+
+    def get_queryset(self):
+        return get_all_invoices(
+            status=self.request.query_params.get("status"),
+            customer_id=self.request.query_params.get("customer_id"),
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        invoice = create_invoice(
+            customer_id=d["customer_id"],
+            items=d["items"],
+            user=request.user,
+        )
+        return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Draft invoices — separate endpoint as per instructions
+# ---------------------------------------------------------------------------
+
+class DraftInvoiceListView(generics.ListAPIView):
+    """
+    GET /billing/invoices/drafts/   — all draft invoices (all authenticated)
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = InvoiceReadSerializer
+
+    def get_queryset(self):
+        return get_draft_invoices()
+
+
+# ---------------------------------------------------------------------------
+# Invoice — retrieve + update + delete
+# ---------------------------------------------------------------------------
+
+class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /billing/invoices/<pk>/  — anyone authenticated
+    PATCH  /billing/invoices/<pk>/  — update items on DRAFT only (anyone)
+    DELETE /billing/invoices/<pk>/  — soft delete DRAFT only (anyone)
+    """
+    permission_classes = [IsAuthenticated]
+    http_method_names = ["get", "patch", "delete"]
+
+    def get_serializer_class(self):
+        return InvoiceUpdateSerializer if self.request.method == "PATCH" else InvoiceReadSerializer
+
+    def get_object(self):
+        return get_invoice_by_id(self.kwargs["pk"])
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invoice = update_invoice_items(
+            invoice_id=self.kwargs["pk"],
+            items=serializer.validated_data["items"],
+            user=request.user,
+        )
+        return Response(InvoiceReadSerializer(invoice).data)
+
+    def destroy(self, request, *args, **kwargs):
+        delete_invoice(invoice_id=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Invoice deleted."}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Confirm Invoice (admin/superuser only)
+# ---------------------------------------------------------------------------
+
+class InvoiceConfirmView(generics.UpdateAPIView):
+    """
+    POST /billing/invoices/<pk>/confirm/
+    Confirms a draft — releases stock, runs FIFO, snapshots prices.
+    Admin + superuser only.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        invoice = confirm_invoice(invoice_id=self.kwargs["pk"], user=request.user)
+        return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Payment
+# ---------------------------------------------------------------------------
+
+class PaymentListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /billing/invoices/<invoice_id>/payments/
+    POST /billing/invoices/<invoice_id>/payments/
+    """
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+
+    def get_serializer_class(self):
+        return PaymentWriteSerializer if self.request.method == "POST" else PaymentReadSerializer
+
+    def get_queryset(self):
+        return get_payments_for_invoice(self.kwargs["invoice_id"])
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        payment = create_payment(
+            invoice_id=self.kwargs["invoice_id"],
+            amount=d["amount"],
+            method=d["method"],
+            payment_date=d["payment_date"],
+            note=d.get("note", ""),
+            user=request.user,
+        )
+        return Response(PaymentReadSerializer(payment).data, status=status.HTTP_201_CREATED)
+
+
+class PaymentDestroyView(generics.DestroyAPIView):
+    """
+    DELETE /billing/payments/<pk>/
+    Soft-deletes a payment. Admin + superuser only.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get_object(self):
+        return get_payment_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_payment(payment_id=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Payment deleted."}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Return
+# ---------------------------------------------------------------------------
+
+class ReturnListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /billing/invoices/<invoice_id>/returns/  — list returns for invoice
+    POST /billing/invoices/<invoice_id>/returns/  — create return request (all authenticated)
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get_serializer_class(self):
+        return ReturnCreateSerializer if self.request.method == "POST" else ReturnReadSerializer
+
+    def get_queryset(self):
+        return get_returns_for_invoice(self.kwargs["invoice_id"])
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        return_record = create_return(
+            invoice_id=self.kwargs["invoice_id"],
+            items=d["items"],
+            note=d.get("note", ""),
+            user=request.user,
+        )
+        return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_201_CREATED)
+
+
+class ReturnAcceptView(generics.UpdateAPIView):
+    """
+    POST /billing/returns/<pk>/accept/
+    Accepts a pending return — reverses FIFO, restores inventory, credits balance.
+    Admin + superuser only.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    http_method_names = ["post"]
+
+    def post(self, request, *args, **kwargs):
+        return_record = accept_return(return_id=self.kwargs["pk"], user=request.user)
+        return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_200_OK)

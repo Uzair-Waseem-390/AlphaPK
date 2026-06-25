@@ -1,0 +1,603 @@
+from decimal import Decimal
+from django.db import transaction
+from django.utils import timezone
+
+from purchases.models import Inventory
+from rates.selectors import get_price_at_date
+
+from .models import (
+    Customer, FIFOLedger, Invoice, InvoiceItem,
+    Payment, Return, ReturnItem,
+)
+from .selectors import (
+    get_available_purchase_batches,
+    get_customer_by_id,
+    get_invoice_by_id,
+    get_invoice_item_by_id,
+    get_payment_by_id,
+    get_return_by_id,
+)
+
+
+# ---------------------------------------------------------------------------
+# Internal helpers
+# ---------------------------------------------------------------------------
+
+def _soft_delete(instance, user) -> None:
+    """DRY soft delete — reused across all models in this app."""
+    instance.is_deleted = True
+    instance.deleted_at = timezone.now()
+    instance.deleted_by = user
+    instance.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
+def _generate_bill_number() -> str:
+    """
+    Generates sequential bill number: BILL-2026-0001.
+    Reads the highest existing number for the current year and increments.
+    Uses select_for_update inside a transaction to prevent race conditions
+    under concurrent requests.
+    """
+    year = timezone.now().year
+    prefix = f"BILL-{year}-"
+    last = (
+        Invoice.all_objects
+        .filter(bill_number__startswith=prefix)
+        .order_by("-bill_number")
+        .first()
+    )
+    if last:
+        last_seq = int(last.bill_number.split("-")[-1])
+        seq = last_seq + 1
+    else:
+        seq = 1
+    return f"{prefix}{seq:04d}"
+
+
+def _get_current_selling_price(product) -> Decimal:
+    """
+    Fetches the current selling price from the rate list.
+    Raises ValidationError if no rate is set for this product.
+    """
+    from rest_framework.exceptions import ValidationError
+    try:
+        rate = product.rate  # OneToOne reverse from rates.ProductRate
+        if not rate:
+            raise ValidationError(
+                {product.name: f"No selling price set for '{product.name}'. Please set a rate first."}
+            )
+        return rate.selling_price
+    except Exception:
+        raise ValidationError(
+            {"product": f"No selling price set for '{product.name}'. Please set a rate first."}
+        )
+
+
+def _validate_stock(product, requested_qty: int, exclude_invoice_id: int = None) -> None:
+    """
+    Validates that enough stock is available in inventory.
+    On draft edit, exclude the current invoice's already-reserved qty
+    by checking remaining_quantity on purchase batches directly.
+    Raises ValidationError with a clear message if stock is insufficient.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    batches = get_available_purchase_batches(product.id)
+    available = sum(b.remaining_quantity for b in batches)
+
+    if available < requested_qty:
+        raise ValidationError({
+            "quantity": (
+                f"Insufficient stock for '{product.name}'. "
+                f"Requested: {requested_qty}, Available: {available}."
+            )
+        })
+
+
+def _run_fifo(*, invoice_item: InvoiceItem, quantity: int, user) -> Decimal:
+    """
+    Consumes stock from purchase batches in FIFO order for a given product.
+    Creates FIFOLedger entries for each batch consumed.
+    Returns the blended COGS per unit for storage on the invoice item.
+
+    This is the heart of FIFO. It:
+    1. Iterates purchase batches oldest-first
+    2. Consumes as many units as possible from each batch
+    3. Records each consumption in FIFOLedger
+    4. Decrements remaining_quantity on the purchase batch
+    5. Returns blended cost = total_cost / total_qty
+    """
+    product = invoice_item.product
+    remaining_to_consume = quantity
+    total_cost = Decimal("0")
+    batches = get_available_purchase_batches(product.id)
+
+    for batch in batches:
+        if remaining_to_consume <= 0:
+            break
+
+        consume = min(batch.remaining_quantity, remaining_to_consume)
+        cost_for_layer = consume * batch.unit_price
+
+        FIFOLedger.objects.create(
+            invoice_item=invoice_item,
+            purchase=batch,
+            quantity=consume,
+            unit_cost=batch.unit_price,
+        )
+
+        batch.remaining_quantity -= consume
+        batch.save(update_fields=["remaining_quantity"])
+
+        total_cost += cost_for_layer
+        remaining_to_consume -= consume
+
+    if remaining_to_consume > 0:
+        # This should never happen if _validate_stock ran first
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({
+            "stock": f"Stock ran out mid-confirmation for '{product.name}'. Please refresh and try again."
+        })
+
+    blended_cogs_per_unit = total_cost / Decimal(str(quantity))
+    return blended_cogs_per_unit
+
+
+def _reverse_fifo(*, invoice_item: InvoiceItem, return_quantity: int) -> None:
+    """
+    Reverses FIFO consumption for a return — restores remaining_quantity
+    on purchase batches in reverse FIFO order (LIFO reversal = FIFO restore).
+    Creates negative FIFOLedger entries for audit completeness.
+    Also increments the inventory directly.
+    """
+    product = invoice_item.product
+    remaining_to_restore = return_quantity
+
+    # Reverse in newest-first order so the most recently consumed batch
+    # is restored first (correct FIFO reversal)
+    layers = FIFOLedger.objects.filter(
+        invoice_item=invoice_item,
+        quantity__gt=0,          # only original consumption entries
+    ).order_by("-created_at")
+
+    for layer in layers:
+        if remaining_to_restore <= 0:
+            break
+
+        restore = min(layer.quantity, remaining_to_restore)
+
+        # Restore remaining_quantity on the purchase batch
+        layer.purchase.remaining_quantity += restore
+        layer.purchase.save(update_fields=["remaining_quantity"])
+
+        # Append a negative ledger entry for audit trail
+        FIFOLedger.objects.create(
+            invoice_item=invoice_item,
+            purchase=layer.purchase,
+            quantity=-restore,
+            unit_cost=layer.unit_cost,
+        )
+
+        remaining_to_restore -= restore
+
+    # Increment inventory
+    inventory, _ = Inventory.objects.get_or_create(product=product)
+    inventory.quantity += return_quantity
+    inventory.save(update_fields=["quantity", "last_updated_at"])
+
+
+def _recalculate_invoice_totals(invoice: Invoice) -> None:
+    """
+    Recomputes and saves subtotal, total_cogs, gross_profit from line items.
+    Called after confirmation and after returns.
+    """
+    subtotal = Decimal("0")
+    total_cogs = Decimal("0")
+
+    for item in invoice.items.all():
+        subtotal   += item.line_total
+        total_cogs += item.line_cogs
+
+    invoice.subtotal     = subtotal
+    invoice.total_cogs   = total_cogs
+    invoice.gross_profit = subtotal - total_cogs
+    invoice.save(update_fields=["subtotal", "total_cogs", "gross_profit"])
+
+
+# ---------------------------------------------------------------------------
+# Customer services
+# ---------------------------------------------------------------------------
+
+def create_customer(*, name: str, code: str, address: str, mobile: str = "", user) -> Customer:
+    from rest_framework.exceptions import ValidationError
+    if Customer.objects.filter(code__iexact=code, is_deleted=False).exists():
+        raise ValidationError({"code": "A customer with this code already exists."})
+    return Customer.objects.create(
+        name=name, code=code.upper(), address=address,
+        mobile=mobile, created_by=user, updated_by=user,
+    )
+
+
+def update_customer(
+    *, pk: int, name: str = None, code: str = None,
+    address: str = None, mobile: str = None, user,
+) -> Customer:
+    from rest_framework.exceptions import ValidationError
+    customer = get_customer_by_id(pk)
+    if code:
+        qs = Customer.objects.filter(code__iexact=code, is_deleted=False).exclude(pk=pk)
+        if qs.exists():
+            raise ValidationError({"code": "A customer with this code already exists."})
+        customer.code = code.upper()
+    if name is not None:
+        customer.name = name
+    if address is not None:
+        customer.address = address
+    if mobile is not None:
+        customer.mobile = mobile
+    customer.updated_by = user
+    customer.save(update_fields=["name", "code", "address", "mobile", "updated_by", "updated_at"])
+    return customer
+
+
+def delete_customer(*, pk: int, user) -> None:
+    customer = get_customer_by_id(pk)
+    _soft_delete(customer, user)
+
+
+# ---------------------------------------------------------------------------
+# Invoice (Draft) services
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
+    """
+    Creates a DRAFT invoice with line items.
+    items = [{"product_id": 1, "quantity": 5}, ...]
+
+    Stock validation runs here so user sees errors immediately,
+    but stock is NOT deducted yet (that happens on confirmation).
+    Rate list validation also runs here.
+    """
+    from purchases.selectors import get_product_by_id
+    from rest_framework.exceptions import ValidationError
+
+    get_customer_by_id(customer_id)  # validate customer exists
+
+    if not items:
+        raise ValidationError({"items": "At least one item is required."})
+
+    # Validate all products + stock before creating anything
+    validated_items = []
+    seen_products = set()
+    for item in items:
+        product = get_product_by_id(item["product_id"])
+        if product.id in seen_products:
+            raise ValidationError({"items": f"Duplicate product '{product.name}' in items."})
+        seen_products.add(product.id)
+        _get_current_selling_price(product)      # raises if no rate
+        _validate_stock(product, item["quantity"])
+        validated_items.append((product, item["quantity"]))
+
+    invoice = Invoice.objects.create(
+        bill_number=_generate_bill_number(),
+        customer_id=customer_id,
+        status=Invoice.Status.DRAFT,
+        created_by=user,
+        updated_by=user,
+    )
+
+    for product, quantity in validated_items:
+        InvoiceItem.objects.create(
+            invoice=invoice,
+            product=product,
+            quantity=quantity,
+            # selling_price and cogs filled at confirmation
+        )
+
+    return invoice
+
+
+@transaction.atomic
+def update_invoice_items(*, invoice_id: int, items: list[dict], user) -> Invoice:
+    """
+    Replaces all line items on a DRAFT invoice.
+    Only allowed while status=DRAFT.
+    Customer is immutable after creation.
+    """
+    from purchases.selectors import get_product_by_id
+    from rest_framework.exceptions import ValidationError
+
+    invoice = get_invoice_by_id(invoice_id)
+
+    if invoice.status != Invoice.Status.DRAFT:
+        raise ValidationError({"status": "Only draft invoices can be edited."})
+
+    if not items:
+        raise ValidationError({"items": "At least one item is required."})
+
+    validated_items = []
+    seen_products = set()
+    for item in items:
+        product = get_product_by_id(item["product_id"])
+        if product.id in seen_products:
+            raise ValidationError({"items": f"Duplicate product '{product.name}' in items."})
+        seen_products.add(product.id)
+        _get_current_selling_price(product)
+        _validate_stock(product, item["quantity"])
+        validated_items.append((product, item["quantity"]))
+
+    # Replace all existing items
+    invoice.items.all().delete()
+    for product, quantity in validated_items:
+        InvoiceItem.objects.create(
+            invoice=invoice,
+            product=product,
+            quantity=quantity,
+        )
+
+    invoice.updated_by = user
+    invoice.save(update_fields=["updated_by", "updated_at"])
+    return invoice
+
+
+def delete_invoice(*, invoice_id: int, user) -> None:
+    from rest_framework.exceptions import ValidationError
+    invoice = get_invoice_by_id(invoice_id)
+    if invoice.status != Invoice.Status.DRAFT:
+        raise ValidationError({"status": "Only draft invoices can be deleted."})
+    _soft_delete(invoice, user)
+
+
+# ---------------------------------------------------------------------------
+# Confirm Invoice
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def confirm_invoice(*, invoice_id: int, user) -> Invoice:
+    """
+    Confirms a draft invoice:
+    1. Validates stock one final time (race-condition safety)
+    2. Snapshots selling price from rate list onto each item
+    3. Runs FIFO to consume purchase batches and get blended COGS
+    4. Stores line totals, COGS, profit on each item
+    5. Deducts quantity from Inventory
+    6. Recomputes invoice-level totals
+    7. Sets status=CONFIRMED
+    """
+    from rest_framework.exceptions import ValidationError
+
+    invoice = get_invoice_by_id(invoice_id)
+    if invoice.status != Invoice.Status.DRAFT:
+        raise ValidationError({"status": "Only draft invoices can be confirmed."})
+
+    for item in invoice.items.all():
+        product = item.product
+
+        # Final stock check inside transaction
+        _validate_stock(product, item.quantity)
+
+        # Snapshot selling price
+        selling_price = _get_current_selling_price(product)
+
+        # Run FIFO — consumes purchase batches, returns blended cogs/unit
+        cogs_per_unit = _run_fifo(invoice_item=item, quantity=item.quantity, user=user)
+
+        # Compute line financials
+        line_total  = selling_price * item.quantity
+        line_cogs   = cogs_per_unit * item.quantity
+        line_profit = line_total - line_cogs
+
+        item.selling_price = selling_price
+        item.cogs_per_unit = cogs_per_unit
+        item.line_total    = line_total
+        item.line_cogs     = line_cogs
+        item.line_profit   = line_profit
+        item.save(update_fields=[
+            "selling_price", "cogs_per_unit",
+            "line_total", "line_cogs", "line_profit",
+        ])
+
+        # Deduct from inventory
+        inventory, _ = Inventory.objects.get_or_create(product=product)
+        inventory.quantity = max(0, inventory.quantity - item.quantity)
+        inventory.last_updated_by = user
+        inventory.save(update_fields=["quantity", "last_updated_at", "last_updated_by"])
+
+    _recalculate_invoice_totals(invoice)
+
+    invoice.status       = Invoice.Status.CONFIRMED
+    invoice.confirmed_by = user
+    invoice.confirmed_at = timezone.now()
+    invoice.updated_by   = user
+    invoice.save(update_fields=["status", "confirmed_by", "confirmed_at", "updated_by", "updated_at"])
+
+    return invoice
+
+
+# ---------------------------------------------------------------------------
+# Payment services
+# ---------------------------------------------------------------------------
+
+def create_payment(
+    *, invoice_id: int, amount: Decimal,
+    method: str, payment_date, note: str = "", user,
+) -> Payment:
+    from rest_framework.exceptions import ValidationError
+
+    invoice = get_invoice_by_id(invoice_id)
+    if invoice.status == Invoice.Status.DRAFT:
+        raise ValidationError({"invoice": "Cannot record payment on a draft invoice."})
+
+    # Prevent overpayment
+    total_paid = sum(
+        p.amount for p in invoice.payments.filter(is_deleted=False)
+    )
+    if total_paid + amount > invoice.subtotal:
+        raise ValidationError({
+            "amount": (
+                f"Payment of {amount} exceeds outstanding balance. "
+                f"Invoice total: {invoice.subtotal}, Already paid: {total_paid}."
+            )
+        })
+
+    return Payment.objects.create(
+        invoice=invoice,
+        amount=amount,
+        method=method,
+        payment_date=payment_date,
+        note=note,
+        created_by=user,
+        updated_by=user,
+    )
+
+
+def delete_payment(*, payment_id: int, user) -> None:
+    payment = get_payment_by_id(payment_id)
+    _soft_delete(payment, user)
+
+
+# ---------------------------------------------------------------------------
+# Return services
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_return(*, invoice_id: int, items: list[dict], note: str = "", user) -> Return:
+    """
+    Creates a PENDING return request.
+    items = [{"invoice_item_id": 1, "quantity": 3}, ...]
+    Validates quantities don't exceed returnable amounts.
+    Does NOT touch inventory or FIFO yet — that happens on acceptance.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    invoice = get_invoice_by_id(invoice_id)
+    if invoice.status not in (Invoice.Status.CONFIRMED, Invoice.Status.PARTIAL):
+        raise ValidationError({"invoice": "Only confirmed invoices can have returns."})
+
+    if not items:
+        raise ValidationError({"items": "At least one item is required for a return."})
+
+    return_record = Return.objects.create(
+        invoice=invoice,
+        status=Return.Status.PENDING,
+        note=note,
+        created_by=user,
+        updated_by=user,
+    )
+
+    for item_data in items:
+        invoice_item = get_invoice_item_by_id(item_data["invoice_item_id"])
+
+        if invoice_item.invoice_id != invoice.id:
+            raise ValidationError({
+                "invoice_item_id": f"Item {invoice_item.id} does not belong to this invoice."
+            })
+        if item_data["quantity"] > invoice_item.returnable_quantity:
+            raise ValidationError({
+                "quantity": (
+                    f"Cannot return {item_data['quantity']} units of "
+                    f"'{invoice_item.product.name}'. "
+                    f"Returnable: {invoice_item.returnable_quantity}."
+                )
+            })
+
+        ReturnItem.objects.create(
+            return_record=return_record,
+            invoice_item=invoice_item,
+            quantity=item_data["quantity"],
+        )
+
+    return return_record
+
+
+@transaction.atomic
+def accept_return(*, return_id: int, user) -> Return:
+    """
+    Accepts a pending return (admin/superuser only):
+    1. Snapshots prices from original invoice item
+    2. Reverses FIFO (restores purchase batch remaining_quantity)
+    3. Increments inventory
+    4. Updates returned_quantity on invoice items
+    5. Updates invoice status (partial/returned)
+    6. Adjusts invoice totals
+    7. Creates a negative payment entry to reduce customer's outstanding balance
+    """
+    from rest_framework.exceptions import ValidationError
+
+    return_record = get_return_by_id(return_id)
+    if return_record.status != Return.Status.PENDING:
+        raise ValidationError({"status": "Only pending returns can be accepted."})
+
+    total_return_amount = Decimal("0")
+    total_return_cogs   = Decimal("0")
+
+    for return_item in return_record.items.all():
+        invoice_item  = return_item.invoice_item
+        qty           = return_item.quantity
+
+        # Snapshot from original invoice item
+        selling_price = invoice_item.selling_price
+        cogs_per_unit = invoice_item.cogs_per_unit
+        line_total    = selling_price * qty
+        line_cogs     = cogs_per_unit * qty
+
+        return_item.selling_price = selling_price
+        return_item.cogs_per_unit = cogs_per_unit
+        return_item.line_total    = line_total
+        return_item.line_cogs     = line_cogs
+        return_item.save(update_fields=[
+            "selling_price", "cogs_per_unit", "line_total", "line_cogs"
+        ])
+
+        # Reverse FIFO and restore inventory
+        _reverse_fifo(invoice_item=invoice_item, return_quantity=qty)
+
+        # Track returned quantity on invoice item
+        invoice_item.returned_quantity += qty
+        invoice_item.save(update_fields=["returned_quantity"])
+
+        total_return_amount += line_total
+        total_return_cogs   += line_cogs
+
+    # Save return totals
+    return_record.total_return_amount = total_return_amount
+    return_record.total_return_cogs   = total_return_cogs
+    return_record.status              = Return.Status.ACCEPTED
+    return_record.accepted_by         = user
+    return_record.accepted_at         = timezone.now()
+    return_record.updated_by          = user
+    return_record.save(update_fields=[
+        "total_return_amount", "total_return_cogs",
+        "status", "accepted_by", "accepted_at", "updated_by", "updated_at",
+    ])
+
+    # Update invoice status
+    invoice = return_record.invoice
+    all_items      = invoice.items.all()
+    total_qty      = sum(i.quantity for i in all_items)
+    total_returned = sum(i.returned_quantity for i in all_items)
+
+    if total_returned >= total_qty:
+        invoice.status = Invoice.Status.RETURNED
+    else:
+        invoice.status = Invoice.Status.PARTIAL
+
+    invoice.updated_by = user
+    invoice.save(update_fields=["status", "updated_by", "updated_at"])
+
+    # Recalculate invoice totals
+    _recalculate_invoice_totals(invoice)
+
+    # Credit note: negative payment entry to reduce outstanding balance
+    Payment.objects.create(
+        invoice=invoice,
+        amount=-total_return_amount,
+        method=Payment.Method.CREDIT,
+        payment_date=timezone.now().date(),
+        note=f"Auto credit note for Return #{return_record.id}",
+        created_by=user,
+        updated_by=user,
+    )
+
+    return return_record

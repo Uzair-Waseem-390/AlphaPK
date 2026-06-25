@@ -141,6 +141,10 @@ class Purchase(AuditMixin):
         related_name="purchases",
     )
     quantity = models.PositiveIntegerField()
+    remaining_quantity = models.PositiveIntegerField(
+        default=0,
+        help_text="Units still available in inventory for FIFO consumption.",
+    )
     unit_price = models.DecimalField(max_digits=14, decimal_places=4)
     gst = models.DecimalField(
         max_digits=5,
@@ -174,6 +178,11 @@ class Purchase(AuditMixin):
         self.gst_amount = result["gst_amount"]
         self.wht_amount = result["wht_amount"]
         self.total_price = result["total_price"]
+
+        # On first save only, remaining = quantity
+        if not self.pk:
+            self.remaining_quantity = self.quantity
+
         super().save(*args, **kwargs)
 
     def __str__(self):
