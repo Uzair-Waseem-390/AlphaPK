@@ -28,6 +28,7 @@ INSTALLED_APPS = [
 EXTERNAL_APPS = [
     'users',
     'purchases',
+    'rates',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS
