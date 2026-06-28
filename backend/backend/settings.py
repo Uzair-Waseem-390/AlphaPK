@@ -127,3 +127,7 @@ SIMPLE_JWT = {
     "USER_ID_FIELD": "email",               # our PK is email, not id
     "USER_ID_CLAIM": "user_email",
 }
+
+
+MEDIA_URL = '/media/'
+MEDIA_ROOT = BASE_DIR / 'media'

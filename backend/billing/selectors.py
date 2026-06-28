@@ -208,3 +208,51 @@ def get_customers_with_outstanding(*, min_remaining: float = None) -> "QuerySet"
         qs = qs.filter(outstanding__gte=min_remaining)
 
     return qs.order_by("-outstanding")
+
+
+# ---------------------------------------------------------------------------
+# Invoice filtering selectors
+# ---------------------------------------------------------------------------
+
+def get_filtered_invoices(
+    *,
+    status         : str  = None,
+    customer_name  : str  = None,
+    customer_code  : str  = None,
+    bill_number    : str  = None,
+    date           : str  = None,
+    date_from      : str  = None,
+    date_to        : str  = None,
+    payment_status : str  = None,
+    min_amount     : str  = None,
+    max_amount     : str  = None,
+) -> "QuerySet":
+    """
+    Master invoice filter selector — all list views use this.
+    Every parameter is optional; combining them narrows results.
+    """
+    qs = _invoice_qs().filter(is_deleted=False)
+
+    if status:
+        qs = qs.filter(status=status)
+    if customer_name:
+        qs = qs.filter(customer__name__icontains=customer_name)
+    if customer_code:
+        qs = qs.filter(customer__code__icontains=customer_code)
+    if bill_number:
+        qs = qs.filter(bill_number__icontains=bill_number)
+    if date:
+        # Filter by exact confirmed_at date (or created_at for drafts)
+        qs = qs.filter(created_at__date=date)
+    if date_from:
+        qs = qs.filter(created_at__date__gte=date_from)
+    if date_to:
+        qs = qs.filter(created_at__date__lte=date_to)
+    if payment_status:
+        qs = qs.filter(payment_status=payment_status)
+    if min_amount:
+        qs = qs.filter(grand_total__gte=min_amount)
+    if max_amount:
+        qs = qs.filter(grand_total__lte=max_amount)
+
+    return qs

@@ -148,7 +148,11 @@ class InvoiceItemReadSerializer(serializers.ModelSerializer):
         fields = [
             "id", "product", "product_name", "product_code",
             "quantity", "returned_quantity", "returnable_quantity",
-            "selling_price", "cogs_per_unit",
+            # User-supplied per line
+            "discount", "gst", "wht",
+            # Computed at confirmation
+            "selling_price", "effective_price", "cogs_per_unit",
+            "line_gross", "line_gst_amount", "line_wht_amount",
             "line_total", "line_cogs", "line_profit",
         ]
         read_only_fields = fields
@@ -178,7 +182,8 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             "id", "bill_number", "customer", "status",
-            "subtotal", "total_cogs", "gross_profit",
+            "subtotal", "gst_total", "wht_total", "grand_total",
+            "total_cogs", "gross_profit",
             # payment summary inline on every invoice response
             "cash_received", "credit_received", "total_paid",
             "remaining_amount", "payment_status", "payment_status_display",
@@ -339,3 +344,41 @@ class CustomerWithOutstandingSerializer(serializers.ModelSerializer):
         model = Customer
         fields = ["id", "name", "code", "mobile", "address", "outstanding"]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Saved PDF serializers
+# ---------------------------------------------------------------------------
+
+class SavedInvoicePDFSerializer(serializers.ModelSerializer):
+    saved_by   = serializers.StringRelatedField(read_only=True)
+    deleted_by = serializers.StringRelatedField(read_only=True)
+    file_url   = serializers.SerializerMethodField()
+
+    class Meta:
+        from .models import SavedInvoicePDF
+        model  = SavedInvoicePDF
+        fields = [
+            "id", "invoice", "file_name", "file_url", "is_draft",
+            "saved_by", "created_at", "deleted_by", "deleted_at", "is_deleted",
+        ]
+        read_only_fields = fields
+
+    def get_file_url(self, obj):
+        request = self.context.get("request")
+        if request and obj.file_path:
+            from django.conf import settings
+            url = f"{settings.MEDIA_URL}{obj.file_path}"
+            return request.build_absolute_uri(url)
+        return None
+
+
+class SavePDFRequestSerializer(serializers.Serializer):
+    file_name = serializers.CharField(
+        max_length=255, required=False,
+        help_text="Custom file name. Defaults to bill number if not provided.",
+    )
+    is_draft  = serializers.BooleanField(default=False)
+
+    def validate_file_name(self, value):
+        return value.strip() if value else value

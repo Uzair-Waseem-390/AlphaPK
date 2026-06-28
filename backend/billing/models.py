@@ -94,6 +94,9 @@ class Invoice(AuditMixin):
 
     # Totals - computed and stored on confirmation
     subtotal      = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    gst_total     = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    wht_total     = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    grand_total   = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     total_cogs    = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     gross_profit  = models.DecimalField(max_digits=18, decimal_places=4, default=0)
 
@@ -136,12 +139,27 @@ class InvoiceItem(models.Model):
     )
     quantity      = models.PositiveIntegerField()
 
-    # Snapshotted at confirmation — never change after that
-    selling_price = models.DecimalField(max_digits=14, decimal_places=4, default=0)
-    cogs_per_unit = models.DecimalField(max_digits=14, decimal_places=4, default=0)
-    line_total    = models.DecimalField(max_digits=18, decimal_places=4, default=0)
-    line_cogs     = models.DecimalField(max_digits=18, decimal_places=4, default=0)
-    line_profit   = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    # User-entered per line (default 0)
+    discount = models.DecimalField(
+        max_digits=10, decimal_places=4, default=0,
+        help_text="Positive = price reduction. Negative = surcharge. effective_price = selling_price - discount",
+    )
+    gst = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="GST % e.g. 18.5")
+    wht = models.DecimalField(max_digits=5, decimal_places=2, default=0, help_text="WHT % e.g. 1.5")
+
+    # Snapshotted at confirmation - never change after that
+    selling_price      = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    effective_price    = models.DecimalField(max_digits=14, decimal_places=4, default=0,
+                            help_text="selling_price - discount")
+    cogs_per_unit      = models.DecimalField(max_digits=14, decimal_places=4, default=0)
+    line_gross         = models.DecimalField(max_digits=18, decimal_places=4, default=0,
+                            help_text="quantity x effective_price")
+    line_gst_amount    = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    line_wht_amount    = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    line_total         = models.DecimalField(max_digits=18, decimal_places=4, default=0,
+                            help_text="line_gross + line_gst - line_wht (tax-inclusive)")
+    line_cogs          = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    line_profit        = models.DecimalField(max_digits=18, decimal_places=4, default=0)
 
     # Tracks how much of this line has been returned
     returned_quantity = models.PositiveIntegerField(default=0)
@@ -282,3 +300,42 @@ class ReturnItem(models.Model):
 
     def __str__(self):
         return f"{self.return_record} — {self.invoice_item.product.name} × {self.quantity}"
+
+
+# ---------------------------------------------------------------------------
+# Saved Invoice PDF
+# ---------------------------------------------------------------------------
+
+class SavedInvoicePDF(models.Model):
+    """
+    Tracks every PDF file saved by a user for an invoice.
+    Files stored at: media/invoices/<year>/<bill_number>_<timestamp>.pdf
+    Soft-deleted on user request (file also removed from disk via service).
+    """
+
+    invoice    = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="saved_pdfs")
+    file_name  = models.CharField(max_length=255, help_text="User-supplied or default name.")
+    file_path  = models.CharField(max_length=500)
+    is_draft   = models.BooleanField(default=False, help_text="True if saved with DRAFT watermark.")
+    saved_by   = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="saved_pdfs",
+    )
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="deleted_pdfs",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    is_deleted = models.BooleanField(default=False, db_index=True)
+
+    objects     = SoftDeleteManager()
+    all_objects = AllObjectsManager()
+
+    class Meta:
+        verbose_name = "Saved Invoice PDF"
+        verbose_name_plural = "Saved Invoice PDFs"
+        ordering = ["-created_at"]
+
+    def __str__(self):
+        return f"{self.invoice.bill_number} - {self.file_name}"

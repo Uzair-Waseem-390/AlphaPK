@@ -1,19 +1,25 @@
 from django.urls import path
 
 from .views import (
+    ConfirmedInvoiceListView,
     CustomerListCreateView,
     CustomerOutstandingListView,
     CustomerOutstandingView,
     CustomerRetrieveUpdateDestroyView,
     DraftInvoiceListView,
     InvoiceConfirmView,
+    InvoiceFilteredListView,
     InvoiceListCreateView,
     InvoicePaymentSummaryView,
+    InvoicePrintView,
     InvoiceRetrieveUpdateDestroyView,
+    InvoiceSavedPDFListView,
+    InvoiceSavePDFView,
     PaymentDestroyView,
     PaymentListCreateView,
     ReturnAcceptView,
     ReturnListCreateView,
+    SavedPDFDeleteView,
 )
 
 urlpatterns = [
@@ -39,4 +45,20 @@ urlpatterns = [
     path("invoices/<int:pk>/payment-summary/", InvoicePaymentSummaryView.as_view(), name="invoice-payment-summary"),
     path("customers/outstanding/", CustomerOutstandingListView.as_view(), name="customer-outstanding-list"),
     path("customers/<int:pk>/outstanding/", CustomerOutstandingView.as_view(), name="customer-outstanding"),
+
+    # Confirmed invoices (dedicated endpoint)
+    path("invoices/confirmed/", ConfirmedInvoiceListView.as_view(), name="invoice-confirmed-list"),
+
+    # Master filter search
+    path("invoices/search/", InvoiceFilteredListView.as_view(), name="invoice-search"),
+
+    # PDF - print (no save)
+    path("invoices/<int:pk>/print/", InvoicePrintView.as_view(), name="invoice-print"),
+
+    # PDF - save to disk + list saved PDFs
+    path("invoices/<int:pk>/pdf/save/", InvoiceSavePDFView.as_view(), name="invoice-pdf-save"),
+    path("invoices/<int:pk>/pdf/", InvoiceSavedPDFListView.as_view(), name="invoice-pdf-list"),
+
+    # Delete a saved PDF
+    path("pdf/<int:saved_pdf_id>/", SavedPDFDeleteView.as_view(), name="pdf-delete"),
 ]

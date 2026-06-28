@@ -68,7 +68,7 @@ def _sync_invoice_payment_summary(invoice) -> None:
 
     total_paid       = cash_received + credit_received
     # remaining = what customer still owes after payments and any credit notes
-    raw_remaining    = invoice.subtotal - total_paid - Decimal(str(credit_notes))
+    raw_remaining    = invoice.grand_total - total_paid - Decimal(str(credit_notes))
     remaining_amount = max(Decimal("0"), raw_remaining)
 
     if remaining_amount <= 0:
@@ -246,20 +246,34 @@ def _reverse_fifo(*, invoice_item: InvoiceItem, return_quantity: int) -> None:
 
 def _recalculate_invoice_totals(invoice: Invoice) -> None:
     """
-    Recomputes and saves subtotal, total_cogs, gross_profit from line items.
+    Recomputes and saves all invoice-level totals from line items.
     Called after confirmation and after returns.
+    Uses calculate_invoice_totals() from utils - single source of truth.
     """
-    subtotal = Decimal("0")
-    total_cogs = Decimal("0")
+    from .utils import calculate_invoice_totals
 
-    for item in invoice.items.all():
-        subtotal   += item.line_total
-        total_cogs += item.line_cogs
+    line_data = [
+        {
+            "line_gross"      : item.line_gross,
+            "line_gst_amount" : item.line_gst_amount,
+            "line_wht_amount" : item.line_wht_amount,
+            "line_total"      : item.line_total,
+            "line_cogs"       : item.line_cogs,
+        }
+        for item in invoice.items.all()
+    ]
+    totals = calculate_invoice_totals(line_data)
 
-    invoice.subtotal     = subtotal
-    invoice.total_cogs   = total_cogs
-    invoice.gross_profit = subtotal - total_cogs
-    invoice.save(update_fields=["subtotal", "total_cogs", "gross_profit"])
+    invoice.subtotal     = totals["subtotal"]
+    invoice.gst_total    = totals["gst_total"]
+    invoice.wht_total    = totals["wht_total"]
+    invoice.grand_total  = totals["grand_total"]
+    invoice.total_cogs   = totals["total_cogs"]
+    invoice.gross_profit = totals["gross_profit"]
+    invoice.save(update_fields=[
+        "subtotal", "gst_total", "wht_total", "grand_total",
+        "total_cogs", "gross_profit",
+    ])
 
 
 # ---------------------------------------------------------------------------
@@ -335,7 +349,13 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
         seen_products.add(product.id)
         _get_current_selling_price(product)      # raises if no rate
         _validate_stock(product, item["quantity"])
-        validated_items.append((product, item["quantity"]))
+        validated_items.append((
+            product,
+            item["quantity"],
+            item.get("discount", Decimal("0")),
+            item.get("gst",      Decimal("0")),
+            item.get("wht",      Decimal("0")),
+        ))
 
     invoice = Invoice.objects.create(
         bill_number=_generate_bill_number(),
@@ -345,12 +365,15 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
         updated_by=user,
     )
 
-    for product, quantity in validated_items:
+    for product, quantity, discount, gst, wht in validated_items:
         InvoiceItem.objects.create(
             invoice=invoice,
             product=product,
             quantity=quantity,
-            # selling_price and cogs filled at confirmation
+            discount=discount,
+            gst=gst,
+            wht=wht,
+            # selling_price, effective_price, cogs filled at confirmation
         )
 
     return invoice
@@ -383,15 +406,24 @@ def update_invoice_items(*, invoice_id: int, items: list[dict], user) -> Invoice
         seen_products.add(product.id)
         _get_current_selling_price(product)
         _validate_stock(product, item["quantity"])
-        validated_items.append((product, item["quantity"]))
+        validated_items.append((
+            product,
+            item["quantity"],
+            item.get("discount", Decimal("0")),
+            item.get("gst",      Decimal("0")),
+            item.get("wht",      Decimal("0")),
+        ))
 
     # Replace all existing items
     invoice.items.all().delete()
-    for product, quantity in validated_items:
+    for product, quantity, discount, gst, wht in validated_items:
         InvoiceItem.objects.create(
             invoice=invoice,
             product=product,
             quantity=quantity,
+            discount=discount,
+            gst=gst,
+            wht=wht,
         )
 
     invoice.updated_by = user
@@ -435,24 +467,36 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         # Final stock check inside transaction
         _validate_stock(product, item.quantity)
 
-        # Snapshot selling price
+        # Snapshot selling price from rate list
         selling_price = _get_current_selling_price(product)
 
-        # Run FIFO — consumes purchase batches, returns blended cogs/unit
+        # Run FIFO - consumes purchase batches, returns blended cogs/unit
         cogs_per_unit = _run_fifo(invoice_item=item, quantity=item.quantity, user=user)
 
-        # Compute line financials
-        line_total  = selling_price * item.quantity
+        # Compute line financials using shared utils formula
+        from .utils import calculate_line_item
+        calc = calculate_line_item(
+            quantity=item.quantity,
+            selling_price=selling_price,
+            discount=item.discount,
+            gst=item.gst,
+            wht=item.wht,
+        )
         line_cogs   = cogs_per_unit * item.quantity
-        line_profit = line_total - line_cogs
+        line_profit = calc["line_total"] - line_cogs
 
-        item.selling_price = selling_price
-        item.cogs_per_unit = cogs_per_unit
-        item.line_total    = line_total
-        item.line_cogs     = line_cogs
-        item.line_profit   = line_profit
+        item.selling_price   = selling_price
+        item.effective_price = calc["effective_price"]
+        item.cogs_per_unit   = cogs_per_unit
+        item.line_gross      = calc["line_gross"]
+        item.line_gst_amount = calc["line_gst_amount"]
+        item.line_wht_amount = calc["line_wht_amount"]
+        item.line_total      = calc["line_total"]
+        item.line_cogs       = line_cogs
+        item.line_profit     = line_profit
         item.save(update_fields=[
-            "selling_price", "cogs_per_unit",
+            "selling_price", "effective_price", "cogs_per_unit",
+            "line_gross", "line_gst_amount", "line_wht_amount",
             "line_total", "line_cogs", "line_profit",
         ])
 
@@ -491,11 +535,11 @@ def create_payment(
     total_paid = sum(
         p.amount for p in invoice.payments.filter(is_deleted=False)
     )
-    if total_paid + amount > invoice.subtotal:
+    if total_paid + amount > invoice.grand_total:
         raise ValidationError({
             "amount": (
                 f"Payment of {amount} exceeds outstanding balance. "
-                f"Invoice total: {invoice.subtotal}, Already paid: {total_paid}."
+                f"Invoice total: {invoice.grand_total}, Already paid: {total_paid}."
             )
         })
 

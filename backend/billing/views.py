@@ -346,3 +346,186 @@ class CustomerOutstandingListView(generics.ListAPIView):
         return get_customers_with_outstanding(
             min_remaining=float(min_remaining) if min_remaining else None,
         )
+
+
+# ---------------------------------------------------------------------------
+# Invoice filtering
+# ---------------------------------------------------------------------------
+
+from .selectors import get_filtered_invoices
+
+
+class InvoiceFilteredListView(generics.ListAPIView):
+    """
+    GET /billing/invoices/search/
+    Master invoice list with all filters combined.
+
+    Query params:
+        status          : draft | confirmed | returned | partial
+        customer_name   : partial match
+        customer_code   : partial match
+        bill_number     : partial match
+        date            : YYYY-MM-DD  (exact day)
+        date_from       : YYYY-MM-DD
+        date_to         : YYYY-MM-DD
+        payment_status  : unpaid | partial | paid
+        min_amount      : minimum grand_total
+        max_amount      : maximum grand_total
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class   = InvoiceReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_filtered_invoices(
+            status         = p.get("status"),
+            customer_name  = p.get("customer_name"),
+            customer_code  = p.get("customer_code"),
+            bill_number    = p.get("bill_number"),
+            date           = p.get("date"),
+            date_from      = p.get("date_from"),
+            date_to        = p.get("date_to"),
+            payment_status = p.get("payment_status"),
+            min_amount     = p.get("min_amount"),
+            max_amount     = p.get("max_amount"),
+        )
+
+
+class ConfirmedInvoiceListView(generics.ListAPIView):
+    """
+    GET /billing/invoices/confirmed/
+    Dedicated confirmed invoices endpoint with same filter params.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class   = InvoiceReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_filtered_invoices(
+            status         = Invoice.Status.CONFIRMED,
+            customer_name  = p.get("customer_name"),
+            customer_code  = p.get("customer_code"),
+            bill_number    = p.get("bill_number"),
+            date           = p.get("date"),
+            date_from      = p.get("date_from"),
+            date_to        = p.get("date_to"),
+            payment_status = p.get("payment_status"),
+            min_amount     = p.get("min_amount"),
+            max_amount     = p.get("max_amount"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# PDF views
+# ---------------------------------------------------------------------------
+
+from django.http import HttpResponse, FileResponse
+from rest_framework.views import APIView
+
+from .pdf_service import (
+    delete_saved_pdf,
+    generate_invoice_pdf_bytes,
+    get_saved_pdfs_for_invoice,
+    save_invoice_pdf,
+)
+from .serializers import SavedInvoicePDFSerializer, SavePDFRequestSerializer
+
+
+class InvoicePrintView(APIView):
+    """
+    GET /billing/invoices/<pk>/print/?is_draft=true|false
+
+    Streams the PDF directly to the client — nothing saved to disk.
+    - is_draft=true  → shows DRAFT watermark (all authenticated users)
+    - is_draft=false → clean invoice (admin/superuser only)
+
+    Browser/Postman receives the PDF bytes; print dialog is triggered
+    client-side by setting Content-Disposition: inline.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def get(self, request, pk):
+        is_draft_param = request.query_params.get("is_draft", "false").lower() == "true"
+
+        # Normal users can ONLY print draft-watermarked version
+        if not is_draft_param and not request.user.is_staff:
+            return Response(
+                {"detail": "Normal users can only print the draft version."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
+
+        pdf_bytes, filename = generate_invoice_pdf_bytes(
+            invoice_id=pk,
+            is_draft=is_draft_param,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        # inline = browser shows it / triggers print dialog; not a download
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
+class InvoiceSavePDFView(generics.CreateAPIView):
+    """
+    POST /billing/invoices/<pk>/pdf/save/
+    Saves the PDF to disk and creates a SavedInvoicePDF record.
+    Admin + superuser only.
+
+    Body:
+        file_name : string (optional, defaults to bill number)
+        is_draft  : bool   (default false)
+
+    Returns the SavedInvoicePDF record with file_url.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = SavePDFRequestSerializer
+
+    def create(self, request, pk):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+
+        # Default file name = bill number
+        from .selectors import get_invoice_by_id as _get
+        invoice   = _get(pk)
+        file_name = d.get("file_name") or invoice.bill_number
+
+        saved = save_invoice_pdf(
+            invoice_id=pk,
+            file_name=file_name,
+            is_draft=d.get("is_draft", False),
+            user=request.user,
+        )
+        return Response(
+            SavedInvoicePDFSerializer(saved, context={"request": request}).data,
+            status=status.HTTP_201_CREATED,
+        )
+
+
+class InvoiceSavedPDFListView(generics.ListAPIView):
+    """
+    GET /billing/invoices/<pk>/pdf/
+    Lists all saved PDFs for an invoice. Admin + superuser only.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = SavedInvoicePDFSerializer
+
+    def get_queryset(self):
+        return get_saved_pdfs_for_invoice(self.kwargs["pk"])
+
+    def get_serializer_context(self):
+        ctx = super().get_serializer_context()
+        ctx["request"] = self.request
+        return ctx
+
+
+class SavedPDFDeleteView(generics.DestroyAPIView):
+    """
+    DELETE /billing/pdf/<saved_pdf_id>/
+    Soft-deletes the record and removes the file from disk.
+    Admin + superuser only.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def destroy(self, request, saved_pdf_id):
+        delete_saved_pdf(saved_pdf_id=saved_pdf_id, user=request.user)
+        return Response({"detail": "PDF deleted."}, status=status.HTTP_200_OK)
