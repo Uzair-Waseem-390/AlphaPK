@@ -305,7 +305,7 @@ class InvoicePaymentSummaryView(generics.RetrieveAPIView):
     """
     GET /billing/invoices/<pk>/payment-summary/
     Returns full payment breakdown for a single invoice:
-      - subtotal, cash_received, credit_received, total_paid,
+      - subtotal, cash_received, credit_outstanding, total_paid,
         remaining_amount, payment_status, all payment records.
     Accessible to all authenticated users.
     """
@@ -492,7 +492,7 @@ class InvoiceSavePDFView(generics.CreateAPIView):
         saved = save_invoice_pdf(
             invoice_id=pk,
             file_name=file_name,
-            is_draft=d.get("is_draft", False),
+            is_draft=False,   # save always produces clean confirmed PDF
             user=request.user,
         )
         return Response(

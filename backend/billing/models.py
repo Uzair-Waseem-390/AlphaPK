@@ -102,7 +102,7 @@ class Invoice(AuditMixin):
 
     # Payment tracking - updated automatically on every Payment create/delete
     cash_received    = models.DecimalField(max_digits=18, decimal_places=4, default=0)
-    credit_received  = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+    credit_outstanding  = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     total_paid       = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     remaining_amount = models.DecimalField(max_digits=18, decimal_places=4, default=0)
     payment_status   = models.CharField(
@@ -217,12 +217,14 @@ class FIFOLedger(models.Model):
 class Payment(AuditMixin):
 
     class Method(models.TextChoices):
-        CASH   = "cash",   "Cash"
-        CREDIT = "credit", "Credit"
+        CASH      = "cash",      "Cash"
+        JAZZCASH  = "jazzcash",  "JazzCash"
+        EASYPAISA = "easypaisa", "Easypaisa"
+        BANK      = "bank",      "Bank Transfer"
 
     invoice      = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="payments")
     amount       = models.DecimalField(max_digits=18, decimal_places=4)
-    method       = models.CharField(max_length=10, choices=Method.choices)
+    method       = models.CharField(max_length=12, choices=Method.choices)
     payment_date = models.DateField()
     note         = models.CharField(max_length=255, blank=True, default="")
 

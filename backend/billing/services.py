@@ -34,57 +34,65 @@ def _soft_delete(instance, user) -> None:
 def _sync_invoice_payment_summary(invoice) -> None:
     """
     Recomputes and saves all payment tracking fields on an Invoice.
-    Called after every Payment create/delete and after return acceptance.
-    Single source of truth for payment status logic.
+    Called after every Payment create/delete, confirmation, and return acceptance.
 
-    cash_received   = sum of cash payments (positive only)
-    credit_received = sum of credit payments (positive only)
-    total_paid      = cash + credit (excludes negative credit notes from returns)
-    remaining       = subtotal - total_paid (floored at 0)
-    payment_status  = unpaid / partial / paid
+    Business logic:
+        - On confirmation: full grand_total is credited to customer
+          (credit_outstanding = grand_total, meaning customer owes this on credit)
+        - Each payment (cash/jazzcash/easypaisa/bank) reduces credit_outstanding
+          and increases cash_received by the payment amount
+        - Return credit notes (negative payments) reduce credit_outstanding further
+          (customer owes less because stock came back)
+        - remaining_amount = credit_outstanding (they are always equal)
+        - payment_status:
+            paid    -> credit_outstanding <= 0
+            partial -> 0 < credit_outstanding < grand_total
+            unpaid  -> credit_outstanding == grand_total (no payments at all)
     """
     from decimal import Decimal
     from .models import Payment
 
     payments = Payment.objects.filter(invoice=invoice, is_deleted=False)
 
-    cash_received   = Decimal("0")
-    credit_received = Decimal("0")
-
+    # Sum all actual cash/digital payments received (positive amounts)
+    cash_received = Decimal("0")
     for p in payments:
-        if p.amount <= 0:
-            # Negative entries are credit notes from returns - reduce remaining
-            # They are NOT added to received totals
-            continue
-        if p.method == Payment.Method.CASH:
+        if p.amount > 0:
             cash_received += p.amount
-        else:
-            credit_received += p.amount
 
-    # Credit note adjustments (negative payments from returns)
-    credit_notes = sum(
-        abs(p.amount) for p in payments if p.amount < 0
+    # Sum return credit notes (negative amounts) — reduce what customer owes
+    return_credits = Decimal("0")
+    for p in payments:
+        if p.amount < 0:
+            return_credits += abs(p.amount)
+
+    # credit_outstanding = how much customer still owes on credit
+    # Starts at grand_total, reduced by payments received and return credits
+    credit_outstanding = max(
+        Decimal("0"),
+        invoice.grand_total - cash_received - return_credits,
     )
 
-    total_paid       = cash_received + credit_received
-    # remaining = what customer still owes after payments and any credit notes
-    raw_remaining    = invoice.grand_total - total_paid - Decimal(str(credit_notes))
-    remaining_amount = max(Decimal("0"), raw_remaining)
+    # remaining_amount always mirrors credit_outstanding
+    remaining_amount = credit_outstanding
+
+    # total_paid = actual money received (excludes credit_outstanding)
+    total_paid = cash_received
 
     if remaining_amount <= 0:
         payment_status = invoice.PaymentStatus.PAID
-    elif total_paid > 0:
+    elif cash_received > 0 or return_credits > 0:
         payment_status = invoice.PaymentStatus.PARTIAL
     else:
         payment_status = invoice.PaymentStatus.UNPAID
 
-    invoice.cash_received    = cash_received
-    invoice.credit_received  = credit_received
-    invoice.total_paid       = total_paid
-    invoice.remaining_amount = remaining_amount
-    invoice.payment_status   = payment_status
+    invoice.cash_received      = cash_received
+    invoice.credit_outstanding = credit_outstanding
+    invoice.total_paid         = total_paid
+    invoice.remaining_amount   = remaining_amount
+    invoice.payment_status     = payment_status
     invoice.save(update_fields=[
-        "cash_received", "credit_received", "total_paid",
+        "cash_received", "credit_outstanding", "total_paid",
         "remaining_amount", "payment_status",
     ])
 
@@ -514,6 +522,15 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     invoice.updated_by   = user
     invoice.save(update_fields=["status", "confirmed_by", "confirmed_at", "updated_by", "updated_at"])
 
+    # Auto-credit the full grand_total to the customer on confirmation.
+    # credit_outstanding starts equal to grand_total (customer owes the full amount).
+    # Every payment received reduces this. remaining_amount always mirrors it.
+    invoice.refresh_from_db(fields=["grand_total"])
+    invoice.credit_outstanding = invoice.grand_total
+    invoice.remaining_amount   = invoice.grand_total
+    invoice.payment_status     = Invoice.PaymentStatus.UNPAID
+    invoice.save(update_fields=["credit_outstanding", "remaining_amount", "payment_status"])
+
     return invoice
 
 
@@ -531,15 +548,13 @@ def create_payment(
     if invoice.status == Invoice.Status.DRAFT:
         raise ValidationError({"invoice": "Cannot record payment on a draft invoice."})
 
-    # Prevent overpayment
-    total_paid = sum(
-        p.amount for p in invoice.payments.filter(is_deleted=False)
-    )
-    if total_paid + amount > invoice.grand_total:
+    # Prevent overpayment — compare against current credit_outstanding
+    invoice.refresh_from_db(fields=["credit_outstanding"])
+    if amount > invoice.credit_outstanding:
         raise ValidationError({
             "amount": (
-                f"Payment of {amount} exceeds outstanding balance. "
-                f"Invoice total: {invoice.grand_total}, Already paid: {total_paid}."
+                f"Payment of {amount} exceeds outstanding credit balance. "
+                f"Credit outstanding: {invoice.credit_outstanding}."
             )
         })
 

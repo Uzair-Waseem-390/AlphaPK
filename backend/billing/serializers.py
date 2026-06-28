@@ -185,7 +185,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
             "subtotal", "gst_total", "wht_total", "grand_total",
             "total_cogs", "gross_profit",
             # payment summary inline on every invoice response
-            "cash_received", "credit_received", "total_paid",
+            "cash_received", "credit_outstanding", "total_paid",
             "remaining_amount", "payment_status", "payment_status_display",
             "draft_preview",
             "items",
@@ -244,6 +244,14 @@ class PaymentWriteSerializer(serializers.ModelSerializer):
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Payment amount must be greater than zero.")
+        return value
+
+    def validate_method(self, value):
+        valid = ["cash", "jazzcash", "easypaisa", "bank"]
+        if value not in valid:
+            raise serializers.ValidationError(
+                f"Invalid method. Choose from: {', '.join(valid)}."
+            )
         return value
 
 
@@ -318,7 +326,7 @@ class InvoicePaymentSummarySerializer(serializers.ModelSerializer):
         fields = [
             "id", "bill_number", "customer_name", "customer_code",
             "status", "subtotal",
-            "cash_received", "credit_received", "total_paid", "remaining_amount",
+            "cash_received", "credit_outstanding", "total_paid", "remaining_amount",
             "payment_status", "payment_status_display",
             "payments",
             "confirmed_at", "created_at",
@@ -328,12 +336,12 @@ class InvoicePaymentSummarySerializer(serializers.ModelSerializer):
 
 class CustomerOutstandingSerializer(serializers.Serializer):
     """Summary of what a customer owes across all their invoices."""
-    customer_id     = serializers.IntegerField()
-    total_billed    = serializers.DecimalField(max_digits=18, decimal_places=4)
-    total_cash      = serializers.DecimalField(max_digits=18, decimal_places=4)
-    total_credit    = serializers.DecimalField(max_digits=18, decimal_places=4)
-    total_paid      = serializers.DecimalField(max_digits=18, decimal_places=4)
-    total_remaining = serializers.DecimalField(max_digits=18, decimal_places=4)
+    customer_id          = serializers.IntegerField()
+    total_billed         = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_cash_received  = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_credit_outstanding = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_paid           = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_remaining      = serializers.DecimalField(max_digits=18, decimal_places=4)
 
 
 class CustomerWithOutstandingSerializer(serializers.ModelSerializer):
@@ -374,11 +382,14 @@ class SavedInvoicePDFSerializer(serializers.ModelSerializer):
 
 
 class SavePDFRequestSerializer(serializers.Serializer):
+    """
+    Only confirmed invoices can be saved.
+    Draft invoices can only be printed (use /print/?is_draft=true).
+    """
     file_name = serializers.CharField(
         max_length=255, required=False,
         help_text="Custom file name. Defaults to bill number if not provided.",
     )
-    is_draft  = serializers.BooleanField(default=False)
 
     def validate_file_name(self, value):
         return value.strip() if value else value

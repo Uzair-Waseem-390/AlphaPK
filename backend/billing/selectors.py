@@ -137,7 +137,7 @@ def get_available_purchase_batches(product_id: int) -> QuerySet:
 def get_invoice_payment_summary(invoice_id: int) -> Invoice:
     """
     Returns a single invoice with full payment breakdown.
-    cash_received, credit_received, total_paid, remaining_amount
+    cash_received, credit_outstanding, total_paid, remaining_amount
     are stored fields updated on every payment event.
     """
     return get_object_or_404(
@@ -164,20 +164,20 @@ def get_customer_outstanding(customer_id: int) -> dict:
     )
 
     agg = invoices.aggregate(
-        total_billed=Sum("subtotal"),
-        total_cash=Sum("cash_received"),
-        total_credit=Sum("credit_received"),
+        total_billed=Sum("grand_total"),
+        total_cash_received=Sum("cash_received"),
+        total_credit_outstanding=Sum("credit_outstanding"),
         total_paid=Sum("total_paid"),
         total_remaining=Sum("remaining_amount"),
     )
 
     return {
-        "customer_id"    : customer_id,
-        "total_billed"   : agg["total_billed"]   or Decimal("0"),
-        "total_cash"     : agg["total_cash"]      or Decimal("0"),
-        "total_credit"   : agg["total_credit"]    or Decimal("0"),
-        "total_paid"     : agg["total_paid"]      or Decimal("0"),
-        "total_remaining": agg["total_remaining"] or Decimal("0"),
+        "customer_id"              : customer_id,
+        "total_billed"             : agg["total_billed"]             or Decimal("0"),
+        "total_cash_received"      : agg["total_cash_received"]      or Decimal("0"),
+        "total_credit_outstanding" : agg["total_credit_outstanding"] or Decimal("0"),
+        "total_paid"               : agg["total_paid"]               or Decimal("0"),
+        "total_remaining"          : agg["total_remaining"]          or Decimal("0"),
     }
 
 
@@ -194,7 +194,7 @@ def get_customers_with_outstanding(*, min_remaining: float = None) -> "QuerySet"
     qs = Customer.objects.filter(is_deleted=False).annotate(
         outstanding=Coalesce(
             Sum(
-                "invoices__remaining_amount",
+                "invoices__credit_outstanding",
                 filter=Q(
                     invoices__is_deleted=False,
                     invoices__status__in=[Invoice.Status.CONFIRMED, Invoice.Status.PARTIAL],

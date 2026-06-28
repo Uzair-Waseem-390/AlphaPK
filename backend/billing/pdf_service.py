@@ -98,12 +98,19 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
             subtotal_display    = "N/A"
             grand_total_display = "N/A"
 
+    # Resolve invoice date: confirmed_at for confirmed bills, created_at for drafts
+    if invoice.confirmed_at:
+        invoice_date = invoice.confirmed_at.strftime("%d %b %Y")
+    else:
+        invoice_date = invoice.created_at.strftime("%d %b %Y")
+
     context = {
         "invoice"            : invoice,
         "items"              : items,
         "is_draft"           : is_draft,
         "subtotal_display"   : subtotal_display,
         "grand_total_display": grand_total_display,
+        "invoice_date"       : invoice_date,
         "generated_at"       : timezone.now().strftime("%d %b %Y %H:%M"),
     }
     return render_to_string("billing/invoice_pdf.html", context)
@@ -142,9 +149,22 @@ def save_invoice_pdf(
     Generates and saves a PDF to disk under media/invoices/<year>/.
     File name format: <user_supplied_name>_<timestamp>.pdf
     Tracks the saved file in SavedInvoicePDF.
+    Only confirmed invoices can be saved. Draft invoices can only be printed.
     """
+    from rest_framework.exceptions import ValidationError
+    from .models import Invoice
+
     invoice  = get_invoice_by_id(invoice_id)
-    html     = _render_invoice_html(invoice, is_draft=is_draft)
+
+    if invoice.status == Invoice.Status.DRAFT:
+        raise ValidationError({
+            "invoice": (
+                "Draft invoices cannot be saved as PDF. "
+                "Please confirm the invoice first, or use the print API to print with a DRAFT watermark."
+            )
+        })
+
+    html     = _render_invoice_html(invoice, is_draft=False)
     pdf      = _html_to_pdf_bytes(html)
 
     year      = timezone.now().year
