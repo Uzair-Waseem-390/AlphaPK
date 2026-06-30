@@ -77,6 +77,14 @@ def _order_qs():
     )
 
 
+def _clean(value):
+    """Returns None if value is None or empty/whitespace string, else stripped value."""
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped if stripped else None
+
+
 def get_all_purchase_orders(
     *,
     status         : str = None,
@@ -87,32 +95,39 @@ def get_all_purchase_orders(
     date_from      : str = None,
     date_to        : str = None,
     payment_status : str = None,
+    payment_type   : str = None,
     min_amount     : str = None,
     max_amount     : str = None,
 ) -> QuerySet:
-    """Master filter selector — every list view uses this."""
+    """
+    Master filter selector — every list view uses this.
+    All params are optional. Only non-empty values are applied.
+    _clean() ensures empty strings from query params don't slip through.
+    """
     qs = _order_qs().filter(is_deleted=False)
 
-    if status:
-        qs = qs.filter(status=status)
-    if supplier_name:
-        qs = qs.filter(supplier__name__icontains=supplier_name)
-    if supplier_code:
-        qs = qs.filter(supplier__code__icontains=supplier_code)
-    if order_number:
-        qs = qs.filter(order_number__icontains=order_number)
-    if date:
-        qs = qs.filter(created_at__date=date)
-    if date_from:
-        qs = qs.filter(created_at__date__gte=date_from)
-    if date_to:
-        qs = qs.filter(created_at__date__lte=date_to)
-    if payment_status:
-        qs = qs.filter(payment_status=payment_status)
-    if min_amount:
-        qs = qs.filter(net_payable__gte=min_amount)
-    if max_amount:
-        qs = qs.filter(net_payable__lte=max_amount)
+    if _clean(status):
+        qs = qs.filter(status=_clean(status))
+    if _clean(supplier_name):
+        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+    if _clean(supplier_code):
+        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+    if _clean(order_number):
+        qs = qs.filter(order_number__icontains=_clean(order_number))
+    if _clean(date):
+        qs = qs.filter(created_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(payment_status):
+        qs = qs.filter(payment_status=_clean(payment_status))
+    if _clean(payment_type):
+        qs = qs.filter(payment_type=_clean(payment_type))
+    if _clean(min_amount):
+        qs = qs.filter(net_payable__gte=_clean(min_amount))
+    if _clean(max_amount):
+        qs = qs.filter(net_payable__lte=_clean(max_amount))
 
     return qs
 
@@ -209,18 +224,18 @@ def get_all_returns(
         "order__supplier", "created_by", "accepted_by",
     ).prefetch_related("items__purchase_item__product").filter(is_deleted=False)
 
-    if status:
-        qs = qs.filter(status=status)
-    if supplier_name:
-        qs = qs.filter(order__supplier__name__icontains=supplier_name)
-    if supplier_code:
-        qs = qs.filter(order__supplier__code__icontains=supplier_code)
-    if order_number:
-        qs = qs.filter(order__order_number__icontains=order_number)
-    if date_from:
-        qs = qs.filter(created_at__date__gte=date_from)
-    if date_to:
-        qs = qs.filter(created_at__date__lte=date_to)
+    if _clean(status):
+        qs = qs.filter(status=_clean(status))
+    if _clean(supplier_name):
+        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+    if _clean(supplier_code):
+        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
+    if _clean(order_number):
+        qs = qs.filter(order__order_number__icontains=_clean(order_number))
+    if _clean(date_from):
+        qs = qs.filter(created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(created_at__date__lte=_clean(date_to))
 
     return qs.order_by("-created_at")
 
@@ -268,23 +283,53 @@ def get_supplier_payable_summary(supplier_id: int) -> dict:
     }
 
 
-def get_suppliers_with_outstanding(*, min_outstanding: float = None) -> QuerySet:
-    """Lists suppliers who have outstanding payables. Sorted highest first."""
+def get_suppliers_with_outstanding(
+    *,
+    search          : str = None,
+    payment_status  : str = None,
+    min_outstanding : str = None,
+    max_outstanding : str = None,
+) -> QuerySet:
+    """
+    Lists suppliers with their total payable_outstanding annotated.
+    Supports full filtering:
+        search         : supplier name or code (partial match)
+        payment_status : filter by order-level payment_status
+                         (partial = at least one partial order,
+                          unpaid  = at least one fully unpaid order)
+        min_outstanding: minimum total outstanding amount
+        max_outstanding: maximum total outstanding amount
+
+    NOTE: payment_status here filters the ORDERS being summed, not the supplier.
+    e.g. ?payment_status=partial shows suppliers who have at least one partial order.
+    """
+    # Build the order filter for annotation
+    order_filter = Q(
+        purchase_orders__is_deleted=False,
+        purchase_orders__status=PurchaseOrder.Status.CONFIRMED,
+    )
+    if _clean(payment_status):
+        order_filter &= Q(purchase_orders__payment_status=_clean(payment_status))
+
     qs = Supplier.objects.filter(is_deleted=False).annotate(
         outstanding=Coalesce(
             Sum(
                 "purchase_orders__payable_outstanding",
-                filter=Q(
-                    purchase_orders__is_deleted=False,
-                    purchase_orders__status=PurchaseOrder.Status.CONFIRMED,
-                ),
+                filter=order_filter,
             ),
             Value(0, output_field=DecimalField()),
         )
     ).filter(outstanding__gt=0)
 
-    if min_outstanding is not None:
-        qs = qs.filter(outstanding__gte=min_outstanding)
+    if _clean(search):
+        qs = qs.filter(
+            Q(name__icontains=_clean(search)) |
+            Q(code__icontains=_clean(search))
+        )
+    if _clean(min_outstanding):
+        qs = qs.filter(outstanding__gte=_clean(min_outstanding))
+    if _clean(max_outstanding):
+        qs = qs.filter(outstanding__lte=_clean(max_outstanding))
 
     return qs.order_by("-outstanding")
 
@@ -312,3 +357,64 @@ def get_inventory_by_product_id(product_id: int) -> Inventory:
         Inventory.objects.select_related("product"),
         product_id=product_id,
     )
+
+
+def get_outstanding_orders_for_supplier(supplier_id: int) -> QuerySet:
+    """
+    Returns all confirmed PurchaseOrders for a supplier that still have
+    payable_outstanding > 0. Order-level breakdown of what we owe.
+    Supports the "supplier bill-wise outstanding" view.
+    """
+    return (
+        _order_qs()
+        .filter(
+            supplier_id=supplier_id,
+            is_deleted=False,
+            status=PurchaseOrder.Status.CONFIRMED,
+            payable_outstanding__gt=0,
+        )
+        .order_by("created_at")
+    )
+
+
+def get_all_outstanding_orders(
+    *,
+    supplier_name  : str = None,
+    supplier_code  : str = None,
+    payment_status : str = None,
+    date_from      : str = None,
+    date_to        : str = None,
+    min_outstanding: str = None,
+    max_outstanding: str = None,
+) -> QuerySet:
+    """
+    Returns ALL confirmed orders with payable_outstanding > 0,
+    across all suppliers. Full filter support.
+    Supports the "all outstanding bills" view.
+    """
+    from django.db.models import Q
+    qs = (
+        _order_qs()
+        .filter(
+            is_deleted=False,
+            status=PurchaseOrder.Status.CONFIRMED,
+            payable_outstanding__gt=0,
+        )
+    )
+
+    if _clean(supplier_name):
+        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+    if _clean(supplier_code):
+        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+    if _clean(payment_status):
+        qs = qs.filter(payment_status=_clean(payment_status))
+    if _clean(date_from):
+        qs = qs.filter(created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(min_outstanding):
+        qs = qs.filter(payable_outstanding__gte=_clean(min_outstanding))
+    if _clean(max_outstanding):
+        qs = qs.filter(payable_outstanding__lte=_clean(max_outstanding))
+
+    return qs.order_by("-payable_outstanding")

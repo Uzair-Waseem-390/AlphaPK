@@ -174,31 +174,48 @@ def get_customer_outstanding(customer_id: int) -> dict:
     }
 
 
-def get_customers_with_outstanding(*, min_remaining: float = None) -> "QuerySet":
+def get_customers_with_outstanding(
+    *,
+    search          : str = None,
+    payment_status  : str = None,
+    min_outstanding : str = None,
+    max_outstanding : str = None,
+) -> "QuerySet":
     """
-    Lists customers who have outstanding balances.
-    Optionally filter by minimum remaining amount.
-    Uses DB-level aggregation for efficiency.
+    Lists customers with credit_outstanding > 0, with full filter support.
+        search         : customer name or code (partial match)
+        payment_status : unpaid | partial
+        min_outstanding: minimum total outstanding
+        max_outstanding: maximum total outstanding
     """
     from django.db.models import Sum, Q
     from django.db.models.functions import Coalesce
     from django.db.models import DecimalField, Value
 
+    invoice_filter = Q(
+        invoices__is_deleted=False,
+        invoices__status__in=[Invoice.Status.CONFIRMED, Invoice.Status.PARTIAL],
+    )
+    if _clean(payment_status):
+        invoice_filter &= Q(invoices__payment_status=_clean(payment_status))
+
     qs = Customer.objects.filter(is_deleted=False).annotate(
         outstanding=Coalesce(
-            Sum(
-                "invoices__credit_outstanding",
-                filter=Q(
-                    invoices__is_deleted=False,
-                    invoices__status__in=[Invoice.Status.CONFIRMED, Invoice.Status.PARTIAL],
-                ),
-            ),
+            Sum("invoices__credit_outstanding", filter=invoice_filter),
             Value(0, output_field=DecimalField()),
         )
     ).filter(outstanding__gt=0)
 
-    if min_remaining is not None:
-        qs = qs.filter(outstanding__gte=min_remaining)
+    if _clean(search):
+        from django.db.models import Q as Q2
+        qs = qs.filter(
+            Q2(name__icontains=_clean(search)) |
+            Q2(code__icontains=_clean(search))
+        )
+    if _clean(min_outstanding):
+        qs = qs.filter(outstanding__gte=_clean(min_outstanding))
+    if _clean(max_outstanding):
+        qs = qs.filter(outstanding__lte=_clean(max_outstanding))
 
     return qs.order_by("-outstanding")
 
@@ -206,6 +223,14 @@ def get_customers_with_outstanding(*, min_remaining: float = None) -> "QuerySet"
 # ---------------------------------------------------------------------------
 # Invoice filtering selectors
 # ---------------------------------------------------------------------------
+
+def _clean(value):
+    """Returns None if value is None or empty/whitespace string, else stripped value."""
+    if value is None:
+        return None
+    stripped = str(value).strip()
+    return stripped if stripped else None
+
 
 def get_filtered_invoices(
     *,
@@ -223,29 +248,29 @@ def get_filtered_invoices(
     """
     Master invoice filter selector — all list views use this.
     Every parameter is optional; combining them narrows results.
+    _clean() ensures empty strings from query params don't slip through.
     """
     qs = _invoice_qs().filter(is_deleted=False)
 
-    if status:
-        qs = qs.filter(status=status)
-    if customer_name:
-        qs = qs.filter(customer__name__icontains=customer_name)
-    if customer_code:
-        qs = qs.filter(customer__code__icontains=customer_code)
-    if bill_number:
-        qs = qs.filter(bill_number__icontains=bill_number)
-    if date:
-        # Filter by exact confirmed_at date (or created_at for drafts)
-        qs = qs.filter(created_at__date=date)
-    if date_from:
-        qs = qs.filter(created_at__date__gte=date_from)
-    if date_to:
-        qs = qs.filter(created_at__date__lte=date_to)
-    if payment_status:
-        qs = qs.filter(payment_status=payment_status)
-    if min_amount:
-        qs = qs.filter(grand_total__gte=min_amount)
-    if max_amount:
-        qs = qs.filter(grand_total__lte=max_amount)
+    if _clean(status):
+        qs = qs.filter(status=_clean(status))
+    if _clean(customer_name):
+        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+    if _clean(customer_code):
+        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+    if _clean(bill_number):
+        qs = qs.filter(bill_number__icontains=_clean(bill_number))
+    if _clean(date):
+        qs = qs.filter(created_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(payment_status):
+        qs = qs.filter(payment_status=_clean(payment_status))
+    if _clean(min_amount):
+        qs = qs.filter(grand_total__gte=_clean(min_amount))
+    if _clean(max_amount):
+        qs = qs.filter(grand_total__lte=_clean(max_amount))
 
     return qs

@@ -236,11 +236,13 @@ def delete_product(*, pk: int, user) -> None:
 
 @transaction.atomic
 def create_purchase_order(
-    *, supplier_id: int, items: list[dict], description: str = "", user,
+    *, supplier_id: int, items: list[dict], description: str = "",
+    payment_type: str = "after_delivery", user,
 ) -> PurchaseOrder:
     """
     Creates a DRAFT PurchaseOrder with line items.
     No inventory or debt effect at this stage.
+    payment_type: "advance" or "after_delivery" — stored for future automation.
     items = [{"product_id": 1, "quantity": 10, "unit_price": 80, "gst": 18, "wht": 1, "description": ""}, ...]
     """
     from rest_framework.exceptions import ValidationError
@@ -262,6 +264,7 @@ def create_purchase_order(
         supplier_id=supplier_id,
         status=PurchaseOrder.Status.DRAFT,
         description=description,
+        payment_type=payment_type,
         created_by=user,
         updated_by=user,
     )
@@ -284,11 +287,13 @@ def create_purchase_order(
 
 @transaction.atomic
 def update_purchase_order_items(
-    *, order_id: int, items: list[dict], description: str = None, user,
+    *, order_id: int, items: list[dict], description: str = None,
+    payment_type: str = None, user,
 ) -> PurchaseOrder:
     """
     Replaces all line items on a DRAFT order.
     Confirmed orders cannot be edited.
+    payment_type can also be updated while in draft.
     """
     from rest_framework.exceptions import ValidationError
 
@@ -324,8 +329,10 @@ def update_purchase_order_items(
 
     if description is not None:
         order.description = description
+    if payment_type is not None:
+        order.payment_type = payment_type
     order.updated_by = user
-    order.save(update_fields=["description", "updated_by", "updated_at"])
+    order.save(update_fields=["description", "payment_type", "updated_by", "updated_at"])
     return order
 
 
@@ -391,7 +398,7 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
 
 def create_supplier_payment(
     *, order_id: int, amount: Decimal, method: str,
-    payment_type: str, payment_date, note: str = "", user,
+    payment_date, note: str = "", user,
 ) -> SupplierPayment:
     from rest_framework.exceptions import ValidationError
 
@@ -412,7 +419,6 @@ def create_supplier_payment(
         order=order,
         amount=amount,
         method=method,
-        payment_type=payment_type,
         payment_date=payment_date,
         note=note,
         created_by=user,
@@ -585,7 +591,6 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         order=order,
         amount=-total_amount,
         method=SupplierPayment.Method.CASH,
-        payment_type=SupplierPayment.PaymentType.AFTER_DELIVERY,
         payment_date=timezone.now().date(),
         note=f"Auto credit note for Return #{return_record.id}",
         created_by=user,

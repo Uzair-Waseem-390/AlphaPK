@@ -215,7 +215,7 @@ class PurchaseOrderReadSerializer(serializers.ModelSerializer):
     class Meta:
         model  = PurchaseOrder
         fields = [
-            "id", "order_number", "supplier", "status", "description",
+            "id", "order_number", "supplier", "status", "description", "payment_type",
             "gross_amount", "gst_total", "wht_total", "net_payable",
             "payable_outstanding", "total_paid", "payment_status", "payment_status_display",
             "draft_preview",
@@ -277,9 +277,15 @@ class PurchaseOrderReadSerializer(serializers.ModelSerializer):
 
 
 class PurchaseOrderCreateSerializer(serializers.Serializer):
-    supplier_id = serializers.IntegerField()
-    description = serializers.CharField(required=False, allow_blank=True, default="")
-    items       = PurchaseItemWriteSerializer(many=True)
+    supplier_id  = serializers.IntegerField()
+    description  = serializers.CharField(required=False, allow_blank=True, default="")
+    payment_type = serializers.ChoiceField(
+        choices=["advance", "after_delivery"],
+        default="after_delivery",
+        required=False,
+        help_text="advance: paid before delivery. after_delivery: paid after. Stored for future use.",
+    )
+    items = PurchaseItemWriteSerializer(many=True)
 
     def validate_items(self, value):
         if not value:
@@ -288,8 +294,13 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
 
 
 class PurchaseOrderUpdateSerializer(serializers.Serializer):
-    description = serializers.CharField(required=False, allow_blank=True)
-    items       = PurchaseItemWriteSerializer(many=True)
+    description  = serializers.CharField(required=False, allow_blank=True)
+    payment_type = serializers.ChoiceField(
+        choices=["advance", "after_delivery"],
+        required=False,
+        help_text="advance or after_delivery.",
+    )
+    items = PurchaseItemWriteSerializer(many=True)
 
     def validate_items(self, value):
         if not value:
@@ -302,15 +313,13 @@ class PurchaseOrderUpdateSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class SupplierPaymentReadSerializer(serializers.ModelSerializer):
-    created_by           = serializers.StringRelatedField(read_only=True)
-    method_display       = serializers.CharField(source="get_method_display", read_only=True)
-    payment_type_display = serializers.CharField(source="get_payment_type_display", read_only=True)
+    created_by     = serializers.StringRelatedField(read_only=True)
+    method_display = serializers.CharField(source="get_method_display", read_only=True)
 
     class Meta:
         model  = SupplierPayment
         fields = [
             "id", "order", "amount", "method", "method_display",
-            "payment_type", "payment_type_display",
             "payment_date", "note", "created_by", "created_at",
         ]
         read_only_fields = fields
@@ -319,7 +328,7 @@ class SupplierPaymentReadSerializer(serializers.ModelSerializer):
 class SupplierPaymentWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model  = SupplierPayment
-        fields = ["order", "amount", "method", "payment_type", "payment_date", "note"]
+        fields = ["order", "amount", "method", "payment_date", "note"]
 
     def validate_amount(self, value):
         if value <= 0:
@@ -330,12 +339,6 @@ class SupplierPaymentWriteSerializer(serializers.ModelSerializer):
         valid = ["cash", "jazzcash", "easypaisa", "bank"]
         if value not in valid:
             raise serializers.ValidationError(f"Invalid method. Choose from: {', '.join(valid)}.")
-        return value
-
-    def validate_payment_type(self, value):
-        valid = ["advance", "after_delivery"]
-        if value not in valid:
-            raise serializers.ValidationError(f"Invalid payment type. Choose from: {', '.join(valid)}.")
         return value
 
 
@@ -353,7 +356,7 @@ class PurchaseOrderPaymentSummarySerializer(serializers.ModelSerializer):
         model  = PurchaseOrder
         fields = [
             "id", "order_number", "supplier_name", "supplier_code",
-            "status", "net_payable",
+            "status", "payment_type", "net_payable",
             "payable_outstanding", "total_paid",
             "payment_status", "payment_status_display",
             "payments",

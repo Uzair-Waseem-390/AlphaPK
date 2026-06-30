@@ -269,6 +269,7 @@ class PurchaseOrderListCreateView(generics.ListCreateAPIView):
             supplier_id=d["supplier_id"],
             items=d["items"],
             description=d.get("description", ""),
+            payment_type=d.get("payment_type", "after_delivery"),
             user=request.user,
         )
         return Response(PurchaseOrderReadSerializer(obj).data, status=status.HTTP_201_CREATED)
@@ -327,6 +328,7 @@ class PurchaseOrderRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIVi
             order_id=self.kwargs["pk"],
             items=d["items"],
             description=d.get("description"),
+            payment_type=d.get("payment_type"),
             user=request.user,
         )
         return Response(PurchaseOrderReadSerializer(obj).data)
@@ -370,7 +372,6 @@ class SupplierPaymentListCreateView(generics.ListCreateAPIView):
             order_id     = self.kwargs["order_id"],
             amount       = d["amount"],
             method       = d["method"],
-            payment_type = d["payment_type"],
             payment_date = d["payment_date"],
             note         = d.get("note", ""),
             user         = request.user,
@@ -415,15 +416,33 @@ class SupplierPayableSummaryView(generics.RetrieveAPIView):
 class SupplierOutstandingListView(generics.ListAPIView):
     """
     GET /purchases/suppliers/outstanding/
-    Lists suppliers with remaining payables. Filter: ?min_outstanding=
+    Lists all suppliers who have outstanding payable > 0, with their total outstanding annotated.
+
+    Query params:
+        search          : supplier name or code (partial, case-insensitive)
+        payment_status  : unpaid | partial  (filters which orders are counted)
+        min_outstanding : minimum total outstanding amount
+        max_outstanding : maximum total outstanding amount
+
+    Results sorted by outstanding descending (highest debt first).
+
+    Examples:
+        /api/suppliers/outstanding/                         -> all suppliers with any debt
+        /api/suppliers/outstanding/?payment_status=unpaid   -> suppliers with fully unpaid orders
+        /api/suppliers/outstanding/?payment_status=partial  -> suppliers with partial payments
+        /api/suppliers/outstanding/?search=ali              -> search by name/code
+        /api/suppliers/outstanding/?min_outstanding=10000   -> owing more than 10,000
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = SupplierWithOutstandingSerializer
 
     def get_queryset(self):
-        min_val = self.request.query_params.get("min_outstanding")
+        p = self.request.query_params
         return get_suppliers_with_outstanding(
-            min_outstanding=float(min_val) if min_val else None
+            search          = p.get("search"),
+            payment_status  = p.get("payment_status"),
+            min_outstanding = p.get("min_outstanding"),
+            max_outstanding = p.get("max_outstanding"),
         )
 
 
@@ -566,3 +585,59 @@ class InventoryRetrieveView(generics.RetrieveAPIView):
 
     def get_object(self):
         return get_inventory_by_product_id(self.kwargs["product_id"])
+
+
+# ---------------------------------------------------------------------------
+# Outstanding payable views
+# ---------------------------------------------------------------------------
+
+from .selectors import get_all_outstanding_orders, get_outstanding_orders_for_supplier
+
+
+class SupplierOutstandingOrdersView(generics.ListAPIView):
+    """
+    GET /purchases/suppliers/<pk>/outstanding-orders/
+    Bill-wise breakdown of outstanding payable for ONE supplier.
+    Shows every confirmed order that still has payable_outstanding > 0.
+
+    Example: Supplier "Ali Traders" has 3 orders with remaining debt:
+      PO-2026-0001: 15,000 remaining
+      PO-2026-0003: 8,500 remaining
+      PO-2026-0007: 32,000 remaining
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = PurchaseOrderReadSerializer
+
+    def get_queryset(self):
+        return get_outstanding_orders_for_supplier(supplier_id=self.kwargs["pk"])
+
+
+class AllOutstandingOrdersView(generics.ListAPIView):
+    """
+    GET /purchases/orders/outstanding/
+    All confirmed orders with payable_outstanding > 0, across ALL suppliers.
+    Full filter support.
+
+    Query params:
+        supplier_name   : partial match on supplier name
+        supplier_code   : partial match on supplier code
+        payment_status  : partial | unpaid  (paid orders won't appear since outstanding > 0)
+        date_from       : YYYY-MM-DD
+        date_to         : YYYY-MM-DD
+        min_outstanding : minimum payable_outstanding amount
+        max_outstanding : maximum payable_outstanding amount
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = PurchaseOrderReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_outstanding_orders(
+            supplier_name   = p.get("supplier_name"),
+            supplier_code   = p.get("supplier_code"),
+            payment_status  = p.get("payment_status"),
+            date_from       = p.get("date_from"),
+            date_to         = p.get("date_to"),
+            min_outstanding = p.get("min_outstanding"),
+            max_outstanding = p.get("max_outstanding"),
+        )

@@ -333,18 +333,24 @@ class CustomerOutstandingView(generics.RetrieveAPIView):
 class CustomerOutstandingListView(generics.ListAPIView):
     """
     GET /billing/customers/outstanding/
-    Lists all customers who have a remaining balance > 0.
+    Lists all customers who have credit_outstanding > 0.
 
     Query params:
-        min_remaining : float — filter customers owing at least this amount
+        search          : customer name or code (partial match)
+        payment_status  : unpaid | partial
+        min_outstanding : minimum total outstanding
+        max_outstanding : maximum total outstanding
     """
     permission_classes = [IsAuthenticated]
     serializer_class = CustomerWithOutstandingSerializer
 
     def get_queryset(self):
-        min_remaining = self.request.query_params.get("min_remaining")
+        p = self.request.query_params
         return get_customers_with_outstanding(
-            min_remaining=float(min_remaining) if min_remaining else None,
+            search          = p.get("search"),
+            payment_status  = p.get("payment_status"),
+            min_outstanding = p.get("min_outstanding"),
+            max_outstanding = p.get("max_outstanding"),
         )
 
 

@@ -134,10 +134,19 @@ class PurchaseOrder(AuditMixin):
         PARTIAL = "partial", "Partial"
         PAID    = "paid",    "Paid"
 
+    class PaymentType(models.TextChoices):
+        ADVANCE        = "advance",        "Advance Payment"
+        AFTER_DELIVERY = "after_delivery", "Payment After Delivery"
+
     order_number = models.CharField(max_length=30, unique=True, editable=False)
     supplier     = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchase_orders")
     status       = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT, db_index=True)
     description  = models.TextField(blank=True, default="", help_text="Optional notes about this purchase order.")
+    payment_type = models.CharField(
+        max_length=20, choices=PaymentType.choices,
+        default=PaymentType.AFTER_DELIVERY,
+        help_text="Advance payment or payment after delivery. Stored for future automation.",
+    )
 
     confirmed_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
@@ -317,18 +326,9 @@ class SupplierPayment(AuditMixin):
         EASYPAISA = "easypaisa", "Easypaisa"
         BANK      = "bank",      "Bank Transfer"
 
-    class PaymentType(models.TextChoices):
-        ADVANCE          = "advance",          "Advance Payment"
-        AFTER_DELIVERY   = "after_delivery",   "Payment After Delivery"
-
     order        = models.ForeignKey(PurchaseOrder, on_delete=models.PROTECT, related_name="payments")
     amount       = models.DecimalField(max_digits=18, decimal_places=4)
     method       = models.CharField(max_length=12, choices=Method.choices)
-    payment_type = models.CharField(
-        max_length=20, choices=PaymentType.choices,
-        default=PaymentType.AFTER_DELIVERY,
-        help_text="Advance or after delivery. Stored for future automation.",
-    )
     payment_date = models.DateField()
     note         = models.CharField(max_length=255, blank=True, default="")
 

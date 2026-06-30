@@ -70,24 +70,24 @@ class PurchaseItemInline(admin.TabularInline):
 @admin.register(PurchaseOrder)
 class PurchaseOrderAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmin):
     list_display  = [
-        "order_number", "supplier", "status",
+        "order_number", "supplier", "status", "payment_type",
         "net_payable", "payable_outstanding", "payment_status",
         "is_deleted", "created_at",
     ]
-    list_filter   = ["status", "payment_status", "is_deleted"]
+    list_filter   = ["status", "payment_type", "payment_status", "is_deleted"]
     search_fields = ["order_number", "supplier__name", "supplier__code"]
     readonly_fields = AuditAdminMixin.readonly_fields + (
         "order_number", "status", "confirmed_by", "confirmed_at",
         "gross_amount", "gst_total", "wht_total", "net_payable",
-        "payable_outstanding", "total_paid", "payment_status",
+        "payable_outstanding", "total_paid", "payment_status", "payment_type",
     )
     inlines = [PurchaseItemInline]
 
 
 @admin.register(SupplierPayment)
 class SupplierPaymentAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmin):
-    list_display  = ["order", "amount", "method", "payment_type", "payment_date", "is_deleted"]
-    list_filter   = ["method", "payment_type", "is_deleted"]
+    list_display  = ["order", "amount", "method", "payment_date", "is_deleted"]
+    list_filter   = ["method", "is_deleted"]
     search_fields = ["order__order_number", "order__supplier__name"]
     readonly_fields = AuditAdminMixin.readonly_fields
 
