@@ -11,6 +11,7 @@ urlpatterns = [
     path("api/",           include("purchases.urls")),     # categories, shelves, suppliers, products, orders, inventory
     path("api/rates/",     include("rates.urls")),
     path("api/billing/",   include("billing.urls")),
+    path("api/cash-flow/", include("cash_flow.urls")),
 ]
  
 if settings.DEBUG:

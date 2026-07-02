@@ -1,0 +1,99 @@
+from decimal import Decimal
+
+from django.core.management.base import BaseCommand
+
+from cash_flow.models import CashFlow
+
+
+class Command(BaseCommand):
+    help = "Backfills the CashFlow singleton from existing invoices, purchases, and expenses."
+
+    def handle(self, *args, **kwargs):
+        from billing.models import Invoice, Payment
+        from purchases.models import PurchaseOrder, SupplierPayment
+        from cash_flow.models import Expense
+
+        self.stdout.write("Starting CashFlow backfill...\n")
+
+        # Reset singleton
+        cf, _ = CashFlow.objects.get_or_create(pk=1)
+        cf.cash_in_hand               = Decimal("0")
+        cf.customer_outstanding       = Decimal("0")
+        cf.total_paid_payables        = Decimal("0")
+        cf.supplier_payable_outstanding = Decimal("0")
+        cf.total_expenses_amount      = Decimal("0")
+        cf.save()
+
+        # 1. Customer outstanding = sum of credit_outstanding on confirmed invoices
+        invoices = Invoice.objects.filter(
+            is_deleted=False,
+        ).exclude(status="draft")
+
+        for inv in invoices:
+            cf.customer_outstanding += inv.credit_outstanding or Decimal("0")
+        self.stdout.write(f"  customer_outstanding: {cf.customer_outstanding}")
+
+        # 2. Cash in hand = sum of all positive invoice payments received
+        payments = Payment.objects.filter(
+            is_deleted=False,
+            amount__gt=0,
+            invoice__is_deleted=False,
+        ).exclude(invoice__status="draft")
+
+        for p in payments:
+            cf.cash_in_hand += p.amount
+        self.stdout.write(f"  cash_in_hand (before expenses/advances): {cf.cash_in_hand}")
+
+        # 3. Supplier payable outstanding = sum of payable_outstanding on confirmed orders
+        orders = PurchaseOrder.objects.filter(
+            is_deleted=False,
+            status="confirmed",
+        )
+        for order in orders:
+            cf.supplier_payable_outstanding += order.payable_outstanding or Decimal("0")
+        self.stdout.write(f"  supplier_payable_outstanding: {cf.supplier_payable_outstanding}")
+
+        # 4. Total paid payables = sum of positive supplier payments (non-advance)
+        sp = SupplierPayment.objects.filter(
+            is_deleted=False,
+            amount__gt=0,
+            order__is_deleted=False,
+            order__status="confirmed",
+        )
+        for p in sp:
+            cf.total_paid_payables += p.amount
+        self.stdout.write(f"  total_paid_payables: {cf.total_paid_payables}")
+
+        # 5. Expenses
+        expenses = Expense.objects.filter(is_deleted=False)
+        for exp in expenses:
+            cf.total_expenses_amount += exp.amount
+            cf.cash_in_hand          -= exp.amount  # expenses reduce cash
+        cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+        self.stdout.write(f"  total_expenses_amount: {cf.total_expenses_amount}")
+
+        # 6. Advance payments already deducted from cash_in_hand
+        advance_payments = SupplierPayment.objects.filter(
+            is_deleted=False,
+            amount__gt=0,
+            note__startswith="Advance payment",
+            order__is_deleted=False,
+            order__status="draft",  # only draft advances not yet confirmed
+        )
+        for ap in advance_payments:
+            cf.cash_in_hand -= ap.amount
+        cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+        self.stdout.write(f"  cash_in_hand (final): {cf.cash_in_hand}")
+
+        cf.save()
+        self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))
+        self.stdout.write(f"""
+Final CashFlow state:
+  cash_in_hand              : {cf.cash_in_hand}
+  customer_outstanding      : {cf.customer_outstanding}
+  total_invoices_cash       : {cf.cash_in_hand + cf.customer_outstanding}
+  total_paid_payables       : {cf.total_paid_payables}
+  supplier_payable_outstanding: {cf.supplier_payable_outstanding}
+  total_purchases_cash      : {cf.total_paid_payables + cf.supplier_payable_outstanding}
+  total_expenses_amount     : {cf.total_expenses_amount}
+""")

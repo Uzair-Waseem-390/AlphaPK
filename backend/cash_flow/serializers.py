@@ -1,0 +1,171 @@
+from rest_framework import serializers
+
+from .models import CashFlow, Expense, ExpenseCategory
+
+
+# ---------------------------------------------------------------------------
+# ExpenseCategory
+# ---------------------------------------------------------------------------
+
+class ExpenseCategoryReadSerializer(serializers.ModelSerializer):
+    created_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = ExpenseCategory
+        fields = ["id", "name", "description", "created_by", "created_at"]
+        read_only_fields = fields
+
+
+class ExpenseCategoryWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = ExpenseCategory
+        fields = ["name", "description"]
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Category name cannot be blank.")
+        return value.strip()
+
+
+# ---------------------------------------------------------------------------
+# Expense
+# ---------------------------------------------------------------------------
+
+class ExpenseReadSerializer(serializers.ModelSerializer):
+    category   = ExpenseCategoryReadSerializer(read_only=True)
+    created_by = serializers.StringRelatedField(read_only=True)
+    updated_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = Expense
+        fields = [
+            "id", "name", "category", "description", "amount", "expense_date",
+            "created_by", "updated_by", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class ExpenseWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = Expense
+        fields = ["name", "category", "description", "amount", "expense_date"]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+    def validate_name(self, value):
+        if not value.strip():
+            raise serializers.ValidationError("Expense name cannot be blank.")
+        return value.strip()
+
+
+# ---------------------------------------------------------------------------
+# CashFlow stats (dashboard — 10 numbers)
+# ---------------------------------------------------------------------------
+
+class CashFlowStatsSerializer(serializers.Serializer):
+    """
+    Read-only serializer for the 10 dashboard stats.
+    Counts come from .count() queries in the selector, not the model.
+    """
+    # Receivables
+    cash_in_hand             = serializers.DecimalField(max_digits=20, decimal_places=4)
+    customer_outstanding     = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_invoices_cash      = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_number_of_invoices = serializers.IntegerField()
+
+    # Payables
+    total_paid_payables          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_outstanding_payable    = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_purchases_cash         = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_number_of_purchases    = serializers.IntegerField()
+
+    # Expenses
+    total_expenses_amount        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_number_of_expenses     = serializers.IntegerField()
+
+
+# ---------------------------------------------------------------------------
+# Breakdown serializers — reuse existing app serializers where possible
+# ---------------------------------------------------------------------------
+
+class InvoicePaymentBreakdownSerializer(serializers.Serializer):
+    """Slim payment record for cash_in_hand breakdown."""
+    id              = serializers.IntegerField()
+    bill_number     = serializers.CharField(source="invoice.bill_number")
+    customer_name   = serializers.CharField(source="invoice.customer.name")
+    customer_code   = serializers.CharField(source="invoice.customer.code")
+    amount          = serializers.DecimalField(max_digits=18, decimal_places=4)
+    method          = serializers.CharField()
+    method_display  = serializers.CharField(source="get_method_display")
+    payment_date    = serializers.DateField()
+    created_by      = serializers.StringRelatedField()
+    created_at      = serializers.DateTimeField()
+
+
+class CustomerOutstandingBreakdownSerializer(serializers.Serializer):
+    """Slim invoice record for customer_outstanding breakdown."""
+    id                  = serializers.IntegerField()
+    bill_number         = serializers.CharField()
+    customer_name       = serializers.CharField(source="customer.name")
+    customer_code       = serializers.CharField(source="customer.code")
+    grand_total         = serializers.DecimalField(max_digits=18, decimal_places=4)
+    credit_outstanding  = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_paid          = serializers.DecimalField(max_digits=18, decimal_places=4)
+    payment_status      = serializers.CharField()
+    confirmed_at        = serializers.DateTimeField()
+
+
+class SupplierPaymentBreakdownSerializer(serializers.Serializer):
+    """Slim supplier payment record for total_paid_payables breakdown."""
+    id              = serializers.IntegerField()
+    order_number    = serializers.CharField(source="order.order_number")
+    supplier_name   = serializers.CharField(source="order.supplier.name")
+    supplier_code   = serializers.CharField(source="order.supplier.code")
+    amount          = serializers.DecimalField(max_digits=18, decimal_places=4)
+    method          = serializers.CharField()
+    method_display  = serializers.CharField(source="get_method_display")
+    payment_date    = serializers.DateField()
+    created_by      = serializers.StringRelatedField()
+    created_at      = serializers.DateTimeField()
+
+
+class SupplierOutstandingBreakdownSerializer(serializers.Serializer):
+    """Slim PO record for supplier_payable_outstanding breakdown."""
+    id                    = serializers.IntegerField()
+    order_number          = serializers.CharField()
+    supplier_name         = serializers.CharField(source="supplier.name")
+    supplier_code         = serializers.CharField(source="supplier.code")
+    net_payable           = serializers.DecimalField(max_digits=18, decimal_places=4)
+    payable_outstanding   = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_paid            = serializers.DecimalField(max_digits=18, decimal_places=4)
+    payment_status        = serializers.CharField()
+    confirmed_at          = serializers.DateTimeField()
+
+
+class InvoiceBreakdownSerializer(serializers.Serializer):
+    """Slim invoice for total_number_of_invoices breakdown."""
+    id              = serializers.IntegerField()
+    bill_number     = serializers.CharField()
+    customer_name   = serializers.CharField(source="customer.name")
+    customer_code   = serializers.CharField(source="customer.code")
+    grand_total     = serializers.DecimalField(max_digits=18, decimal_places=4)
+    payment_status  = serializers.CharField()
+    status          = serializers.CharField()
+    confirmed_at    = serializers.DateTimeField()
+    created_at      = serializers.DateTimeField()
+
+
+class PurchaseBreakdownSerializer(serializers.Serializer):
+    """Slim PO for total_number_of_purchases breakdown."""
+    id              = serializers.IntegerField()
+    order_number    = serializers.CharField()
+    supplier_name   = serializers.CharField(source="supplier.name")
+    supplier_code   = serializers.CharField(source="supplier.code")
+    net_payable     = serializers.DecimalField(max_digits=18, decimal_places=4)
+    payment_status  = serializers.CharField()
+    payment_type    = serializers.CharField()
+    confirmed_at    = serializers.DateTimeField()
+    created_at      = serializers.DateTimeField()
