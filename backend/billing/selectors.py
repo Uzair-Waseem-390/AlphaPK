@@ -77,10 +77,41 @@ def get_invoice_item_by_id(pk: int) -> InvoiceItem:
 # Payment
 # ---------------------------------------------------------------------------
 
-def get_payments_for_invoice(invoice_id: int) -> QuerySet:
-    return Payment.objects.filter(
+def get_payments_for_invoice(invoice_id: int, *, reference: str = None) -> QuerySet:
+    qs = Payment.objects.filter(
         invoice_id=invoice_id, is_deleted=False
     ).select_related("created_by")
+    if reference:
+        qs = qs.filter(reference_number__icontains=reference.strip())
+    return qs
+
+
+def get_all_invoice_payments(
+    *,
+    reference     : str = None,
+    customer_name : str = None,
+    customer_code : str = None,
+    method        : str = None,
+    date_from     : str = None,
+    date_to       : str = None,
+) -> QuerySet:
+    """Search billing payments across all invoices with full filter support."""
+    qs = Payment.objects.filter(
+        is_deleted=False, amount__gt=0,
+    ).select_related("invoice__customer", "created_by").order_by("-payment_date")
+    if _clean(reference):
+        qs = qs.filter(reference_number__icontains=_clean(reference))
+    if _clean(customer_name):
+        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+    if _clean(customer_code):
+        qs = qs.filter(invoice__customer__code__icontains=_clean(customer_code))
+    if _clean(method):
+        qs = qs.filter(method=_clean(method))
+    if _clean(date_from):
+        qs = qs.filter(payment_date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(payment_date__lte=_clean(date_to))
+    return qs
 
 
 def get_payment_by_id(pk: int) -> Payment:

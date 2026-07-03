@@ -576,3 +576,38 @@ class AllOutstandingInvoicesView(generics.ListAPIView):
             min_outstanding = p.get("min_outstanding"),
             max_outstanding = p.get("max_outstanding"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Global billing payment search
+# ---------------------------------------------------------------------------
+
+from .selectors import get_all_invoice_payments
+
+
+class AllInvoicePaymentsView(generics.ListAPIView):
+    """
+    GET /billing/payments/
+    Search all billing payments across all invoices.
+
+    Query params:
+        reference     : PAY reference number (partial match)
+        customer_name : partial match
+        customer_code : partial match
+        method        : cash | jazzcash | easypaisa | bank
+        date_from     : YYYY-MM-DD
+        date_to       : YYYY-MM-DD
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class   = PaymentReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_invoice_payments(
+            reference     = p.get("reference"),
+            customer_name = p.get("customer_name"),
+            customer_code = p.get("customer_code"),
+            method        = p.get("method"),
+            date_from     = p.get("date_from"),
+            date_to       = p.get("date_to"),
+        )

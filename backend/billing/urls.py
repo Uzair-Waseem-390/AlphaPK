@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AllInvoicePaymentsView,
     AllOutstandingInvoicesView,
     ConfirmedInvoiceListView,
     CustomerListCreateView,
@@ -36,6 +37,7 @@ urlpatterns = [
 
     # Payments (nested under invoice)
     path("invoices/<int:invoice_id>/payments/", PaymentListCreateView.as_view(), name="payment-list-create"),
+    path("payments/", AllInvoicePaymentsView.as_view(), name="payment-list-all"),
     path("payments/<int:pk>/", PaymentDestroyView.as_view(), name="payment-delete"),
 
     # Returns (nested under invoice + standalone accept)

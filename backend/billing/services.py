@@ -120,6 +120,36 @@ def _generate_bill_number() -> str:
     return f"{prefix}{seq:04d}"
 
 
+def _generate_payment_reference() -> str:
+    """Generates sequential billing payment reference: PAY-2026-0001."""
+    year   = timezone.now().year
+    prefix = f"PAY-{year}-"
+    from .models import Payment
+    last = (
+        Payment.objects
+        .filter(reference_number__startswith=prefix)
+        .order_by("-reference_number")
+        .first()
+    )
+    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
+    return f"{prefix}{seq:04d}"
+
+
+def _generate_return_reference() -> str:
+    """Generates sequential billing return reference: RTN-2026-0001."""
+    year   = timezone.now().year
+    prefix = f"RTN-{year}-"
+    from .models import Return
+    last = (
+        Return.objects
+        .filter(reference_number__startswith=prefix)
+        .order_by("-reference_number")
+        .first()
+    )
+    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
+    return f"{prefix}{seq:04d}"
+
+
 def _get_current_selling_price(product) -> Decimal:
     """
     Fetches the current selling price from the rate list.
@@ -570,6 +600,7 @@ def create_payment(
 
     payment = Payment.objects.create(
         invoice=invoice,
+        reference_number=_generate_payment_reference(),
         amount=amount,
         method=method,
         payment_date=payment_date,
@@ -621,6 +652,7 @@ def create_return(*, invoice_id: int, items: list[dict], note: str = "", user) -
 
     return_record = Return.objects.create(
         invoice=invoice,
+        reference_number=_generate_return_reference(),
         status=Return.Status.PENDING,
         note=note,
         created_by=user,
@@ -733,10 +765,11 @@ def accept_return(*, return_id: int, user) -> Return:
     # Credit note: negative payment entry to reduce outstanding balance
     Payment.objects.create(
         invoice=invoice,
+        reference_number=_generate_payment_reference(),
         amount=-total_return_amount,
         method=Payment.Method.CASH,  # credit note — reduces customer outstanding
         payment_date=timezone.now().date(),
-        note=f"Auto credit note for Return #{return_record.id}",
+        note=f"Auto credit note for Return {return_record.reference_number}",
         created_by=user,
         updated_by=user,
     )

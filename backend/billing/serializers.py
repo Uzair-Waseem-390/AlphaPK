@@ -235,7 +235,7 @@ class PaymentReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Payment
         fields = [
-            "id", "invoice", "amount", "method", "method_display",
+            "id", "invoice", "reference_number", "amount", "method", "method_display",
             "payment_date", "note", "created_by", "created_at",
         ]
         read_only_fields = fields
@@ -303,7 +303,7 @@ class ReturnReadSerializer(serializers.ModelSerializer):
     class Meta:
         model = Return
         fields = [
-            "id", "invoice", "invoice_bill_number", "status",
+            "id", "invoice", "invoice_bill_number", "reference_number", "status",
             "total_return_amount", "total_return_cogs",
             "items", "note",
             "accepted_by", "accepted_at",
