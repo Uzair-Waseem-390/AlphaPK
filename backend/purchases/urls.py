@@ -13,6 +13,7 @@ from .views import (
     SupplierOutstandingListView,
     SupplierPayableSummaryView,
     SupplierOutstandingOrdersView,
+    AllSupplierPaymentsView,
 
     # Product
     ProductListCreateView,
