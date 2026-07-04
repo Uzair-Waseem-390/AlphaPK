@@ -33,7 +33,7 @@ class Command(BaseCommand):
             cf.customer_outstanding += inv.credit_outstanding or Decimal("0")
         self.stdout.write(f"  customer_outstanding: {cf.customer_outstanding}")
 
-        # 2. Cash in hand = sum of all positive invoice payments received
+        # 2. Cash in hand + total_invoices_cash = sum of all positive invoice payments received
         payments = Payment.objects.filter(
             is_deleted=False,
             amount__gt=0,
@@ -41,8 +41,10 @@ class Command(BaseCommand):
         ).exclude(invoice__status="draft")
 
         for p in payments:
-            cf.cash_in_hand += p.amount
+            cf.cash_in_hand       += p.amount
+            cf.total_invoices_cash += p.amount
         self.stdout.write(f"  cash_in_hand (before expenses/advances): {cf.cash_in_hand}")
+        self.stdout.write(f"  total_invoices_cash: {cf.total_invoices_cash}")
 
         # 3. Supplier payable outstanding = sum of payable_outstanding on confirmed orders
         orders = PurchaseOrder.objects.filter(
@@ -52,6 +54,11 @@ class Command(BaseCommand):
         for order in orders:
             cf.supplier_payable_outstanding += order.payable_outstanding or Decimal("0")
         self.stdout.write(f"  supplier_payable_outstanding: {cf.supplier_payable_outstanding}")
+
+        # 3b. total_purchases_cash = sum of net_payable on all confirmed orders
+        for order in orders:
+            cf.total_purchases_cash += order.net_payable or Decimal("0")
+        self.stdout.write(f"  total_purchases_cash: {cf.total_purchases_cash}")
 
         # 4. Total paid payables = sum of positive supplier payments (non-advance)
         sp = SupplierPayment.objects.filter(
@@ -89,11 +96,11 @@ class Command(BaseCommand):
         self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))
         self.stdout.write(f"""
 Final CashFlow state:
-  cash_in_hand              : {cf.cash_in_hand}
-  customer_outstanding      : {cf.customer_outstanding}
-  total_invoices_cash       : {cf.cash_in_hand + cf.customer_outstanding}
-  total_paid_payables       : {cf.total_paid_payables}
-  supplier_payable_outstanding: {cf.supplier_payable_outstanding}
-  total_purchases_cash      : {cf.total_paid_payables + cf.supplier_payable_outstanding}
-  total_expenses_amount     : {cf.total_expenses_amount}
+  cash_in_hand                  : {cf.cash_in_hand}
+  customer_outstanding          : {cf.customer_outstanding}
+  total_invoices_cash           : {cf.total_invoices_cash}
+  total_paid_payables           : {cf.total_paid_payables}
+  supplier_payable_outstanding  : {cf.supplier_payable_outstanding}
+  total_purchases_cash          : {cf.total_purchases_cash}
+  total_expenses_amount         : {cf.total_expenses_amount}
 """)
