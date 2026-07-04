@@ -1,7 +1,6 @@
 class BackendConfig {
     constructor() {
         this.baseURL = import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000';
-        this.apiVersion = 'api/v1';
         this.timeout = 30000; // 30 seconds
         this.retryAttempts = 3;
         this.retryDelay = 1000;
@@ -11,12 +10,13 @@ class BackendConfig {
         return this.baseURL;
     }
 
+    // Remove /api/v1 - just use /api
     getAPIURL() {
-        return `${this.baseURL}/${this.apiVersion}`;
+        return `${this.baseURL}/api`;
     }
 
     getEndpoint(endpoint) {
-        return `${this.getAPIURL()}/${endpoint}`;
+        return `${this.getAPIURL()}${endpoint}`;
     }
 
     getHeaders() {
@@ -39,7 +39,6 @@ class BackendConfig {
         };
     }
 
-    // Environment checks
     isDevelopment() {
         return import.meta.env.MODE === 'development';
     }
@@ -48,7 +47,6 @@ class BackendConfig {
         return import.meta.env.MODE === 'production';
     }
 
-    // WebSocket URL for real-time features
     getWebSocketURL() {
         const wsProtocol = window.location.protocol === 'https:' ? 'wss:' : 'ws:';
         const url = new URL(this.baseURL);
@@ -56,10 +54,7 @@ class BackendConfig {
     }
 }
 
-// Export singleton instance
 export const backendConfig = new BackendConfig();
-
-// Export individual functions for convenience
 export const getBaseURL = () => backendConfig.getBaseURL();
 export const getAPIURL = () => backendConfig.getAPIURL();
 export const getEndpoint = (endpoint) => backendConfig.getEndpoint(endpoint);

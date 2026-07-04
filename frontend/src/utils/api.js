@@ -1,46 +1,41 @@
 import axios from 'axios';
 import { backendConfig } from '../config';
 
-// Create axios instance with default config
+// Create axios instance
 const apiClient = axios.create({
-    baseURL: backendConfig.getAPIURL(),
+    baseURL: backendConfig.getAPIURL(), // This will be http://localhost:8000/api
     timeout: backendConfig.getTimeout(),
-    headers: backendConfig.getHeaders(),
+    headers: {
+        'Content-Type': 'application/json',
+        'Accept': 'application/json',
+    },
 });
 
 // Request interceptor
 apiClient.interceptors.request.use(
     (config) => {
-        // Add auth token if exists
         const token = localStorage.getItem('access_token');
         if (token) {
             config.headers.Authorization = `Bearer ${token}`;
         }
 
-        // Add timestamp to prevent caching
-        if (config.method === 'get') {
-            config.params = {
-                ...config.params,
-                _t: Date.now(),
-            };
-        }
+        // Log the request URL for debugging
+        console.log('API Request:', config.method.toUpperCase(), config.baseURL + config.url);
 
         return config;
     },
-    (error) => {
-        return Promise.reject(error);
-    }
+    (error) => Promise.reject(error)
 );
 
 // Response interceptor
 apiClient.interceptors.response.use(
     (response) => {
+        console.log('API Response:', response.status, response.config.url);
         return response.data;
     },
     async (error) => {
         const originalRequest = error.config;
 
-        // Handle token refresh
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;
 
@@ -48,94 +43,62 @@ apiClient.interceptors.response.use(
                 const refreshToken = localStorage.getItem('refresh_token');
                 if (refreshToken) {
                     const response = await axios.post(
-                        `${backendConfig.getAPIURL()}/auth/refresh`,
-                        { refresh_token: refreshToken }
+                        `${backendConfig.getAPIURL()}/auth/token/refresh/`,
+                        { refresh: refreshToken }
                     );
 
-                    const { access_token } = response.data;
-                    localStorage.setItem('access_token', access_token);
+                    const { access } = response.data;
+                    localStorage.setItem('access_token', access);
 
-                    // Retry original request with new token
-                    originalRequest.headers.Authorization = `Bearer ${access_token}`;
+                    originalRequest.headers.Authorization = `Bearer ${access}`;
                     return apiClient(originalRequest);
                 }
             } catch (refreshError) {
-                // Redirect to login if refresh fails
                 localStorage.removeItem('access_token');
                 localStorage.removeItem('refresh_token');
+                localStorage.removeItem('user');
                 window.location.href = '/login';
                 return Promise.reject(refreshError);
             }
         }
 
-        // Handle other errors
-        const errorMessage = error.response?.data?.message || error.message || 'An error occurred';
-        return Promise.reject(new Error(errorMessage));
+        // Log error for debugging
+        console.error('API Error:', error.response?.status, error.response?.data || error.message);
+
+        return Promise.reject(error);
     }
 );
 
-// API methods with retry logic
+// API methods
 export const api = {
-    get: async (url, config = {}) => {
-        try {
-            return await apiClient.get(url, config);
-        } catch (error) {
-            throw error;
-        }
+    get: (url, config = {}) => apiClient.get(url, config),
+    post: (url, data = {}, config = {}) => apiClient.post(url, data, config),
+    put: (url, data = {}, config = {}) => apiClient.put(url, data, config),
+    patch: (url, data = {}, config = {}) => apiClient.patch(url, data, config),
+    delete: (url, config = {}) => apiClient.delete(url, config),
+};
+
+// Auth API - Updated URLs
+export const authApi = {
+    login: (email, password) => api.post('/auth/login/', { email, password }),
+    logout: (refreshToken) => api.post('/auth/logout/', { refresh: refreshToken }),
+    refreshToken: (refresh) => api.post('/auth/token/refresh/', { refresh }),
+};
+
+// Users API - Updated URLs
+export const usersApi = {
+    getAll: () => api.get('/users/'),
+    create: (userData) => api.post('/users/', userData),
+    delete: (email) => api.delete(`/users/${email}/delete/`),
+    getProfile: () => api.get('/users/me/'),
+    updateProfile: (data) => api.patch('/users/me/', data),
+    changeOwnPassword: (data) => {
+        // Data should contain { new_password, confirm_password }
+        return api.patch('/users/me/change-password/', data);
     },
-
-    post: async (url, data = {}, config = {}) => {
-        try {
-            return await apiClient.post(url, data, config);
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    put: async (url, data = {}, config = {}) => {
-        try {
-            return await apiClient.put(url, data, config);
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    patch: async (url, data = {}, config = {}) => {
-        try {
-            return await apiClient.patch(url, data, config);
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    delete: async (url, config = {}) => {
-        try {
-            return await apiClient.delete(url, config);
-        } catch (error) {
-            throw error;
-        }
-    },
-
-    // Upload file
-    upload: async (url, file, onProgress = null) => {
-        const formData = new FormData();
-        formData.append('file', file);
-
-        const config = {
-            headers: {
-                'Content-Type': 'multipart/form-data',
-            },
-            onUploadProgress: (progressEvent) => {
-                if (onProgress) {
-                    const percentCompleted = Math.round(
-                        (progressEvent.loaded * 100) / progressEvent.total
-                    );
-                    onProgress(percentCompleted);
-                }
-            },
-        };
-
-        return apiClient.post(url, formData, config);
+    changeUserPassword: (data) => {
+        // Data should contain { email, new_password, confirm_password }
+        return api.patch('/users/change-password/', data);
     },
 };
 
