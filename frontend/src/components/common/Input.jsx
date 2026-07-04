@@ -34,11 +34,15 @@ const Input = ({
             )}
 
             <div className="relative">
-                {Icon && (
+                {Icon && typeof Icon === 'function' ? (
                     <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
                         <Icon className="w-5 h-5" />
                     </div>
-                )}
+                ) : Icon ? (
+                    <div className="absolute left-3 top-1/2 -translate-y-1/2 text-neutral-400">
+                        {Icon}
+                    </div>
+                ) : null}
 
                 <input
                     type={isPassword && showPassword ? 'text' : type}
@@ -106,7 +110,7 @@ Input.propTypes = {
     required: PropTypes.bool,
     disabled: PropTypes.bool,
     className: PropTypes.string,
-    icon: PropTypes.elementType,
+    icon: PropTypes.oneOfType([PropTypes.element, PropTypes.elementType]),
 };
 
 export default Input;

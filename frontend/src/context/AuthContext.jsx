@@ -1,6 +1,5 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../utils/api';
-import { motion } from 'framer-motion';
 
 const AuthContext = createContext();
 

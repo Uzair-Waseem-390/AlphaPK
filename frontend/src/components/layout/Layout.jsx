@@ -13,6 +13,8 @@ const Layout = ({ children }) => {
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
         { name: 'Users', path: '/users', icon: '👥' },
         { name: 'Profile', path: '/profile', icon: '👤' },
+        { name: 'Suppliers', path: '/purchases/suppliers', icon: '🏭' },
+        { name: 'Purchase Orders', path: '/purchases/orders', icon: '📋' },
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -52,8 +54,8 @@ const Layout = ({ children }) => {
                                 key={item.path}
                                 to={item.path}
                                 className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
-                                        ? 'bg-primary-50 text-primary-700'
-                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                    ? 'bg-primary-50 text-primary-700'
+                                    : 'text-neutral-600 hover:bg-neutral-100'
                                     }`}
                             >
                                 <span className="text-xl">{item.icon}</span>
