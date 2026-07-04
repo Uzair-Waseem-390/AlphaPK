@@ -1,1 +1,245 @@
+/* ALL @import statements must be at the VERY TOP */
+@import url('https://fonts.googleapis.com/css2?family=Inter:wght@100;200;300;400;500;600;700;800;900&display=swap');
 @import "tailwindcss";
+
+
+/* Theme Configuration for Tailwind v4 */
+@theme {
+    --color-primary-50: #eef2ff;
+    --color-primary-100: #e0e7ff;
+    --color-primary-200: #c7d2fe;
+    --color-primary-300: #a5b4fc;
+    --color-primary-400: #818cf8;
+    --color-primary-500: #6366f1;
+    --color-primary-600: #4f46e5;
+    --color-primary-700: #4338ca;
+    --color-primary-800: #3730a3;
+    --color-primary-900: #312e81;
+    --color-primary-950: #1e1b4b;
+
+    --color-neutral-50: #f8fafc;
+    --color-neutral-100: #f1f5f9;
+    --color-neutral-200: #e2e8f0;
+    --color-neutral-300: #cbd5e1;
+    --color-neutral-400: #94a3b8;
+    --color-neutral-500: #64748b;
+    --color-neutral-600: #475569;
+    --color-neutral-700: #334155;
+    --color-neutral-800: #1e293b;
+    --color-neutral-900: #0f172a;
+    --color-neutral-950: #020617;
+
+    --color-success-50: #ecfdf5;
+    --color-success-500: #10b981;
+    --color-success-600: #059669;
+    --color-success-700: #047857;
+
+    --color-warning-50: #fffbeb;
+    --color-warning-500: #f59e0b;
+    --color-warning-600: #d97706;
+    --color-warning-700: #b45309;
+
+    --color-error-50: #fef2f2;
+    --color-error-500: #ef4444;
+    --color-error-600: #dc2626;
+    --color-error-700: #b91c1c;
+
+    --color-info-50: #eff6ff;
+    --color-info-500: #3b82f6;
+    --color-info-600: #2563eb;
+    --color-info-700: #1d4ed8;
+
+    --font-family-sans: 'Inter', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+
+    --shadow-card: 0 1px 3px rgba(0, 0, 0, 0.12), 0 1px 2px rgba(0, 0, 0, 0.24);
+    --shadow-card-hover: 0 10px 30px -5px rgba(0, 0, 0, 0.15);
+    --shadow-premium: 0 20px 60px -15px rgba(0, 0, 0, 0.3);
+    --shadow-dropdown: 0 10px 40px -10px rgba(0, 0, 0, 0.2);
+    --shadow-modal: 0 25px 50px -12px rgba(0, 0, 0, 0.3);
+}
+
+@layer base {
+    * {
+        border-color: var(--color-neutral-200);
+    }
+
+    body {
+        background-color: var(--color-neutral-50);
+        color: var(--color-neutral-900);
+        -webkit-font-smoothing: antialiased;
+        -moz-osx-font-smoothing: grayscale;
+        font-family: 'Inter', system-ui, -apple-system, sans-serif;
+    }
+
+    ::-webkit-scrollbar {
+        width: 8px;
+        height: 8px;
+    }
+
+    ::-webkit-scrollbar-track {
+        background-color: var(--color-neutral-100);
+    }
+
+    ::-webkit-scrollbar-thumb {
+        background-color: var(--color-neutral-400);
+        border-radius: 9999px;
+    }
+
+    ::-webkit-scrollbar-thumb:hover {
+        background-color: var(--color-neutral-500);
+    }
+}
+
+@layer components {
+    .text-gradient {
+        background: linear-gradient(to right, var(--color-primary-600), #4f46e5);
+        -webkit-background-clip: text;
+        -webkit-text-fill-color: transparent;
+        background-clip: text;
+    }
+
+    .btn-primary {
+        padding: 0.75rem 1.5rem;
+        background: linear-gradient(to right, var(--color-primary-600), #4f46e5);
+        color: white;
+        font-weight: 500;
+        border-radius: 0.75rem;
+        transition: all 0.3s ease;
+        box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+    }
+
+    .btn-primary:hover {
+        background: linear-gradient(to right, var(--color-primary-700), #4338ca);
+        box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.4);
+        transform: translateY(-2px);
+    }
+
+    .btn-secondary {
+        padding: 0.75rem 1.5rem;
+        background-color: white;
+        color: var(--color-neutral-700);
+        font-weight: 500;
+        border-radius: 0.75rem;
+        border: 1px solid var(--color-neutral-200);
+        transition: all 0.3s ease;
+    }
+
+    .btn-secondary:hover {
+        background-color: var(--color-neutral-50);
+        border-color: var(--color-neutral-300);
+    }
+
+    .card {
+        background-color: white;
+        border-radius: 1rem;
+        padding: 1.5rem;
+        box-shadow: var(--shadow-card);
+        transition: all 0.3s ease;
+    }
+
+    .card:hover {
+        box-shadow: var(--shadow-card-hover);
+    }
+
+    .glass-effect {
+        background-color: rgba(255, 255, 255, 0.8);
+        backdrop-filter: blur(16px);
+        border: 1px solid rgba(255, 255, 255, 0.2);
+    }
+}
+
+@layer utilities {
+    .animation-delay-100 {
+        animation-delay: 100ms;
+    }
+
+    .animation-delay-200 {
+        animation-delay: 200ms;
+    }
+
+    .animation-delay-300 {
+        animation-delay: 300ms;
+    }
+
+    .animation-delay-400 {
+        animation-delay: 400ms;
+    }
+
+    .animation-delay-500 {
+        animation-delay: 500ms;
+    }
+
+    .animate-float {
+        animation: float 3s ease-in-out infinite;
+    }
+
+    .animate-pulse-glow {
+        animation: pulse-glow 2s ease-in-out infinite;
+    }
+}
+
+@keyframes float {
+
+    0%,
+    100% {
+        transform: translateY(0px);
+    }
+
+    50% {
+        transform: translateY(-10px);
+    }
+}
+
+@keyframes pulse-glow {
+
+    0%,
+    100% {
+        box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+    }
+
+    50% {
+        box-shadow: 0 0 40px rgba(99, 102, 241, 0.6);
+    }
+}
+
+@keyframes shimmer {
+    0% {
+        transform: translateX(-100%);
+    }
+
+    100% {
+        transform: translateX(100%);
+    }
+}
+
+/* Dark mode support */
+@media (prefers-color-scheme: dark) {
+    .dark {
+        color-scheme: dark;
+    }
+
+    body.dark {
+        background-color: var(--color-neutral-900);
+        color: white;
+    }
+
+    .dark .card {
+        background-color: var(--color-neutral-800);
+        border-color: var(--color-neutral-700);
+    }
+
+    .dark .btn-secondary {
+        background-color: var(--color-neutral-800);
+        border-color: var(--color-neutral-700);
+        color: white;
+    }
+
+    .dark .btn-secondary:hover {
+        background-color: var(--color-neutral-700);
+    }
+
+    .dark .glass-effect {
+        background-color: rgba(30, 41, 59, 0.8);
+        border-color: rgba(51, 65, 85, 0.5);
+    }
+}
