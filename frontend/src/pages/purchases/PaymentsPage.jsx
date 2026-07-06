@@ -11,17 +11,19 @@ import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
-import { useParams } from 'react-router-dom';
+import { useParams, Link, useNavigate } from 'react-router-dom';
 
 const PaymentsPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const { orderId } = useParams();
+    const navigate = useNavigate();
 
     const [payments, setPayments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [paymentSummary, setPaymentSummary] = useState(null);
+    const [orderDetails, setOrderDetails] = useState(null);
     const [formData, setFormData] = useState({
         amount: '',
         method: 'cash',
@@ -32,28 +34,44 @@ const PaymentsPage = () => {
     const [filters, setFilters] = useState({});
 
     useEffect(() => {
-        fetchPayments();
-        fetchSummary();
+        if (orderId && orderId !== 'undefined') {
+            fetchPayments();
+            fetchSummary();
+            fetchOrderDetails();
+        }
     }, [orderId, filters]);
 
     const fetchPayments = async () => {
+        if (!orderId || orderId === 'undefined') return;
         setLoading(true);
         try {
             const data = await purchasesApi.payments.getByOrder(orderId, filters);
-            setPayments(data);
+            setPayments(data || []);
         } catch (error) {
             console.error('Failed to fetch payments:', error);
+            setPayments([]);
         } finally {
             setLoading(false);
         }
     };
 
     const fetchSummary = async () => {
+        if (!orderId || orderId === 'undefined') return;
         try {
             const data = await purchasesApi.orders.getPaymentSummary(orderId);
             setPaymentSummary(data);
         } catch (error) {
             console.error('Failed to fetch payment summary:', error);
+        }
+    };
+
+    const fetchOrderDetails = async () => {
+        if (!orderId || orderId === 'undefined') return;
+        try {
+            const data = await purchasesApi.orders.getById(orderId);
+            setOrderDetails(data);
+        } catch (error) {
+            console.error('Failed to fetch order details:', error);
         }
     };
 
@@ -102,16 +120,32 @@ const PaymentsPage = () => {
         { key: 'reference_number', label: 'Reference', width: '140px' },
         {
             key: 'amount',
-            label: 'Amount',
-            render: (value) => `$${parseFloat(value || 0).toFixed(2)}`
+            label: 'Amount (PKR)',
+            render: (value) => {
+                const num = typeof value === 'string' ? parseFloat(value) : value;
+                return isNaN(num) ? '0.00' : num.toFixed(2);
+            }
         },
         {
-            key: 'method',
+            key: 'method_display',
             label: 'Method',
-            render: (value) => <Badge>{value}</Badge>
+            render: (value) => <Badge>{value || 'N/A'}</Badge>
         },
-        { key: 'payment_date', label: 'Date', render: (value) => new Date(value).toLocaleDateString() },
-        { key: 'note', label: 'Note' },
+        { key: 'payment_date', label: 'Date', render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A' },
+        { key: 'note', label: 'Note', render: (value) => value || '-' },
+        {
+            key: 'actions',
+            label: 'Actions',
+            width: '100px',
+            render: (_, row) => isAdmin && (
+                <button
+                    onClick={() => handleDeletePayment(row.id)}
+                    className="text-error-600 hover:text-error-700 text-sm"
+                >
+                    Delete
+                </button>
+            ),
+        },
     ];
 
     if (loading) {
@@ -122,12 +156,29 @@ const PaymentsPage = () => {
         );
     }
 
+    if (!orderId || orderId === 'undefined') {
+        return (
+            <div className="text-center py-12">
+                <h2 className="text-2xl font-semibold text-neutral-900">Invalid Order</h2>
+                <p className="text-neutral-500 mt-2">Please go back to the orders list.</p>
+                <Link to="/purchases/orders" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
+                    ← Back to Orders
+                </Link>
+            </div>
+        );
+    }
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-neutral-900">Payments</h1>
-                    <p className="text-neutral-500 mt-1">Manage payments for this order</p>
+                    <p className="text-neutral-500 mt-1">
+                        Manage payments for Order #{orderDetails?.order_number || orderId}
+                    </p>
+                    <Link to="/purchases/orders" className="text-sm text-primary-600 hover:text-primary-700">
+                        ← Back to Orders
+                    </Link>
                 </div>
                 {isAdmin && (
                     <Button
@@ -149,21 +200,27 @@ const PaymentsPage = () => {
             {paymentSummary && (
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <Card className="p-4">
-                        <p className="text-sm text-neutral-500">Total Payable</p>
+                        <p className="text-sm text-neutral-500">Net Payable</p>
                         <p className="text-xl font-bold text-neutral-900">
-                            ${parseFloat(paymentSummary.payable_outstanding || 0).toFixed(2)}
+                            {typeof paymentSummary.net_payable === 'string'
+                                ? parseFloat(paymentSummary.net_payable).toFixed(2)
+                                : '0.00'}
                         </p>
                     </Card>
                     <Card className="p-4">
                         <p className="text-sm text-neutral-500">Total Paid</p>
                         <p className="text-xl font-bold text-success-600">
-                            ${parseFloat(paymentSummary.total_paid || 0).toFixed(2)}
+                            {typeof paymentSummary.total_paid === 'string'
+                                ? parseFloat(paymentSummary.total_paid).toFixed(2)
+                                : '0.00'}
                         </p>
                     </Card>
                     <Card className="p-4">
                         <p className="text-sm text-neutral-500">Outstanding</p>
                         <p className="text-xl font-bold text-error-600">
-                            ${parseFloat(paymentSummary.credit_outstanding || 0).toFixed(2)}
+                            {typeof paymentSummary.payable_outstanding === 'string'
+                                ? parseFloat(paymentSummary.payable_outstanding).toFixed(2)
+                                : '0.00'}
                         </p>
                     </Card>
                     <Card className="p-4">
@@ -186,7 +243,6 @@ const PaymentsPage = () => {
             <Table
                 columns={columns}
                 data={payments}
-                onRowClick={isAdmin ? handleDeletePayment : undefined}
             />
 
             <Modal
@@ -199,9 +255,10 @@ const PaymentsPage = () => {
             >
                 <form onSubmit={handleCreatePayment} className="space-y-4">
                     <Input
-                        label="Amount"
+                        label="Amount (PKR)"
                         type="number"
                         step="0.01"
+                        min="0.01"
                         value={formData.amount}
                         onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                         placeholder="Enter amount"

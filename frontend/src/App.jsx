@@ -12,13 +12,12 @@ import CategoriesPage from './pages/purchases/CategoriesPage';
 import ShelvesPage from './pages/purchases/ShelvesPage';
 import SuppliersPage from './pages/purchases/SuppliersPage';
 import ProductsPage from './pages/purchases/ProductsPage';
-
-// New purchases pages
 import PurchaseOrdersPage from './pages/purchases/PurchaseOrdersPage';
 import PaymentsPage from './pages/purchases/PaymentsPage';
 import ReturnsPage from './pages/purchases/ReturnsPage';
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
+import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
 
 import './App.css';
 
@@ -45,18 +44,22 @@ const AppContent = () => {
             <Layout>
               <div className="space-y-6">
                 <h1 className="text-3xl font-bold text-neutral-900">Dashboard</h1>
-                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Total Users</h3>
+                    <h3 className="text-sm text-neutral-500">Total Orders</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
                   </div>
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Active Users</h3>
+                    <h3 className="text-sm text-neutral-500">Total Suppliers</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
                   </div>
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Admins</h3>
+                    <h3 className="text-sm text-neutral-500">Total Products</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
+                  </div>
+                  <div className="card p-6">
+                    <h3 className="text-sm text-neutral-500">Outstanding</h3>
+                    <p className="text-3xl font-bold text-error-600 mt-2">-</p>
                   </div>
                 </div>
               </div>
@@ -113,11 +116,18 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
-        {/* New Purchase Routes */}
         <Route path="/purchases/orders" element={
           <ProtectedRoute>
             <Layout>
               <PurchaseOrdersPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/payments" element={
+          <ProtectedRoute>
+            <Layout>
+              <GlobalPaymentsPage />
             </Layout>
           </ProtectedRoute>
         } />
@@ -158,15 +168,6 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InventoryPage />
-            </Layout>
-          </ProtectedRoute>
-        } />
-
-        {/* Catch all route - redirect to dashboard */}
-        <Route path="*" element={
-          <ProtectedRoute>
-            <Layout>
-              <Navigate to="/dashboard" />
             </Layout>
           </ProtectedRoute>
         } />

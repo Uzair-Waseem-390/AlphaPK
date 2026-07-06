@@ -87,7 +87,17 @@ export const purchasesApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/orders/${orderId}/payments/${query ? `?${query}` : ''}`);
         },
-        create: (orderId, data) => api.post(`/orders/${orderId}/payments/`, data),
+        create: (orderId, data) => {
+            // The backend expects 'order' field
+            const payload = {
+                order: parseInt(orderId),  // Use 'order' field name
+                amount: data.amount,
+                method: data.method,
+                payment_date: data.payment_date,
+                note: data.note || '',
+            };
+            return api.post(`/orders/${orderId}/payments/`, payload);
+        },
         delete: (paymentId) => api.delete(`/payments/${paymentId}/`),
     },
 

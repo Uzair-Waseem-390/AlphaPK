@@ -15,10 +15,12 @@ import Card from '../../components/ui/Card';
 import FilterBar from '../../components/ui/FilterBar';
 import LineItemRow from '../../components/purchases/LineItemRow';
 import DraftPreview from '../../components/purchases/DraftPreview';
+import { useNavigate } from 'react-router-dom';
 
 const PurchaseOrdersPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const navigate = useNavigate();
 
     const [orders, setOrders] = useState([]);
     const [loading, setLoading] = useState(false);
@@ -31,6 +33,30 @@ const PurchaseOrdersPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [error, setError] = useState('');
+
+    // Payment Summary Modal
+    const [showPaymentSummary, setShowPaymentSummary] = useState(false);
+    const [paymentSummary, setPaymentSummary] = useState(null);
+
+    // Payment Detail Modal
+    const [showPaymentDetail, setShowPaymentDetail] = useState(false);
+    const [selectedPayment, setSelectedPayment] = useState(null);
+
+    // PDF Modal
+    const [showPdfModal, setShowPdfModal] = useState(false);
+    const [pdfFileName, setPdfFileName] = useState('');
+    const [pdfLoading, setPdfLoading] = useState(false);
+    const [pdfs, setPdfs] = useState([]);
+
+    // Add Payment Modal
+    const [showAddPaymentModal, setShowAddPaymentModal] = useState(false);
+    const [paymentFormData, setPaymentFormData] = useState({
+        amount: '',
+        method: 'cash',
+        payment_date: new Date().toISOString().split('T')[0],
+        note: '',
+    });
+    const [paymentLoading, setPaymentLoading] = useState(false);
 
     // Form state
     const [formData, setFormData] = useState({
@@ -173,11 +199,141 @@ const PurchaseOrdersPage = () => {
         try {
             const detail = await purchasesApi.orders.getById(order.id);
             setSelectedOrder(detail);
+            if (detail.status === 'confirmed') {
+                fetchPDFs(detail.id);
+            }
         } catch (error) {
             console.error('Failed to load order details:', error);
         } finally {
             setOrderLoading(false);
         }
+    };
+
+    const handleViewPaymentSummary = async (orderId) => {
+        try {
+            const data = await purchasesApi.orders.getPaymentSummary(orderId);
+            setPaymentSummary(data);
+            setShowPaymentSummary(true);
+        } catch (error) {
+            console.error('Failed to fetch payment summary:', error);
+        }
+    };
+
+    const handleViewPaymentDetail = (payment) => {
+        setSelectedPayment(payment);
+        setShowPaymentDetail(true);
+    };
+
+    const handlePrintOrder = async (orderId) => {
+        try {
+            const response = await purchasesApi.orders.print(orderId, false);
+            const blob = new Blob([response], { type: 'application/pdf' });
+            const url = window.URL.createObjectURL(blob);
+            window.open(url, '_blank');
+        } catch (error) {
+            console.error('Failed to print order:', error);
+        }
+    };
+
+    const handleSavePDF = async (orderId) => {
+        setPdfLoading(true);
+        try {
+            const data = {
+                file_name: pdfFileName || selectedOrder?.order_number || 'purchase_order',
+            };
+            await purchasesApi.orders.savePDF(orderId, data);
+            setShowPdfModal(false);
+            setPdfFileName('');
+            fetchPDFs(orderId);
+            alert('PDF saved successfully!');
+        } catch (error) {
+            console.error('Failed to save PDF:', error);
+        } finally {
+            setPdfLoading(false);
+        }
+    };
+
+    const fetchPDFs = async (orderId) => {
+        try {
+            const data = await purchasesApi.orders.getPDFs(orderId);
+            setPdfs(data || []);
+        } catch (error) {
+            console.error('Failed to fetch PDFs:', error);
+            setPdfs([]);
+        }
+    };
+
+    const handleDeletePDF = async (pdfId) => {
+        if (!window.confirm('Are you sure you want to delete this PDF?')) return;
+        try {
+            await purchasesApi.orders.deletePDF(pdfId);
+            fetchPDFs(selectedOrder?.id);
+        } catch (error) {
+            console.error('Failed to delete PDF:', error);
+        }
+    };
+
+    const handleAddPayment = async (e) => {
+        e.preventDefault();
+        setPaymentLoading(true);
+        try {
+            if (!selectedOrder?.id) {
+                throw new Error('No order selected');
+            }
+
+            const paymentData = {
+                order: parseInt(selectedOrder.id),
+                amount: parseFloat(paymentFormData.amount),
+                method: paymentFormData.method,
+                payment_date: paymentFormData.payment_date,
+                note: paymentFormData.note || '',
+            };
+
+            console.log('Sending payment data:', paymentData);
+
+            await purchasesApi.payments.create(selectedOrder.id, paymentData);
+            setShowAddPaymentModal(false);
+            resetPaymentForm();
+
+            // Refresh order details to update payment status
+            const detail = await purchasesApi.orders.getById(selectedOrder.id);
+            setSelectedOrder(detail);
+
+            // Also refresh the orders list to update the table
+            fetchOrders();
+
+            alert('Payment recorded successfully!');
+        } catch (error) {
+            console.error('Failed to create payment:', error);
+            let errorMessage = 'Failed to record payment';
+
+            if (error.response?.data) {
+                const errorData = error.response.data;
+                if (typeof errorData === 'object') {
+                    const messages = Object.entries(errorData)
+                        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+                        .join('\n');
+                    errorMessage = `Validation Error:\n${messages}`;
+                } else if (typeof errorData === 'string') {
+                    errorMessage = errorData;
+                }
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+
+            alert(errorMessage);
+        } finally {
+            setPaymentLoading(false);
+        }
+    };
+
+    const resetPaymentForm = () => {
+        setPaymentFormData({
+            amount: '',
+            method: 'cash',
+            payment_date: new Date().toISOString().split('T')[0],
+            note: '',
+        });
     };
 
     const handleAddItem = () => {
@@ -241,21 +397,18 @@ const PurchaseOrdersPage = () => {
         setFormLoading(true);
 
         try {
-            // Validate supplier
             if (!formData.supplier) {
                 setError('Please select a supplier.');
                 setFormLoading(false);
                 return;
             }
 
-            // Validate at least one item
             if (formData.items.length === 0) {
                 setError('Please add at least one item to the order.');
                 setFormLoading(false);
                 return;
             }
 
-            // Validate all items have product selected
             const invalidItems = formData.items.some(item => !item.product);
             if (invalidItems) {
                 setError('Please select a product for all items.');
@@ -263,7 +416,6 @@ const PurchaseOrdersPage = () => {
                 return;
             }
 
-            // Validate all items have quantity > 0
             const invalidQuantity = formData.items.some(item => !item.quantity || item.quantity <= 0);
             if (invalidQuantity) {
                 setError('Please enter a valid quantity for all items.');
@@ -271,7 +423,6 @@ const PurchaseOrdersPage = () => {
                 return;
             }
 
-            // Validate all items have unit_price > 0
             const invalidPrice = formData.items.some(item => !item.unit_price || item.unit_price <= 0);
             if (invalidPrice) {
                 setError('Please enter a valid unit price for all items.');
@@ -279,14 +430,13 @@ const PurchaseOrdersPage = () => {
                 return;
             }
 
-            // Format data to match backend expected fields
             const data = {
-                supplier_id: parseInt(formData.supplier),  // Changed from supplier to supplier_id
+                supplier_id: parseInt(formData.supplier),
                 payment_type: formData.payment_type,
                 advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
                 description: formData.description || '',
                 items: formData.items.map(item => ({
-                    product_id: parseInt(item.product),  // Changed from product to product_id
+                    product_id: parseInt(item.product),
                     quantity: parseInt(item.quantity) || 0,
                     unit_price: parseFloat(item.unit_price) || 0,
                     gst: parseFloat(item.gst) || 0,
@@ -295,18 +445,13 @@ const PurchaseOrdersPage = () => {
                 })),
             };
 
-            console.log('Submitting order:', data);
-
             const result = await purchasesApi.orders.create(data);
-            console.log('Order created:', result);
-
             setShowCreateModal(false);
             resetForm();
             fetchOrders();
         } catch (error) {
             console.error('Failed to create order:', error);
 
-            // Parse error response
             if (error.response?.data) {
                 const errorData = error.response.data;
                 if (typeof errorData === 'object') {
@@ -339,6 +484,7 @@ const PurchaseOrdersPage = () => {
             if (selectedOrder) {
                 const detail = await purchasesApi.orders.getById(orderId);
                 setSelectedOrder(detail);
+                fetchPDFs(orderId);
             }
         } catch (error) {
             console.error('Failed to confirm order:', error);
@@ -593,6 +739,7 @@ const PurchaseOrdersPage = () => {
                 onClose={() => {
                     setShowDetailModal(false);
                     setSelectedOrder(null);
+                    setPdfs([]);
                 }}
                 title="Order Details"
                 size="lg"
@@ -738,6 +885,43 @@ const PurchaseOrdersPage = () => {
                             </div>
                         )}
 
+                        {/* Action Buttons for Confirmed Orders */}
+                        {selectedOrder.status === 'confirmed' && (
+                            <div className="flex flex-wrap gap-3 pt-4 border-t border-neutral-200">
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => handleViewPaymentSummary(selectedOrder.id)}
+                                >
+                                    View Payment Summary
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => handlePrintOrder(selectedOrder.id)}
+                                >
+                                    Print Order
+                                </Button>
+                                <Button
+                                    variant="secondary"
+                                    onClick={() => {
+                                        setPdfFileName(selectedOrder.order_number);
+                                        setShowPdfModal(true);
+                                    }}
+                                >
+                                    Save PDF
+                                </Button>
+                                <Button
+                                    variant="primary"
+                                    onClick={() => {
+                                        resetPaymentForm();
+                                        setShowAddPaymentModal(true);
+                                    }}
+                                >
+                                    Add Payment
+                                </Button>
+                            </div>
+                        )}
+
+                        {/* Draft Order Actions */}
                         {selectedOrder.status === 'draft' && isAdmin && (
                             <div className="flex gap-3 pt-4 border-t border-neutral-200">
                                 <Button
@@ -754,8 +938,278 @@ const PurchaseOrdersPage = () => {
                                 </Button>
                             </div>
                         )}
+
+                        {/* Saved PDFs Section */}
+                        {selectedOrder.status === 'confirmed' && pdfs.length > 0 && (
+                            <div>
+                                <h3 className="font-semibold text-neutral-900 mb-3">Saved PDFs</h3>
+                                <div className="space-y-2">
+                                    {pdfs.map((pdf) => (
+                                        <div key={pdf.id} className="flex justify-between items-center p-3 bg-neutral-50 rounded-lg">
+                                            <div>
+                                                <p className="font-medium">{pdf.file_name}</p>
+                                                <p className="text-xs text-neutral-500">
+                                                    Saved: {new Date(pdf.created_at).toLocaleString()}
+                                                </p>
+                                            </div>
+                                            <Button
+                                                size="sm"
+                                                variant="danger"
+                                                onClick={() => handleDeletePDF(pdf.id)}
+                                            >
+                                                Delete
+                                            </Button>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
                     </div>
                 )}
+            </Modal>
+
+            {/* Payment Summary Modal */}
+            <Modal
+                isOpen={showPaymentSummary}
+                onClose={() => {
+                    setShowPaymentSummary(false);
+                    setPaymentSummary(null);
+                }}
+                title="Payment Summary"
+                size="lg"
+            >
+                {paymentSummary && (
+                    <div className="space-y-6">
+                        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                            <div>
+                                <p className="text-sm text-neutral-500">Order #</p>
+                                <p className="font-medium">{paymentSummary.order_number}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Supplier</p>
+                                <p className="font-medium">{paymentSummary.supplier_name || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Net Payable</p>
+                                <p className="font-medium text-primary-600">
+                                    {typeof paymentSummary.net_payable === 'string'
+                                        ? parseFloat(paymentSummary.net_payable).toFixed(2)
+                                        : '0.00'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Payment Status</p>
+                                <Badge variant={paymentSummary.payment_status === 'paid' ? 'paid' :
+                                    paymentSummary.payment_status === 'partial' ? 'partial' : 'unpaid'}>
+                                    {paymentSummary.payment_status_display || paymentSummary.payment_status || 'N/A'}
+                                </Badge>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Total Paid</p>
+                                <p className="font-medium text-success-600">
+                                    {typeof paymentSummary.total_paid === 'string'
+                                        ? parseFloat(paymentSummary.total_paid).toFixed(2)
+                                        : '0.00'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Outstanding</p>
+                                <p className="font-medium text-error-600">
+                                    {typeof paymentSummary.payable_outstanding === 'string'
+                                        ? parseFloat(paymentSummary.payable_outstanding).toFixed(2)
+                                        : '0.00'}
+                                </p>
+                            </div>
+                        </div>
+
+                        {paymentSummary.payments && paymentSummary.payments.length > 0 && (
+                            <div>
+                                <h3 className="font-semibold text-neutral-900 mb-3">Payment History</h3>
+                                <div className="space-y-2">
+                                    {paymentSummary.payments.map((payment) => (
+                                        <div
+                                            key={payment.id}
+                                            className="flex justify-between items-center p-3 bg-neutral-50 rounded-lg cursor-pointer hover:bg-neutral-100 transition-colors"
+                                            onClick={() => handleViewPaymentDetail(payment)}
+                                        >
+                                            <div>
+                                                <p className="font-medium">{payment.reference_number}</p>
+                                                <p className="text-sm text-neutral-500">{payment.method_display}</p>
+                                            </div>
+                                            <div className="text-right">
+                                                <p className="font-medium text-success-600">
+                                                    {typeof payment.amount === 'string'
+                                                        ? parseFloat(payment.amount).toFixed(2)
+                                                        : '0.00'}
+                                                </p>
+                                                <p className="text-xs text-neutral-500">{new Date(payment.payment_date).toLocaleDateString()}</p>
+                                            </div>
+                                        </div>
+                                    ))}
+                                </div>
+                            </div>
+                        )}
+                    </div>
+                )}
+            </Modal>
+
+            {/* Payment Detail Modal */}
+            <Modal
+                isOpen={showPaymentDetail}
+                onClose={() => {
+                    setShowPaymentDetail(false);
+                    setSelectedPayment(null);
+                }}
+                title="Payment Details"
+                size="md"
+            >
+                {selectedPayment && (
+                    <div className="space-y-4">
+                        <div className="grid grid-cols-2 gap-4">
+                            <div>
+                                <p className="text-sm text-neutral-500">Reference Number</p>
+                                <p className="font-medium">{selectedPayment.reference_number}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Amount</p>
+                                <p className="font-medium text-success-600">
+                                    {typeof selectedPayment.amount === 'string'
+                                        ? parseFloat(selectedPayment.amount).toFixed(2)
+                                        : '0.00'}
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Method</p>
+                                <p className="font-medium">
+                                    <Badge>{selectedPayment.method_display || selectedPayment.method}</Badge>
+                                </p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Payment Date</p>
+                                <p className="font-medium">{new Date(selectedPayment.payment_date).toLocaleDateString()}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Created By</p>
+                                <p className="font-medium">{selectedPayment.created_by || 'N/A'}</p>
+                            </div>
+                            <div>
+                                <p className="text-sm text-neutral-500">Created At</p>
+                                <p className="font-medium">{new Date(selectedPayment.created_at).toLocaleString()}</p>
+                            </div>
+                            {selectedPayment.note && (
+                                <div className="col-span-2">
+                                    <p className="text-sm text-neutral-500">Note</p>
+                                    <p className="font-medium">{selectedPayment.note}</p>
+                                </div>
+                            )}
+                        </div>
+                    </div>
+                )}
+            </Modal>
+
+            {/* Save PDF Modal */}
+            <Modal
+                isOpen={showPdfModal}
+                onClose={() => {
+                    setShowPdfModal(false);
+                    setPdfFileName('');
+                }}
+                title="Save PDF"
+            >
+                <div className="space-y-4">
+                    <Input
+                        label="File Name"
+                        value={pdfFileName}
+                        onChange={(e) => setPdfFileName(e.target.value)}
+                        placeholder="Enter file name"
+                        required
+                    />
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                                setShowPdfModal(false);
+                                setPdfFileName('');
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button
+                            onClick={() => handleSavePDF(selectedOrder?.id)}
+                            loading={pdfLoading}
+                        >
+                            Save
+                        </Button>
+                    </div>
+                </div>
+            </Modal>
+
+            {/* Add Payment Modal */}
+            <Modal
+                isOpen={showAddPaymentModal}
+                onClose={() => {
+                    setShowAddPaymentModal(false);
+                    resetPaymentForm();
+                }}
+                title="Add Payment"
+            >
+                <form onSubmit={handleAddPayment} className="space-y-4">
+                    <Input
+                        label="Amount (PKR)"
+                        type="number"
+                        step="0.01"
+                        min="0.01"
+                        value={paymentFormData.amount}
+                        onChange={(e) => setPaymentFormData({ ...paymentFormData, amount: e.target.value })}
+                        placeholder="Enter amount"
+                        required
+                    />
+
+                    <Select
+                        label="Payment Method"
+                        value={paymentFormData.method}
+                        onChange={(e) => setPaymentFormData({ ...paymentFormData, method: e.target.value })}
+                        options={[
+                            { value: 'cash', label: 'Cash' },
+                            { value: 'jazzcash', label: 'JazzCash' },
+                            { value: 'easypaisa', label: 'Easypaisa' },
+                            { value: 'bank', label: 'Bank Transfer' },
+                        ]}
+                        required
+                    />
+
+                    <Input
+                        label="Payment Date"
+                        type="date"
+                        value={paymentFormData.payment_date}
+                        onChange={(e) => setPaymentFormData({ ...paymentFormData, payment_date: e.target.value })}
+                        required
+                    />
+
+                    <Input
+                        label="Note"
+                        value={paymentFormData.note}
+                        onChange={(e) => setPaymentFormData({ ...paymentFormData, note: e.target.value })}
+                        placeholder="Payment note (optional)"
+                    />
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                                setShowAddPaymentModal(false);
+                                resetPaymentForm();
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit" loading={paymentLoading}>
+                            Record Payment
+                        </Button>
+                    </div>
+                </form>
             </Modal>
         </div>
     );
