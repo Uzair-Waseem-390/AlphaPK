@@ -79,17 +79,39 @@ const PaymentsPage = () => {
         e.preventDefault();
         setFormLoading(true);
         try {
-            await purchasesApi.payments.create(orderId, {
-                ...formData,
+            const paymentData = {
+                order: parseInt(orderId),
                 amount: parseFloat(formData.amount),
-            });
+                method: formData.method,
+                payment_date: formData.payment_date,
+                note: formData.note || '',
+            };
+
+            await purchasesApi.payments.create(orderId, paymentData);
             setShowCreateModal(false);
             resetForm();
             fetchPayments();
             fetchSummary();
+            alert('Payment recorded successfully!');
         } catch (error) {
             console.error('Failed to create payment:', error);
-            alert(error.response?.data?.detail || 'Failed to create payment');
+            let errorMessage = 'Failed to record payment';
+
+            if (error.response?.data) {
+                const errorData = error.response.data;
+                if (typeof errorData === 'object') {
+                    const messages = Object.entries(errorData)
+                        .map(([key, value]) => `${key}: ${Array.isArray(value) ? value.join(', ') : value}`)
+                        .join('\n');
+                    errorMessage = `Validation Error:\n${messages}`;
+                } else if (typeof errorData === 'string') {
+                    errorMessage = errorData;
+                }
+            } else if (error.message) {
+                errorMessage = error.message;
+            }
+
+            alert(errorMessage);
         } finally {
             setFormLoading(false);
         }
@@ -172,13 +194,23 @@ const PaymentsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Payments</h1>
+                    <h1 className="text-3xl font-bold text-neutral-900">Order Payments</h1>
                     <p className="text-neutral-500 mt-1">
                         Manage payments for Order #{orderDetails?.order_number || orderId}
                     </p>
-                    <Link to="/purchases/orders" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Orders
-                    </Link>
+                    <div className="mt-1 text-sm text-neutral-400">
+                        <p>• This page shows all payments for this specific order</p>
+                        <p>• Use the search bar to filter by reference number</p>
+                        <p>• Go to "All Payments" to see payments across all orders</p>
+                    </div>
+                    <div className="flex gap-4 mt-2">
+                        <Link to="/purchases/orders" className="text-sm text-primary-600 hover:text-primary-700">
+                            ← Back to Orders
+                        </Link>
+                        <Link to="/purchases/payments" className="text-sm text-primary-600 hover:text-primary-700">
+                            View All Payments →
+                        </Link>
+                    </div>
                 </div>
                 {isAdmin && (
                     <Button
@@ -225,8 +257,9 @@ const PaymentsPage = () => {
                     </Card>
                     <Card className="p-4">
                         <p className="text-sm text-neutral-500">Payment Status</p>
-                        <Badge variant={paymentSummary.payment_status === 'paid' ? 'paid' : 'unpaid'}>
-                            {paymentSummary.payment_status || 'N/A'}
+                        <Badge variant={paymentSummary.payment_status === 'paid' ? 'paid' :
+                            paymentSummary.payment_status === 'partial' ? 'partial' : 'unpaid'}>
+                            {paymentSummary.payment_status_display || paymentSummary.payment_status || 'N/A'}
                         </Badge>
                     </Card>
                 </div>
@@ -235,7 +268,7 @@ const PaymentsPage = () => {
             <div className="flex gap-4">
                 <SearchBar
                     onSearch={(value) => setFilters({ ...filters, reference: value })}
-                    placeholder="Search payments by reference..."
+                    placeholder="Search payments by reference number..."
                     className="flex-1"
                 />
             </div>

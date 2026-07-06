@@ -17,6 +17,7 @@ const GlobalPaymentsPage = () => {
     const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
+    const [orderDetails, setOrderDetails] = useState({});
 
     useEffect(() => {
         fetchPayments();
@@ -31,6 +32,20 @@ const GlobalPaymentsPage = () => {
             }
             const data = await purchasesApi.payments.getAll(params);
             setPayments(data || []);
+
+            // Fetch order details for each payment to get supplier name
+            const orderIds = [...new Set(data.map(p => p.order).filter(id => id))];
+            const orderPromises = orderIds.map(id => purchasesApi.orders.getById(id));
+            const orderResults = await Promise.allSettled(orderPromises);
+
+            const orderMap = {};
+            orderResults.forEach((result, index) => {
+                if (result.status === 'fulfilled') {
+                    const order = result.value;
+                    orderMap[order.id] = order;
+                }
+            });
+            setOrderDetails(orderMap);
         } catch (error) {
             console.error('Failed to fetch payments:', error);
             setPayments([]);
@@ -57,12 +72,24 @@ const GlobalPaymentsPage = () => {
         {
             key: 'order',
             label: 'Order #',
-            render: (value) => value?.order_number || 'N/A'
+            render: (value) => {
+                if (value) {
+                    const order = orderDetails[value];
+                    return order?.order_number || value;
+                }
+                return 'N/A';
+            }
         },
         {
             key: 'order',
             label: 'Supplier',
-            render: (value) => value?.supplier?.name || 'N/A'
+            render: (value) => {
+                if (value) {
+                    const order = orderDetails[value];
+                    return order?.supplier?.name || 'N/A';
+                }
+                return 'N/A';
+            }
         },
         {
             key: 'amount',
@@ -77,8 +104,16 @@ const GlobalPaymentsPage = () => {
             label: 'Method',
             render: (value) => <Badge>{value || 'N/A'}</Badge>
         },
-        { key: 'payment_date', label: 'Date', render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A' },
-        { key: 'note', label: 'Note', render: (value) => value || '-' },
+        {
+            key: 'payment_date',
+            label: 'Date',
+            render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A'
+        },
+        {
+            key: 'note',
+            label: 'Note',
+            render: (value) => value || '-'
+        },
         {
             key: 'actions',
             label: 'Actions',
@@ -102,6 +137,7 @@ const GlobalPaymentsPage = () => {
             label: 'Payment Method',
             type: 'select',
             options: [
+                { value: '', label: 'All Methods' },
                 { value: 'cash', label: 'Cash' },
                 { value: 'jazzcash', label: 'JazzCash' },
                 { value: 'easypaisa', label: 'Easypaisa' },
@@ -124,7 +160,14 @@ const GlobalPaymentsPage = () => {
         <div className="space-y-6">
             <div>
                 <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
-                <p className="text-neutral-500 mt-1">Search and manage all payments across orders</p>
+                <p className="text-neutral-500 mt-1">
+                    Search and manage all payments across all purchase orders
+                </p>
+                <div className="mt-2 text-sm text-neutral-400">
+                    <p>• This page shows all payments from all suppliers</p>
+                    <p>• Use the search bar to find a payment by reference number</p>
+                    <p>• Click "View" on any payment to see it in the order context</p>
+                </div>
             </div>
 
             <div className="space-y-4">
@@ -132,7 +175,7 @@ const GlobalPaymentsPage = () => {
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
-                            placeholder="Search by reference number..."
+                            placeholder="Search by reference number (e.g., SPY-2026-0001)..."
                             className="w-full"
                         />
                     </div>
