@@ -575,11 +575,25 @@ class SavedPurchaseOrderPDFDeleteView(generics.DestroyAPIView):
 # ---------------------------------------------------------------------------
 
 class InventoryListView(generics.ListAPIView):
+    """
+    GET /purchases/inventory/
+    Available to all authenticated users (including normal users).
+
+    Filter params:
+        search      : product name or code (partial match)
+        category    : category id
+        shelf       : shelf id
+    """
     permission_classes = [IsAdminOrSuperuserOrReadOnly]
     serializer_class   = InventoryReadSerializer
 
     def get_queryset(self):
-        return get_all_inventory()
+        p = self.request.query_params
+        return get_all_inventory(
+            search      = p.get("search"),
+            category_id = p.get("category"),
+            shelf_id    = p.get("shelf"),
+        )
 
 
 class InventoryRetrieveView(generics.RetrieveAPIView):

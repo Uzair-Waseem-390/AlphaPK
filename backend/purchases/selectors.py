@@ -378,10 +378,33 @@ def get_order_payment_summary(order_id: int) -> PurchaseOrder:
 # Inventory
 # ---------------------------------------------------------------------------
 
-def get_all_inventory():
-    return Inventory.objects.select_related(
+def get_all_inventory(
+    *,
+    search      : str = None,
+    category_id : str = None,
+    shelf_id    : str = None,
+) -> QuerySet:
+    """
+    Returns inventory with optional filters:
+        search      : product name or product code (partial, case-insensitive)
+        category_id : filter by category id
+        shelf_id    : filter by shelf id
+    """
+    qs = Inventory.objects.select_related(
         "product", "product__category", "product__shelf", "last_updated_by",
-    ).all()
+    ).filter(product__is_deleted=False)
+
+    if _clean(search):
+        qs = qs.filter(
+            Q(product__name__icontains=_clean(search)) |
+            Q(product__code__icontains=_clean(search))
+        )
+    if _clean(category_id):
+        qs = qs.filter(product__category_id=_clean(category_id))
+    if _clean(shelf_id):
+        qs = qs.filter(product__shelf_id=_clean(shelf_id))
+
+    return qs.order_by("product__name")
 
 
 def get_inventory_by_product_id(product_id: int) -> Inventory:
