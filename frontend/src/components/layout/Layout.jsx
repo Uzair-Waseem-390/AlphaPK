@@ -23,6 +23,7 @@ const Layout = ({ children }) => {
         { name: 'Returns', path: '/purchases/returns', icon: '↩️' },
         { name: 'Outstanding', path: '/purchases/suppliers/outstanding', icon: '📊' },
         { name: 'Inventory', path: '/purchases/inventory', icon: '🏪' },
+        { name: 'Rates', path: '/rates', icon: '💰' },
     ];
 
     const isActive = (path) => location.pathname === path;

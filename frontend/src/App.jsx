@@ -15,10 +15,14 @@ import ProductsPage from './pages/purchases/ProductsPage';
 import PurchaseOrdersPage from './pages/purchases/PurchaseOrdersPage';
 import PaymentsPage from './pages/purchases/PaymentsPage';
 import ReturnsPage from './pages/purchases/ReturnsPage';
-import AllReturnsPage from './pages/purchases/AllReturnsPage'; // Add this import
+import AllReturnsPage from './pages/purchases/AllReturnsPage';
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
 import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
+
+// Rates pages
+import RatesPage from './pages/rates/RatesPage';
+import PriceHistoryPage from './pages/rates/PriceHistoryPage';
 
 import './App.css';
 
@@ -141,7 +145,7 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
-        {/* Updated Returns Routes */}
+        {/* Returns Routes */}
         <Route path="/purchases/returns" element={
           <ProtectedRoute>
             <Layout>
@@ -170,6 +174,23 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InventoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Rates Routes */}
+        <Route path="/rates" element={
+          <ProtectedRoute>
+            <Layout>
+              <RatesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/rates/history/:productId" element={
+          <ProtectedRoute>
+            <Layout>
+              <PriceHistoryPage />
             </Layout>
           </ProtectedRoute>
         } />
