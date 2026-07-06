@@ -1,0 +1,260 @@
+import { useState, useEffect } from 'react';
+import { motion } from 'framer-motion';
+import { useAuth } from '../../context/AuthContext';
+import { purchasesApi } from '../../services/purchasesApi';
+import Table from '../../components/ui/Table';
+import Button from '../../components/ui/Button';
+import Modal from '../../components/ui/Modal';
+import Input from '../../components/ui/Input';
+import Select from '../../components/ui/Select';
+import SearchBar from '../../components/ui/SearchBar';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import Badge from '../../components/ui/Badge';
+import Card from '../../components/ui/Card';
+import { useParams } from 'react-router-dom';
+
+const PaymentsPage = () => {
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const { orderId } = useParams();
+
+    const [payments, setPayments] = useState([]);
+    const [loading, setLoading] = useState(false);
+    const [showCreateModal, setShowCreateModal] = useState(false);
+    const [paymentSummary, setPaymentSummary] = useState(null);
+    const [formData, setFormData] = useState({
+        amount: '',
+        method: 'cash',
+        payment_date: new Date().toISOString().split('T')[0],
+        note: '',
+    });
+    const [formLoading, setFormLoading] = useState(false);
+    const [filters, setFilters] = useState({});
+
+    useEffect(() => {
+        fetchPayments();
+        fetchSummary();
+    }, [orderId, filters]);
+
+    const fetchPayments = async () => {
+        setLoading(true);
+        try {
+            const data = await purchasesApi.payments.getByOrder(orderId, filters);
+            setPayments(data);
+        } catch (error) {
+            console.error('Failed to fetch payments:', error);
+        } finally {
+            setLoading(false);
+        }
+    };
+
+    const fetchSummary = async () => {
+        try {
+            const data = await purchasesApi.orders.getPaymentSummary(orderId);
+            setPaymentSummary(data);
+        } catch (error) {
+            console.error('Failed to fetch payment summary:', error);
+        }
+    };
+
+    const handleCreatePayment = async (e) => {
+        e.preventDefault();
+        setFormLoading(true);
+        try {
+            await purchasesApi.payments.create(orderId, {
+                ...formData,
+                amount: parseFloat(formData.amount),
+            });
+            setShowCreateModal(false);
+            resetForm();
+            fetchPayments();
+            fetchSummary();
+        } catch (error) {
+            console.error('Failed to create payment:', error);
+            alert(error.response?.data?.detail || 'Failed to create payment');
+        } finally {
+            setFormLoading(false);
+        }
+    };
+
+    const handleDeletePayment = async (paymentId) => {
+        if (!window.confirm('Are you sure you want to delete this payment?')) return;
+
+        try {
+            await purchasesApi.payments.delete(paymentId);
+            fetchPayments();
+            fetchSummary();
+        } catch (error) {
+            console.error('Failed to delete payment:', error);
+        }
+    };
+
+    const resetForm = () => {
+        setFormData({
+            amount: '',
+            method: 'cash',
+            payment_date: new Date().toISOString().split('T')[0],
+            note: '',
+        });
+    };
+
+    const columns = [
+        { key: 'reference_number', label: 'Reference', width: '140px' },
+        {
+            key: 'amount',
+            label: 'Amount',
+            render: (value) => `$${parseFloat(value || 0).toFixed(2)}`
+        },
+        {
+            key: 'method',
+            label: 'Method',
+            render: (value) => <Badge>{value}</Badge>
+        },
+        { key: 'payment_date', label: 'Date', render: (value) => new Date(value).toLocaleDateString() },
+        { key: 'note', label: 'Note' },
+    ];
+
+    if (loading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <LoadingSpinner size="lg" />
+            </div>
+        );
+    }
+
+    return (
+        <div className="space-y-6">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Payments</h1>
+                    <p className="text-neutral-500 mt-1">Manage payments for this order</p>
+                </div>
+                {isAdmin && (
+                    <Button
+                        onClick={() => {
+                            resetForm();
+                            setShowCreateModal(true);
+                        }}
+                        icon={({ className }) => (
+                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                        )}
+                    >
+                        Record Payment
+                    </Button>
+                )}
+            </div>
+
+            {paymentSummary && (
+                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+                    <Card className="p-4">
+                        <p className="text-sm text-neutral-500">Total Payable</p>
+                        <p className="text-xl font-bold text-neutral-900">
+                            ${parseFloat(paymentSummary.payable_outstanding || 0).toFixed(2)}
+                        </p>
+                    </Card>
+                    <Card className="p-4">
+                        <p className="text-sm text-neutral-500">Total Paid</p>
+                        <p className="text-xl font-bold text-success-600">
+                            ${parseFloat(paymentSummary.total_paid || 0).toFixed(2)}
+                        </p>
+                    </Card>
+                    <Card className="p-4">
+                        <p className="text-sm text-neutral-500">Outstanding</p>
+                        <p className="text-xl font-bold text-error-600">
+                            ${parseFloat(paymentSummary.credit_outstanding || 0).toFixed(2)}
+                        </p>
+                    </Card>
+                    <Card className="p-4">
+                        <p className="text-sm text-neutral-500">Payment Status</p>
+                        <Badge variant={paymentSummary.payment_status === 'paid' ? 'paid' : 'unpaid'}>
+                            {paymentSummary.payment_status || 'N/A'}
+                        </Badge>
+                    </Card>
+                </div>
+            )}
+
+            <div className="flex gap-4">
+                <SearchBar
+                    onSearch={(value) => setFilters({ ...filters, reference: value })}
+                    placeholder="Search payments by reference..."
+                    className="flex-1"
+                />
+            </div>
+
+            <Table
+                columns={columns}
+                data={payments}
+                onRowClick={isAdmin ? handleDeletePayment : undefined}
+            />
+
+            <Modal
+                isOpen={showCreateModal}
+                onClose={() => {
+                    setShowCreateModal(false);
+                    resetForm();
+                }}
+                title="Record Payment"
+            >
+                <form onSubmit={handleCreatePayment} className="space-y-4">
+                    <Input
+                        label="Amount"
+                        type="number"
+                        step="0.01"
+                        value={formData.amount}
+                        onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                        placeholder="Enter amount"
+                        required
+                    />
+
+                    <Select
+                        label="Payment Method"
+                        value={formData.method}
+                        onChange={(e) => setFormData({ ...formData, method: e.target.value })}
+                        options={[
+                            { value: 'cash', label: 'Cash' },
+                            { value: 'jazzcash', label: 'JazzCash' },
+                            { value: 'easypaisa', label: 'Easypaisa' },
+                            { value: 'bank', label: 'Bank Transfer' },
+                        ]}
+                        required
+                    />
+
+                    <Input
+                        label="Payment Date"
+                        type="date"
+                        value={formData.payment_date}
+                        onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+                        required
+                    />
+
+                    <Input
+                        label="Note"
+                        value={formData.note}
+                        onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                        placeholder="Payment note (optional)"
+                    />
+
+                    <div className="flex justify-end gap-3 pt-4">
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            onClick={() => {
+                                setShowCreateModal(false);
+                                resetForm();
+                            }}
+                        >
+                            Cancel
+                        </Button>
+                        <Button type="submit" loading={formLoading}>
+                            Record Payment
+                        </Button>
+                    </div>
+                </form>
+            </Modal>
+        </div>
+    );
+};
+
+export default PaymentsPage;

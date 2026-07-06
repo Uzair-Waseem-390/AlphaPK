@@ -6,11 +6,20 @@ import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 import Users from './pages/Users';
 import Profile from './pages/Profile';
-import Button from './components/common/Button'; // Add this import
-// Purchase pages
-import Suppliers from './pages/purchases/Suppliers';
-import PurchaseOrders from './pages/purchases/PurchaseOrders';
-import PurchaseOrderDetail from './pages/purchases/PurchaseOrderDetail';
+
+// Purchases pages
+import CategoriesPage from './pages/purchases/CategoriesPage';
+import ShelvesPage from './pages/purchases/ShelvesPage';
+import SuppliersPage from './pages/purchases/SuppliersPage';
+import ProductsPage from './pages/purchases/ProductsPage';
+
+// New purchases pages
+import PurchaseOrdersPage from './pages/purchases/PurchaseOrdersPage';
+import PaymentsPage from './pages/purchases/PaymentsPage';
+import ReturnsPage from './pages/purchases/ReturnsPage';
+import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
+import InventoryPage from './pages/purchases/InventoryPage';
+
 import './App.css';
 
 const AppContent = () => {
@@ -36,21 +45,17 @@ const AppContent = () => {
             <Layout>
               <div className="space-y-6">
                 <h1 className="text-3xl font-bold text-neutral-900">Dashboard</h1>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
+                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Total Orders</h3>
+                    <h3 className="text-sm text-neutral-500">Total Users</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
                   </div>
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Suppliers</h3>
+                    <h3 className="text-sm text-neutral-500">Active Users</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
                   </div>
                   <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Outstanding</h3>
-                    <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
-                  </div>
-                  <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Revenue</h3>
+                    <h3 className="text-sm text-neutral-500">Admins</h3>
                     <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
                   </div>
                 </div>
@@ -75,44 +80,93 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
-        {/* Purchase Routes - Order matters! More specific routes first */}
+        {/* Purchases Routes */}
+        <Route path="/purchases/categories" element={
+          <ProtectedRoute>
+            <Layout>
+              <CategoriesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/shelves" element={
+          <ProtectedRoute>
+            <Layout>
+              <ShelvesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
         <Route path="/purchases/suppliers" element={
           <ProtectedRoute>
             <Layout>
-              <Suppliers />
+              <SuppliersPage />
             </Layout>
           </ProtectedRoute>
         } />
 
-        {/* Create order route - before the dynamic :id route */}
-        <Route path="/purchases/orders/create" element={
+        <Route path="/purchases/products" element={
           <ProtectedRoute>
             <Layout>
-              <div className="text-center py-12">
-                <h1 className="text-2xl font-bold text-neutral-900">Create Purchase Order</h1>
-                <p className="text-neutral-500 mt-2">Coming soon...</p>
-                <Button variant="secondary" className="mt-4" onClick={() => window.history.back()}>
-                  Go Back
-                </Button>
-              </div>
+              <ProductsPage />
             </Layout>
           </ProtectedRoute>
         } />
 
-        {/* Dynamic route for order details - must come after static routes */}
-        <Route path="/purchases/orders/:id" element={
-          <ProtectedRoute>
-            <Layout>
-              <PurchaseOrderDetail />
-            </Layout>
-          </ProtectedRoute>
-        } />
-
-        {/* Main orders list - keep as fallback */}
+        {/* New Purchase Routes */}
         <Route path="/purchases/orders" element={
           <ProtectedRoute>
             <Layout>
-              <PurchaseOrders />
+              <PurchaseOrdersPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/orders/:orderId/payments" element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/returns" element={
+          <ProtectedRoute>
+            <Layout>
+              <ReturnsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/orders/:orderId/returns" element={
+          <ProtectedRoute>
+            <Layout>
+              <ReturnsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/suppliers/outstanding" element={
+          <ProtectedRoute>
+            <Layout>
+              <SuppliersOutstandingPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/inventory" element={
+          <ProtectedRoute>
+            <Layout>
+              <InventoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Catch all route - redirect to dashboard */}
+        <Route path="*" element={
+          <ProtectedRoute>
+            <Layout>
+              <Navigate to="/dashboard" />
             </Layout>
           </ProtectedRoute>
         } />

@@ -2,7 +2,7 @@ import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Link, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import Button from '../common/Button';
+import Button from '../ui/Button';
 
 const Layout = ({ children }) => {
     const { user, logout } = useAuth();
@@ -13,8 +13,16 @@ const Layout = ({ children }) => {
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
         { name: 'Users', path: '/users', icon: '👥' },
         { name: 'Profile', path: '/profile', icon: '👤' },
-        { name: 'Suppliers', path: '/purchases/suppliers', icon: '🏭' },
-        { name: 'Purchase Orders', path: '/purchases/orders', icon: '📋' },
+        // Purchases section
+        { name: 'Categories', path: '/purchases/categories', icon: '📂' },
+        { name: 'Shelves', path: '/purchases/shelves', icon: '📚' },
+        { name: 'Suppliers', path: '/purchases/suppliers', icon: '🏢' },
+        { name: 'Products', path: '/purchases/products', icon: '📦' },
+        { name: 'Orders', path: '/purchases/orders', icon: '📋' },
+        { name: 'Payments', path: '/purchases/payments', icon: '💰' },
+        { name: 'Returns', path: '/purchases/returns', icon: '↩️' },
+        { name: 'Outstanding', path: '/purchases/suppliers/outstanding', icon: '📊' },
+        { name: 'Inventory', path: '/purchases/inventory', icon: '🏪' },
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -48,7 +56,7 @@ const Layout = ({ children }) => {
                     </div>
 
                     {/* Navigation */}
-                    <nav className="flex-1 p-4 space-y-2">
+                    <nav className="flex-1 p-4 space-y-2 overflow-y-auto">
                         {navigation.map((item) => (
                             <Link
                                 key={item.path}
@@ -106,6 +114,9 @@ const Layout = ({ children }) => {
                         </button>
 
                         <div className="flex items-center gap-4">
+                            <span className="text-sm text-neutral-500">
+                                {user?.role === 'superuser' ? 'Superuser' : user?.role === 'admin' ? 'Admin' : 'User'}
+                            </span>
                             <Button size="sm" variant="outline" onClick={logout}>
                                 Logout
                             </Button>
