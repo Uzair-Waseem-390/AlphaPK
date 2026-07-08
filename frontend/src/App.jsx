@@ -20,6 +20,7 @@ import AllReturnsPage from './pages/purchases/AllReturnsPage';
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
 import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
+import PurchasePaymentDetailPage from './pages/purchases/PurchasePaymentDetailPage';
 
 // Rates pages
 import RatesPage from './pages/rates/RatesPage';
@@ -142,6 +143,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <GlobalPaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/payments/ref/:reference" element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchasePaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

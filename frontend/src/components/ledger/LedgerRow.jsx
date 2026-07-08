@@ -14,21 +14,19 @@ const LedgerRow = ({ entry, index }) => {
         return num.toFixed(2);
     };
 
-    const getReferenceLink = (reference, entryType) => {
+    const getReferenceLink = (reference) => {
         if (!reference) return null;
         if (reference.startsWith('PO-')) {
             return `/purchases/orders/${reference}`;
         }
         if (reference.startsWith('SPY-')) {
-            return `/purchases/payments`;
+            return `/purchases/payments/ref/${reference}`;
         }
         if (reference.startsWith('RTN-')) {
             return `/purchases/returns`;
         }
         return null;
     };
-
-    const link = getReferenceLink(entry.reference, entry.entry_type);
 
     return (
         <motion.tr
@@ -43,17 +41,8 @@ const LedgerRow = ({ entry, index }) => {
             <td className="px-4 py-3 text-sm text-neutral-700">
                 {entry.details}
             </td>
-            <td className="px-4 py-3 text-sm font-mono">
-                {link ? (
-                    <Link
-                        to={link}
-                        className="text-primary-600 hover:text-primary-700 hover:underline"
-                    >
-                        {entry.reference}
-                    </Link>
-                ) : (
-                    <span className="text-neutral-500">{entry.reference}</span>
-                )}
+            <td className="px-4 py-3 text-sm font-mono text-neutral-500">
+                {entry.reference}
             </td>
             <td className="px-4 py-3">
                 <EntryTypeBadge type={entry.entry_type} />

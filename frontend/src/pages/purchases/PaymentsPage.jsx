@@ -158,14 +158,24 @@ const PaymentsPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '100px',
-            render: (_, row) => isAdmin && (
-                <button
-                    onClick={() => handleDeletePayment(row.id)}
-                    className="text-error-600 hover:text-error-700 text-sm"
-                >
-                    Delete
-                </button>
+            width: '120px',
+            render: (_, row) => (
+                <div className="flex items-center gap-3">
+                    <Link
+                        to={`/purchases/payments/ref/${row.reference_number}`}
+                        className="text-primary-600 hover:text-primary-700 text-sm"
+                    >
+                        View
+                    </Link>
+                    {isAdmin && (
+                        <button
+                            onClick={() => handleDeletePayment(row.id)}
+                            className="text-error-600 hover:text-error-700 text-sm"
+                        >
+                            Delete
+                        </button>
+                    )}
+                </div>
             ),
         },
     ];

@@ -120,7 +120,7 @@ const GlobalPaymentsPage = () => {
             width: '100px',
             render: (_, row) => (
                 <Link
-                    to={`/purchases/orders/${row.order}/payments`}
+                    to={`/purchases/payments/ref/${row.reference_number}`}
                     className="text-primary-600 hover:text-primary-700 text-sm"
                 >
                     View
