@@ -6,6 +6,7 @@ import Layout from './components/layout/Layout';
 import Login from './pages/Login';
 import Users from './pages/Users';
 import Profile from './pages/Profile';
+import DashboardPage from './pages/DashboardPage';
 
 // Purchases pages
 import CategoriesPage from './pages/purchases/CategoriesPage';
@@ -35,8 +36,14 @@ import InvoiceDetailPage from './pages/billing/InvoiceDetailPage';
 import BillingPaymentsPage from "./pages/billing/PaymentsPage";
 import PaymentDetailPage from './pages/billing/PaymentDetailPage';
 import OutstandingInvoicesPage from './pages/billing/OutstandingInvoicesPage';
-import BillingReturnsPage from './pages/billing/ReturnsPage'; // Add this import
-import ReturnDetailPage from './pages/billing/ReturnDetailPage'; // Add this import
+import BillingReturnsPage from './pages/billing/ReturnsPage';
+import ReturnDetailPage from './pages/billing/ReturnDetailPage';
+
+// Expenses pages
+import ExpenseCategoriesPage from './pages/expenses/ExpenseCategoriesPage';
+import ExpensesPage from './pages/expenses/ExpensesPage';
+import ExpenseDetailPage from './pages/expenses/ExpenseDetailPage'; // Add this import
+import EditExpensePage from './pages/expenses/EditExpensePage'; // Add this import
 
 import './App.css';
 
@@ -63,27 +70,7 @@ const AppContent = () => {
         <Route path="/dashboard" element={
           <ProtectedRoute>
             <Layout>
-              <div className="space-y-6">
-                <h1 className="text-3xl font-bold text-neutral-900">Dashboard</h1>
-                <div className="grid grid-cols-1 md:grid-cols-4 gap-6">
-                  <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Total Orders</h3>
-                    <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
-                  </div>
-                  <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Total Suppliers</h3>
-                    <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
-                  </div>
-                  <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Total Products</h3>
-                    <p className="text-3xl font-bold text-neutral-900 mt-2">-</p>
-                  </div>
-                  <div className="card p-6">
-                    <h3 className="text-sm text-neutral-500">Outstanding</h3>
-                    <p className="text-3xl font-bold text-error-600 mt-2">-</p>
-                  </div>
-                </div>
-              </div>
+              <DashboardPage />
             </Layout>
           </ProtectedRoute>
         } />
@@ -304,6 +291,39 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <OutstandingInvoicesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Expenses Routes */}
+        <Route path="/expenses/categories" element={
+          <ProtectedRoute>
+            <Layout>
+              <ExpenseCategoriesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/expenses" element={
+          <ProtectedRoute>
+            <Layout>
+              <ExpensesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/expenses/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <ExpenseDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/expenses/:id/edit" element={
+          <ProtectedRoute>
+            <Layout>
+              <EditExpensePage />
             </Layout>
           </ProtectedRoute>
         } />
