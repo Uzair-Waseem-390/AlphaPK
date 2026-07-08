@@ -30,9 +30,10 @@ import CustomerDetailPage from './pages/billing/CustomerDetailPage';
 import CustomerOutstandingPage from './pages/billing/CustomerOutstandingPage';
 import InvoicesPage from './pages/billing/InvoicesPage';
 import CreateInvoicePage from './pages/billing/CreateInvoicePage';
-import EditInvoicePage from './pages/billing/EditInvoicePage'; // Add this import
+import EditInvoicePage from './pages/billing/EditInvoicePage';
 import InvoiceDetailPage from './pages/billing/InvoiceDetailPage';
 import BillingPaymentsPage from "./pages/billing/PaymentsPage";
+import PaymentDetailPage from './pages/billing/PaymentDetailPage'; // Add this import
 import OutstandingInvoicesPage from './pages/billing/OutstandingInvoicesPage';
 
 import './App.css';
@@ -269,6 +270,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <BillingPaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/billing/payments/:paymentId" element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

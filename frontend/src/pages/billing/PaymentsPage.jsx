@@ -9,14 +9,16 @@ import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
-import { Link } from 'react-router-dom';
+import { Link, useNavigate } from 'react-router-dom';
 
 const PaymentsPage = () => {
+    const navigate = useNavigate();
     const [payments, setPayments] = useState([]);
     const [loading, setLoading] = useState(false);
     const [filters, setFilters] = useState({});
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
+    const [invoiceDetails, setInvoiceDetails] = useState({});
 
     useEffect(() => {
         fetchPayments();
@@ -31,6 +33,23 @@ const PaymentsPage = () => {
             }
             const data = await billingApi.payments.getAll(params);
             setPayments(data || []);
+
+            // Fetch invoice details for each payment
+            const invoiceIds = [...new Set(data.map(p => p.invoice).filter(id => id))];
+            if (invoiceIds.length > 0) {
+                const invoicePromises = invoiceIds.map(id =>
+                    billingApi.invoices.getById(id).catch(() => null)
+                );
+                const invoiceResults = await Promise.all(invoicePromises);
+
+                const invoiceMap = {};
+                invoiceResults.forEach((invoice, index) => {
+                    if (invoice) {
+                        invoiceMap[invoiceIds[index]] = invoice;
+                    }
+                });
+                setInvoiceDetails(invoiceMap);
+            }
         } catch (error) {
             console.error('Failed to fetch payments:', error);
             setPayments([]);
@@ -57,12 +76,22 @@ const PaymentsPage = () => {
         {
             key: 'invoice',
             label: 'Bill #',
-            render: (value) => value?.bill_number || 'N/A'
+            render: (value) => {
+                if (value && invoiceDetails[value]) {
+                    return invoiceDetails[value].bill_number || 'N/A';
+                }
+                return value || 'N/A';
+            }
         },
         {
             key: 'invoice',
             label: 'Customer',
-            render: (value) => value?.customer?.name || 'N/A'
+            render: (value) => {
+                if (value && invoiceDetails[value]) {
+                    return invoiceDetails[value].customer?.name || 'N/A';
+                }
+                return 'N/A';
+            }
         },
         {
             key: 'amount',
@@ -87,14 +116,16 @@ const PaymentsPage = () => {
             key: 'actions',
             label: 'Actions',
             width: '100px',
-            render: (_, row) => (
-                <Link
-                    to={`/billing/invoices/${row.invoice?.id}`}
-                    className="text-primary-600 hover:text-primary-700 text-sm"
-                >
-                    View
-                </Link>
-            ),
+            render: (_, row) => {
+                return (
+                    <Link
+                        to={`/billing/payments/${row.id}`}
+                        className="text-primary-600 hover:text-primary-700 text-sm font-medium"
+                    >
+                        View
+                    </Link>
+                );
+            },
         },
     ];
 
@@ -170,7 +201,19 @@ const PaymentsPage = () => {
                 )}
             </div>
 
-            <Table columns={columns} data={payments} />
+            <Table 
+                columns={columns} 
+                data={payments} 
+                onRowClick={(row) => navigate(`/billing/payments/${row.id}`)}
+            />
+
+            {payments.length === 0 && (
+                <div className="text-center py-12">
+                    <div className="text-6xl mb-4">💰</div>
+                    <h3 className="text-lg font-semibold text-neutral-900">No Payments Found</h3>
+                    <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
+                </div>
+            )}
         </div>
     );
 };

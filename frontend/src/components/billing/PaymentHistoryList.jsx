@@ -3,6 +3,8 @@ import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 
+import { Link } from 'react-router-dom';
+
 const PaymentHistoryList = ({ payments, onDelete, isAdmin = false }) => {
     if (!payments || payments.length === 0) {
         return (
@@ -17,7 +19,16 @@ const PaymentHistoryList = ({ payments, onDelete, isAdmin = false }) => {
             {payments.map((payment) => (
                 <div key={payment.id} className="flex justify-between items-center p-3 bg-neutral-50 rounded-lg">
                     <div>
-                        <p className="font-medium">{payment.reference_number}</p>
+                        {parseFloat(payment.amount) > 0 ? (
+                            <Link 
+                                to={`/billing/payments/${payment.id}`}
+                                className="font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                            >
+                                {payment.reference_number}
+                            </Link>
+                        ) : (
+                            <p className="font-medium">{payment.reference_number}</p>
+                        )}
                         <p className="text-sm text-neutral-500">
                             {payment.method_display || payment.method}
                             {payment.payment_date && (
