@@ -299,11 +299,12 @@ class ReturnReadSerializer(serializers.ModelSerializer):
     created_by          = serializers.StringRelatedField(read_only=True)
     accepted_by         = serializers.StringRelatedField(read_only=True)
     invoice_bill_number = serializers.CharField(source="invoice.bill_number", read_only=True)
+    customer_name       = serializers.CharField(source="invoice.customer.name", read_only=True)
 
     class Meta:
         model = Return
         fields = [
-            "id", "invoice", "invoice_bill_number", "reference_number", "status",
+            "id", "invoice", "invoice_bill_number", "customer_name", "reference_number", "status",
             "total_return_amount", "total_return_cogs",
             "items", "note",
             "accepted_by", "accepted_at",

@@ -9,10 +9,7 @@ import Input from '../../components/ui/Input';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
-import Card from '../../components/ui/Card';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
-import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
-import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import { useAuth } from '../../context/AuthContext';
 
 const SuppliersPage = () => {
@@ -27,11 +24,7 @@ const SuppliersPage = () => {
 
     const [searchTerm, setSearchTerm] = useState('');
     const [showModal, setShowModal] = useState(false);
-    const [showDetailModal, setShowDetailModal] = useState(false);
     const [editingSupplier, setEditingSupplier] = useState(null);
-    const [selectedSupplier, setSelectedSupplier] = useState(null);
-    const [outstandingOrders, setOutstandingOrders] = useState([]);
-    const [payableSummary, setPayableSummary] = useState(null);
     const [formData, setFormData] = useState({
         name: '',
         code: '',
@@ -39,7 +32,6 @@ const SuppliersPage = () => {
         mobile: '',
     });
     const [formLoading, setFormLoading] = useState(false);
-    const [detailLoading, setDetailLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     const filteredData = data.filter(item =>
@@ -119,30 +111,9 @@ const SuppliersPage = () => {
         }
     };
 
-    const handleViewDetails = async (supplier) => {
+    const handleViewDetails = (supplier) => {
         if (!supplier || supplier.is_deleted) return;
-
-        setSelectedSupplier(supplier);
-        setShowDetailModal(true);
-        setDetailLoading(true);
-        try {
-            const [orders, summary] = await Promise.all([
-                purchasesApi.suppliers.getOutstandingOrders(supplier.id),
-                purchasesApi.suppliers.getPayableSummary(supplier.id),
-            ]);
-            setOutstandingOrders(orders || []);
-            setPayableSummary(summary || {});
-        } catch (error) {
-            console.error('Failed to load supplier details:', error);
-            setOutstandingOrders([]);
-            setPayableSummary({});
-        } finally {
-            setDetailLoading(false);
-        }
-    };
-
-    const handleViewOrderDetail = (order) => {
-        navigate(`/purchases/orders/${order.id}`);
+        navigate(`/purchases/suppliers/${supplier.id}`);
     };
 
     const handleDelete = async (id) => {
@@ -165,9 +136,6 @@ const SuppliersPage = () => {
         setFormData({ name: '', code: '', address: '', mobile: '' });
         setEditingSupplier(null);
     };
-
-    const getStatusBadge = (status) => <OrderStatusBadge status={status} />;
-    const getPaymentStatusBadge = (status) => <OrderPaymentStatusBadge status={status} />;
 
     if (loading) {
         return (
@@ -268,123 +236,6 @@ const SuppliersPage = () => {
                         </Button>
                     </div>
                 </form>
-            </Modal>
-
-            {/* Supplier Detail Modal */}
-            <Modal
-                isOpen={showDetailModal}
-                onClose={() => {
-                    setShowDetailModal(false);
-                    setSelectedSupplier(null);
-                    setOutstandingOrders([]);
-                    setPayableSummary(null);
-                }}
-                title="Supplier Details"
-                size="lg"
-            >
-                {detailLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                        <LoadingSpinner />
-                    </div>
-                ) : (
-                    <>
-                        {selectedSupplier && (
-                            <div className="space-y-6">
-                                <div className="grid grid-cols-2 gap-4">
-                                    <div>
-                                        <p className="text-sm text-neutral-500">Name</p>
-                                        <p className="font-medium">{selectedSupplier.name}</p>
-                                    </div>
-                                    <div>
-                                        <p className="text-sm text-neutral-500">Code</p>
-                                        <p className="font-medium">{selectedSupplier.code}</p>
-                                    </div>
-                                </div>
-
-                                {payableSummary && Object.keys(payableSummary).length > 0 && (
-                                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                                        <Card className="p-4">
-                                            <p className="text-sm text-neutral-500">Total Net Payable</p>
-                                            <p className="text-xl font-bold text-neutral-900">
-                                                {typeof payableSummary.total_net_payable === 'string'
-                                                    ? parseFloat(payableSummary.total_net_payable).toFixed(2)
-                                                    : '0.00'}
-                                            </p>
-                                        </Card>
-                                        <Card className="p-4">
-                                            <p className="text-sm text-neutral-500">Total Paid</p>
-                                            <p className="text-xl font-bold text-success-600">
-                                                {typeof payableSummary.total_paid === 'string'
-                                                    ? parseFloat(payableSummary.total_paid).toFixed(2)
-                                                    : '0.00'}
-                                            </p>
-                                        </Card>
-                                        <Card className="p-4">
-                                            <p className="text-sm text-neutral-500">Outstanding</p>
-                                            <p className="text-xl font-bold text-error-600">
-                                                {typeof payableSummary.total_payable_outstanding === 'string'
-                                                    ? parseFloat(payableSummary.total_payable_outstanding).toFixed(2)
-                                                    : '0.00'}
-                                            </p>
-                                        </Card>
-                                        <Card className="p-4">
-                                            <p className="text-sm text-neutral-500">Payment Status</p>
-                                            <Badge
-                                                variant={parseFloat(payableSummary.total_payable_outstanding || 0) > 0 ? 'unpaid' : 'paid'}
-                                            >
-                                                {parseFloat(payableSummary.total_payable_outstanding || 0) > 0 ? 'Outstanding' : 'Settled'}
-                                            </Badge>
-                                        </Card>
-                                    </div>
-                                )}
-
-                                {outstandingOrders.length > 0 && (
-                                    <div>
-                                        <h3 className="font-semibold text-neutral-900 mb-3">Outstanding Orders</h3>
-                                        <div className="space-y-2">
-                                            {outstandingOrders.map((order) => (
-                                                <Card
-                                                    key={order.id}
-                                                    className="p-4 cursor-pointer hover:shadow-card-hover transition-shadow"
-                                                    onClick={() => handleViewOrderDetail(order)}
-                                                >
-                                                    <div className="flex justify-between items-center">
-                                                        <div>
-                                                            <p className="font-medium">{order.order_number}</p>
-                                                            <p className="text-sm text-neutral-500">
-                                                                {order.created_at ? new Date(order.created_at).toLocaleDateString() : 'N/A'}
-                                                            </p>
-                                                            <div className="flex gap-2 mt-1">
-                                                                {getStatusBadge(order.status)}
-                                                                {getPaymentStatusBadge(order.payment_status)}
-                                                            </div>
-                                                        </div>
-                                                        <div className="text-right">
-                                                            <p className="font-semibold text-error-600">
-                                                                {typeof order.payable_outstanding === 'string'
-                                                                    ? parseFloat(order.payable_outstanding).toFixed(2)
-                                                                    : '0.00'}
-                                                            </p>
-                                                            <p className="text-sm text-neutral-500">
-                                                                Total: {typeof order.net_payable === 'string'
-                                                                    ? parseFloat(order.net_payable).toFixed(2)
-                                                                    : '0.00'}
-                                                            </p>
-                                                        </div>
-                                                    </div>
-                                                </Card>
-                                            ))}
-                                        </div>
-                                    </div>
-                                )}
-
-                                {outstandingOrders.length === 0 && (
-                                    <p className="text-center text-neutral-500 py-4">No outstanding orders</p>
-                                )}
-                            </div>
-                        )}
-                    </>
-                )}
             </Modal>
         </div>
     );

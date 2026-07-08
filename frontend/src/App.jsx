@@ -12,12 +12,14 @@ import DashboardPage from './pages/DashboardPage';
 import CategoriesPage from './pages/purchases/CategoriesPage';
 import ShelvesPage from './pages/purchases/ShelvesPage';
 import SuppliersPage from './pages/purchases/SuppliersPage';
+import SupplierDetailPage from './pages/purchases/SupplierDetailPage';
 import ProductsPage from './pages/purchases/ProductsPage';
 import PurchaseOrdersPage from './pages/purchases/PurchaseOrdersPage';
 import PurchaseOrderDetailPage from './pages/purchases/PurchaseOrderDetailPage';
 import PaymentsPage from './pages/purchases/PaymentsPage';
 import ReturnsPage from './pages/purchases/ReturnsPage';
 import AllReturnsPage from './pages/purchases/AllReturnsPage';
+import PurchaseReturnDetailPage from './pages/purchases/PurchaseReturnDetailPage';
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
 import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
@@ -124,6 +126,14 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
+        <Route path="/purchases/suppliers/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <SupplierDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
         <Route path="/purchases/products" element={
           <ProtectedRoute>
             <Layout>
@@ -176,6 +186,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <AllReturnsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/returns/:returnId" element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchaseReturnDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

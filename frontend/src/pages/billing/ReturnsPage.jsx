@@ -38,8 +38,8 @@ const ReturnsPage = () => {
                 const term = searchTerm.toLowerCase();
                 filtered = filtered.filter(r =>
                     r.reference_number?.toLowerCase().includes(term) ||
-                    r.invoice?.bill_number?.toLowerCase().includes(term) ||
-                    r.invoice?.customer?.name?.toLowerCase().includes(term)
+                    r.invoice_bill_number?.toLowerCase().includes(term) ||
+                    r.customer_name?.toLowerCase().includes(term)
                 );
             }
 
@@ -84,14 +84,14 @@ const ReturnsPage = () => {
     const columns = [
         { key: 'reference_number', label: 'Return #', width: '140px' },
         {
-            key: 'invoice',
+            key: 'invoice_bill_number',
             label: 'Bill #',
-            render: (value) => value?.bill_number || 'N/A'
+            render: (value) => value || 'N/A'
         },
         {
-            key: 'invoice',
+            key: 'customer_name',
             label: 'Customer',
-            render: (value) => value?.customer?.name || 'N/A'
+            render: (value) => value || 'N/A'
         },
         {
             key: 'status',
