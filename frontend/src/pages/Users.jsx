@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
 import UserCard from '../components/users/UserCard';
@@ -12,6 +13,7 @@ import LoadingSpinner from '../components/common/LoadingSpinner';
 
 const Users = () => {
     const { user: currentUser } = useAuth();
+    const navigate = useNavigate();
     const [users, setUsers] = useState([]);
     const [filteredUsers, setFilteredUsers] = useState([]);
     const [loading, setLoading] = useState(true);
@@ -112,6 +114,12 @@ const Users = () => {
             setFormLoading(false);
         }
     };
+
+    // Listing all users is superuser-only
+    if (!isSuperuser) {
+        navigate('/dashboard');
+        return null;
+    }
 
     if (loading) {
         return (

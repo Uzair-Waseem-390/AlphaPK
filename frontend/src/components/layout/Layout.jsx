@@ -14,6 +14,7 @@ const Layout = ({ children }) => {
     const [reportsOpen, setReportsOpen] = useState(false);
 
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const isSuperuser = user?.role === 'superuser';
 
     // Check if any purchases sub-item is active
     const isPurchasesActive = () => {
@@ -63,12 +64,15 @@ const Layout = ({ children }) => {
 
     const mainNavigation = [
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
-        { name: 'Users', path: '/users', icon: '👥' },
+        // Listing all users is superuser-only (see users app permission matrix)
+        { name: 'Users', path: '/users', icon: '👥', superuserOnly: true },
         { name: 'Profile', path: '/profile', icon: '👤' },
+        // Inventory + Rates are viewable by every role
         { name: 'Inventory', path: '/purchases/inventory', icon: '🏪' },
         { name: 'Rates', path: '/rates', icon: '💰' },
-        { name: 'Ledger', path: '/ledger', icon: '📒' },
-    ];
+        // Ledger app is admin/superuser-only end to end
+        { name: 'Ledger', path: '/ledger', icon: '📒', adminOnly: true },
+    ].filter(item => (!item.adminOnly || isAdmin) && (!item.superuserOnly || isSuperuser));
 
     const purchasesNavigation = [
         { name: 'Categories', path: '/purchases/categories', icon: '📂' },
@@ -159,7 +163,8 @@ const Layout = ({ children }) => {
                             </Link>
                         ))}
 
-                        {/* Purchases Section */}
+                        {/* Purchases Section — admin/superuser only */}
+                        {isAdmin && (
                         <div className="mt-2 pt-2 border-t border-neutral-200">
                             <button
                                 onClick={() => setPurchasesOpen(!purchasesOpen)}
@@ -231,6 +236,7 @@ const Layout = ({ children }) => {
                                 </div>
                             )}
                         </div>
+                        )}
 
                         {/* Billing Section */}
                         <div className="mt-2 pt-2 border-t border-neutral-200">
@@ -305,7 +311,8 @@ const Layout = ({ children }) => {
                             )}
                         </div>
 
-                        {/* Expenses Section */}
+                        {/* Expenses Section — admin/superuser only (Cash Flow app) */}
+                        {isAdmin && (
                         <div className="mt-2 pt-2 border-t border-neutral-200">
                             <button
                                 onClick={() => setExpensesOpen(!expensesOpen)}
@@ -377,6 +384,7 @@ const Layout = ({ children }) => {
                                 </div>
                             )}
                         </div>
+                        )}
 
                         {/* Reports Section — admin/superuser only */}
                         {isAdmin && (
