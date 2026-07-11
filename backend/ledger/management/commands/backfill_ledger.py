@@ -131,7 +131,7 @@ class Command(BaseCommand):
             if not SupplierLedgerEntry.objects.filter(purchase_order=po).exists():
                 transactions.append({
                     "type"    : "purchase",
-                    "date"    : po.confirmed_at.date() if po.confirmed_at else po.created_at.date(),
+                    "date"    : timezone.localtime(po.confirmed_at).date() if po.confirmed_at else timezone.localtime(po.created_at).date(),
                     "supplier": po.supplier,
                     "po"      : po,
                 })
@@ -156,7 +156,7 @@ class Command(BaseCommand):
             if not SupplierLedgerEntry.objects.filter(purchase_return=pr).exists():
                 transactions.append({
                     "type"    : "return",
-                    "date"    : pr.accepted_at.date() if pr.accepted_at else pr.created_at.date(),
+                    "date"    : timezone.localtime(pr.accepted_at).date() if pr.accepted_at else timezone.localtime(pr.created_at).date(),
                     "supplier": pr.order.supplier,
                     "pr"      : pr,
                 })

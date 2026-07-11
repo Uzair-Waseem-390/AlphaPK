@@ -99,10 +99,12 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
             grand_total_display = "N/A"
 
     # Resolve invoice date: confirmed_at for confirmed bills, created_at for drafts
+    # localtime() converts the UTC-stored value to settings.TIME_ZONE before
+    # formatting — strftime() on the raw aware datetime would print the UTC day.
     if invoice.confirmed_at:
-        invoice_date = invoice.confirmed_at.strftime("%d %b %Y")
+        invoice_date = timezone.localtime(invoice.confirmed_at).strftime("%d %b %Y")
     else:
-        invoice_date = invoice.created_at.strftime("%d %b %Y")
+        invoice_date = timezone.localtime(invoice.created_at).strftime("%d %b %Y")
 
     context = {
         "invoice"            : invoice,
@@ -111,7 +113,7 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
         "subtotal_display"   : subtotal_display,
         "grand_total_display": grand_total_display,
         "invoice_date"       : invoice_date,
-        "generated_at"       : timezone.now().strftime("%d %b %Y %H:%M"),
+        "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
     }
     return render_to_string("billing/invoice_pdf.html", context)
 
@@ -167,8 +169,9 @@ def save_invoice_pdf(
     html     = _render_invoice_html(invoice, is_draft=False)
     pdf      = _html_to_pdf_bytes(html)
 
-    year      = timezone.now().year
-    timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+    local_now = timezone.localtime(timezone.now())
+    year      = local_now.year
+    timestamp = local_now.strftime("%Y%m%d_%H%M%S")
     safe_name = file_name.strip().replace(" ", "_").replace("/", "-")
     filename  = f"{safe_name}_{timestamp}.pdf"
     pdf_dir   = _get_invoice_pdf_dir(year)

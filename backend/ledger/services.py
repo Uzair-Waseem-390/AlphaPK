@@ -228,8 +228,9 @@ def save_ledger_pdf(
         ledger_id=ledger_id, date_from=date_from, date_to=date_to,
     )
 
-    year      = timezone.now().year
-    timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+    local_now = timezone.localtime(timezone.now())
+    year      = local_now.year
+    timestamp = local_now.strftime("%Y%m%d_%H%M%S")
     safe_name = file_name.strip().replace(" ", "_").replace("/", "-")
     filename  = f"{safe_name}_{timestamp}.pdf"
     pdf_dir   = Path(django_settings.MEDIA_ROOT) / "ledgers" / str(year)
@@ -285,7 +286,7 @@ def generate_ledger_pdf_bytes(
         "closing_balance" : closing_balance,
         "date_from"       : date_from,
         "date_to"         : date_to,
-        "generated_at"    : timezone.now().strftime("%d %b %Y %H:%M"),
+        "generated_at"    : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "currency"        : "PKR",
     }
     html     = render_to_string("ledger/supplier_ledger_pdf.html", context)

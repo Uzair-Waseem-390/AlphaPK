@@ -35,17 +35,19 @@ def _build_item_context(order: PurchaseOrder) -> list[dict]:
 
 
 def _render_order_html(order: PurchaseOrder, is_draft: bool = False) -> str:
+    # localtime() converts the UTC-stored value to settings.TIME_ZONE before
+    # formatting — strftime() on the raw aware datetime would print the UTC day.
     order_date = (
-        order.confirmed_at.strftime("%d %b %Y")
+        timezone.localtime(order.confirmed_at).strftime("%d %b %Y")
         if order.confirmed_at
-        else order.created_at.strftime("%d %b %Y")
+        else timezone.localtime(order.created_at).strftime("%d %b %Y")
     )
     context = {
         "order"       : order,
         "items"       : _build_item_context(order),
         "order_date"  : order_date,
         "is_draft"    : is_draft,
-        "generated_at": timezone.now().strftime("%d %b %Y %H:%M"),
+        "generated_at": timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
     }
     return render_to_string("purchases/purchase_order_pdf.html", context)
 
@@ -79,8 +81,9 @@ def save_purchase_order_pdf(*, order_id: int, file_name: str, user) -> SavedPurc
 
     html      = _render_order_html(order)
     pdf       = _html_to_pdf_bytes(html)
-    year      = timezone.now().year
-    timestamp = timezone.now().strftime("%Y%m%d_%H%M%S")
+    local_now = timezone.localtime(timezone.now())
+    year      = local_now.year
+    timestamp = local_now.strftime("%Y%m%d_%H%M%S")
     safe_name = file_name.strip().replace(" ", "_").replace("/", "-")
     filename  = f"{safe_name}_{timestamp}.pdf"
     pdf_dir   = _get_pdf_dir(year)

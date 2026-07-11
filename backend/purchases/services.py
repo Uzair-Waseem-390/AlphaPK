@@ -332,7 +332,7 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
             reference_number=_generate_supplier_payment_reference(),
             amount=new_amount,
             method=SupplierPayment.Method.CASH,
-            payment_date=timezone.now().date(),
+            payment_date=timezone.localtime(timezone.now()).date(),
             note="Advance payment on draft purchase order creation.",
             created_by=user,
             updated_by=user,
@@ -342,7 +342,7 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
             supplier=order.supplier,
             supplier_payment=adv_payment,
             amount=new_amount,
-            date=timezone.now().date(),
+            date=timezone.localtime(timezone.now()).date(),
             user=user,
         )
 
@@ -401,7 +401,7 @@ def create_purchase_order(
             reference_number=_generate_supplier_payment_reference(),
             amount=advance_amount,
             method=SupplierPayment.Method.CASH,
-            payment_date=timezone.now().date(),
+            payment_date=timezone.localtime(timezone.now()).date(),
             note="Advance payment on draft purchase order creation.",
             created_by=user,
             updated_by=user,
@@ -415,7 +415,7 @@ def create_purchase_order(
             supplier=order.supplier,
             supplier_payment=adv_payment,
             amount=advance_amount,
-            date=timezone.now().date(),
+            date=timezone.localtime(timezone.now()).date(),
             user=user,
         )
 
@@ -589,7 +589,7 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
         supplier=order.supplier,
         purchase_order=order,
         amount=order.net_payable,
-        date=order.confirmed_at.date(),
+        date=timezone.localtime(order.confirmed_at).date(),
         user=user,
     )
 
@@ -819,7 +819,7 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         reference_number=_generate_supplier_payment_reference(),
         amount=-total_amount,
         method=SupplierPayment.Method.CASH,
-        payment_date=timezone.now().date(),
+        payment_date=timezone.localtime(timezone.now()).date(),
         note=f"Auto credit note for Return #{return_record.reference_number}",
         created_by=user,
         updated_by=user,
@@ -836,7 +836,7 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         supplier=return_record.order.supplier,
         purchase_return=return_record,
         amount=total_amount,
-        date=return_record.accepted_at.date(),
+        date=timezone.localtime(return_record.accepted_at).date(),
         user=user,
     )
 

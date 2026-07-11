@@ -768,7 +768,7 @@ def accept_return(*, return_id: int, user) -> Return:
         reference_number=_generate_payment_reference(),
         amount=-total_return_amount,
         method=Payment.Method.CASH,  # credit note — reduces customer outstanding
-        payment_date=timezone.now().date(),
+        payment_date=timezone.localtime(timezone.now()).date(),
         note=f"Auto credit note for Return {return_record.reference_number}",
         created_by=user,
         updated_by=user,
