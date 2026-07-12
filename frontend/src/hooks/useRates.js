@@ -139,8 +139,8 @@ export const useRateHistory = (productId) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await ratesApi.getHistory(productId);
-            setData(result || []);
+            const result = await ratesApi.getHistory(productId, { page_size: 500 });
+            setData(result?.results ?? result ?? []);
         } catch (err) {
             setError(err.message || 'Failed to fetch history');
             setData([]);

@@ -17,5 +17,5 @@ export const ratesApi = {
     update: (id, data) => api.patch(`/rates/${id}/`, data),
 
     // Get price history for a product
-    getHistory: (productId) => api.get(`/rates/history/${productId}/`),
+    getHistory: (productId, params) => api.get(`/rates/history/${productId}/`, { params }),
 };
