@@ -38,7 +38,7 @@ const NormalUserDashboard = () => {
 
     const {
         data: inventory, meta, extra, page, setPage, loading: inventoryLoading,
-    } = usePaginatedList(fetchInventoryPage, {});
+    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm, categoryFilter, shelfFilter]);
 
     useEffect(() => {
         loadLookupsAndRates();

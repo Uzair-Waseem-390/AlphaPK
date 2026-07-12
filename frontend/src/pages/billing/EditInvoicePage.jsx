@@ -39,16 +39,18 @@ const EditInvoicePage = () => {
             // and every rate already carries its product + selling price.
             const [invoiceData, customersData, ratesData] = await Promise.all([
                 billingApi.invoices.getById(id),
-                billingApi.customers.getAll(),
-                ratesApi.getAll(),
+                billingApi.customers.getAll({ page_size: 500 }),
+                ratesApi.getAll({ page_size: 500 }),
             ]);
 
-            const productsWithRates = (ratesData || [])
+            const customersList = customersData?.results ?? customersData ?? [];
+            const ratesList = ratesData?.results ?? ratesData ?? [];
+            const productsWithRates = ratesList
                 .filter(rate => rate.product?.id)
                 .map(rate => ({ ...rate.product, rate }));
 
             setInvoice(invoiceData);
-            setCustomers(customersData || []);
+            setCustomers(customersList);
             setProducts(productsWithRates);
 
             // Populate form data

@@ -37,7 +37,8 @@ const EditExpensePage = () => {
     const fetchExpense = async () => {
         setLoading(true);
         try {
-            const expenses = await cashFlowApi.expenses.getAll();
+            const expensesRes = await cashFlowApi.expenses.getAll({ page_size: 500 });
+            const expenses = expensesRes?.results ?? expensesRes ?? [];
             const found = expenses.find(e => e.id === parseInt(id));
             if (found) {
                 setExpense(found);

@@ -28,7 +28,7 @@ const CustomerOutstandingPage = () => {
     const {
         data: customers, meta, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchCustomersPage, {});
+    } = usePaginatedList(fetchCustomersPage, {}, 25, [searchTerm]);
 
     const handleSearch = (value) => {
         setSearchTerm(value);

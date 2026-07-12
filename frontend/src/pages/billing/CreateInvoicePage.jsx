@@ -34,14 +34,16 @@ const CreateInvoicePage = () => {
             // users have no Purchases access, but rates are viewable by everyone,
             // and every rate already carries its product + selling price.
             const [customersData, ratesData] = await Promise.all([
-                billingApi.customers.getAll(),
-                ratesApi.getAll(),
+                billingApi.customers.getAll({ page_size: 500 }),
+                ratesApi.getAll({ page_size: 500 }),
             ]);
-            const productsWithRates = (ratesData || [])
+            const customersList = customersData?.results ?? customersData ?? [];
+            const ratesList = ratesData?.results ?? ratesData ?? [];
+            const productsWithRates = ratesList
                 .filter(rate => rate.product?.id)
                 .map(rate => ({ ...rate.product, rate }));
 
-            setCustomers(customersData || []);
+            setCustomers(customersList);
             setProducts(productsWithRates);
         } catch (error) {
             console.error('Failed to load initial data:', error);

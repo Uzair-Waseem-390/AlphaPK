@@ -34,7 +34,7 @@ const InvoicesPage = () => {
     const {
         data: invoices, meta, page, setPage, loading,
         filters: filterValues, setFilters: setFilterValues, refetch: fetchInvoices,
-    } = usePaginatedList(fetchInvoicesPage, {});
+    } = usePaginatedList(fetchInvoicesPage, {}, 25, [activeTab, searchTerm]);
 
     const tabs = [
         { value: 'all', label: 'All Invoices' },

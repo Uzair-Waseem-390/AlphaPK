@@ -82,7 +82,10 @@ export const billingApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/billing/returns/${query ? `?${query}` : ''}`);
         },
-        getByInvoice: (invoiceId) => api.get(`/billing/invoices/${invoiceId}/returns/`),
+        getByInvoice: (invoiceId, params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/billing/invoices/${invoiceId}/returns/${query ? `?${query}` : ''}`);
+        },
         create: (invoiceId, data) => {
             const payload = {
                 invoice_id: parseInt(invoiceId),

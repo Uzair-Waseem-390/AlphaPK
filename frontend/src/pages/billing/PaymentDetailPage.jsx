@@ -28,7 +28,8 @@ const PaymentDetailPage = () => {
         setLoading(true);
         try {
             // First, get all payments and find the specific one
-            const allPayments = await billingApi.payments.getAll();
+            const paymentsRes = await billingApi.payments.getAll({ page_size: 500 });
+            const allPayments = paymentsRes?.results ?? paymentsRes ?? [];
             const foundPayment = allPayments.find(p => p.id === parseInt(paymentId));
 
             if (!foundPayment) {

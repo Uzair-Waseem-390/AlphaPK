@@ -29,7 +29,7 @@ const OutstandingInvoicesPage = () => {
     const {
         data: invoices, meta, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchOutstandingInvoicesPage, {});
+    } = usePaginatedList(fetchOutstandingInvoicesPage, {}, 25, [searchTerm]);
 
     const handleSearch = (value) => {
         setSearchTerm(value);

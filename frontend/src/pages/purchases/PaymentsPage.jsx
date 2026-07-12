@@ -41,7 +41,7 @@ const PaymentsPage = () => {
     const {
         data: payments, meta, page, setPage, loading,
         filters, setFilters, refetch: fetchPayments,
-    } = usePaginatedList(fetchPaymentsPage, {});
+    } = usePaginatedList(fetchPaymentsPage, {}, 25, [orderId]);
 
     useEffect(() => {
         if (orderId && orderId !== 'undefined') {

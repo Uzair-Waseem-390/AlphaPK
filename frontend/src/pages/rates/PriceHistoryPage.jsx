@@ -24,7 +24,8 @@ const PriceHistoryPage = () => {
         setProductLoading(true);
         try {
             // Get product details from products API
-            const products = await purchasesApi.products.getAll();
+            const productsRes = await purchasesApi.products.getAll({ page_size: 500 });
+            const products = productsRes?.results ?? productsRes ?? [];
             const found = products.find(p => p.id === parseInt(productId));
             setProduct(found);
         } catch (error) {

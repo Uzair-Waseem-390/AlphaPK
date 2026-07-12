@@ -27,7 +27,7 @@ const GlobalPaymentsPage = () => {
     const {
         data: payments, meta, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchPaymentsPage, {});
+    } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
 
     // Fetch order details for the payments on the current page to get supplier name
     useEffect(() => {

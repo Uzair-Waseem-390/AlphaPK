@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState } from 'react';
 import { purchasesApi } from '../services/purchasesApi';
 import { usePaginatedList } from './usePaginatedList';
 
@@ -76,28 +76,11 @@ export const useCRUD = (service, initialFilters = {}) => {
 
 // Hook for supplier outstanding — Suppliers are excluded from pagination
 // (client confirmed there are only ~10-15), so this stays a plain list fetch.
+// The suppliers-outstanding endpoint IS paginated (only the plain suppliers
+// list is excluded), so this wraps usePaginatedList like the other lists.
 export const useSuppliersOutstanding = (initialFilters = {}) => {
-    const [data, setData] = useState([]);
-    const [loading, setLoading] = useState(false);
-    const [error, setError] = useState(null);
-    const [filters, setFilters] = useState(initialFilters);
+    const { data, meta, loading, error, filters, setFilters, page, setPage, refetch } =
+        usePaginatedList((params) => purchasesApi.suppliers.getOutstanding(params), initialFilters);
 
-    const fetchData = useCallback(async () => {
-        setLoading(true);
-        setError(null);
-        try {
-            const result = await purchasesApi.suppliers.getOutstanding(filters);
-            setData(result);
-        } catch (err) {
-            setError(err.message);
-        } finally {
-            setLoading(false);
-        }
-    }, [filters]);
-
-    useEffect(() => {
-        fetchData();
-    }, [fetchData]);
-
-    return { data, loading, error, filters, setFilters, refetch: fetchData };
+    return { data, meta, page, setPage, loading, error, filters, setFilters, refetch };
 };

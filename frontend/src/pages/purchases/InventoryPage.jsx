@@ -36,7 +36,7 @@ const InventoryPage = () => {
     const {
         data: inventory, meta, extra, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchInventoryPage, {});
+    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm]);
 
     useEffect(() => {
         loadLookups();

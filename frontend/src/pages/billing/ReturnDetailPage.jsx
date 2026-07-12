@@ -28,8 +28,9 @@ const ReturnDetailPage = () => {
         setLoading(true);
         try {
             // Get all returns to find the specific one
-            const allReturns = await billingApi.returns.getAll();
-            const foundReturn = allReturns?.find(r => r.id === parseInt(returnId));
+            const returnsRes = await billingApi.returns.getAll({ page_size: 500 });
+            const allReturns = returnsRes?.results ?? returnsRes ?? [];
+            const foundReturn = allReturns.find(r => r.id === parseInt(returnId));
             
             if (foundReturn) {
                 setReturnItem(foundReturn);

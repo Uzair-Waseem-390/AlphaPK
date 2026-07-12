@@ -45,7 +45,7 @@ const PurchaseOrdersPage = () => {
     const {
         data: orders, meta, page, setPage, loading,
         filters, setFilters, refetch: fetchOrders,
-    } = usePaginatedList(fetchOrdersPage, {});
+    } = usePaginatedList(fetchOrdersPage, {}, 25, [activeTab, searchTerm]);
 
     // Form state
     const [formData, setFormData] = useState({

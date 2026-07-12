@@ -46,7 +46,7 @@ const SupplierDetailPage = () => {
         return purchasesApi.orders.getAll({ ...params, supplier_code: supplier.code });
     };
 
-    const { data: orders, meta, page, setPage, loading: ordersLoading } = usePaginatedList(fetchOrdersPage, {});
+    const { data: orders, meta, page, setPage, loading: ordersLoading } = usePaginatedList(fetchOrdersPage, {}, 25, [supplier?.code]);
 
     const columns = [
         { key: 'order_number', label: 'Order #', width: '120px' },

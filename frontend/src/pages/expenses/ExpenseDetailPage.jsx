@@ -25,7 +25,8 @@ const ExpenseDetailPage = () => {
         setLoading(true);
         try {
             // Get all expenses and find the specific one
-            const expenses = await cashFlowApi.expenses.getAll();
+            const expensesRes = await cashFlowApi.expenses.getAll({ page_size: 500 });
+            const expenses = expensesRes?.results ?? expensesRes ?? [];
             const found = expenses.find(e => e.id === parseInt(id));
             setExpense(found || null);
         } catch (error) {

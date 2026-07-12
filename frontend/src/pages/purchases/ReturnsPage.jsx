@@ -36,7 +36,7 @@ const ReturnsPage = () => {
     const {
         data: returns, meta, page, setPage, loading,
         refetch: fetchReturns,
-    } = usePaginatedList(fetchReturnsPage, {});
+    } = usePaginatedList(fetchReturnsPage, {}, 25, [orderId]);
 
     useEffect(() => {
         if (orderId && orderId !== 'undefined') {

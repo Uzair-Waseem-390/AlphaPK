@@ -25,8 +25,9 @@ const PurchaseReturnDetailPage = () => {
     const fetchReturnDetails = async () => {
         setLoading(true);
         try {
-            const allReturns = await purchasesApi.returns.getAll();
-            const foundReturn = allReturns?.find(r => r.id === parseInt(returnId));
+            const returnsRes = await purchasesApi.returns.getAll({ page_size: 500 });
+            const allReturns = returnsRes?.results ?? returnsRes ?? [];
+            const foundReturn = allReturns.find(r => r.id === parseInt(returnId));
 
             if (foundReturn) {
                 setReturnItem(foundReturn);

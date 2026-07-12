@@ -43,12 +43,12 @@ const InvoiceDetailPage = () => {
     const fetchAdditionalData = async () => {
         try {
             const [paymentsData, returnsData, pdfsData] = await Promise.all([
-                billingApi.payments.getByInvoice(id),
-                billingApi.returns.getByInvoice(id),
+                billingApi.payments.getByInvoice(id, { page_size: 500 }),
+                billingApi.returns.getByInvoice(id, { page_size: 500 }),
                 invoice.status === 'confirmed' ? billingApi.invoices.getPDFs(id) : Promise.resolve([]),
             ]);
-            setPayments(paymentsData || []);
-            setReturns(returnsData || []);
+            setPayments(paymentsData?.results ?? paymentsData ?? []);
+            setReturns(returnsData?.results ?? returnsData ?? []);
             setPdfs(pdfsData || []);
         } catch (error) {
             console.error('Failed to fetch additional data:', error);

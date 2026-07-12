@@ -26,7 +26,8 @@ const PurchasePaymentDetailPage = () => {
     const fetchPaymentDetails = async () => {
         setLoading(true);
         try {
-            const payments = await purchasesApi.payments.getAll({ reference });
+            const paymentsRes = await purchasesApi.payments.getAll({ reference, page_size: 500 });
+            const payments = paymentsRes?.results ?? paymentsRes ?? [];
             const foundPayment = payments?.[0];
 
             if (!foundPayment) {

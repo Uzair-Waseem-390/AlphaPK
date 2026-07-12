@@ -6,31 +6,30 @@ import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import FilterBar from '../../components/ui/FilterBar';
+import Pagination from '../../components/ui/Pagination';
 
 const SuppliersOutstandingPage = () => {
     const navigate = useNavigate();
-    const { data, loading, filters, setFilters } = useSuppliersOutstanding();
+    const { data, meta, page, setPage, loading, filters, setFilters } = useSuppliersOutstanding();
     const [showFilters, setShowFilters] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
     const handleSearch = (value) => {
         setSearchTerm(value);
-        setFilters(prev => {
-            const next = { ...prev };
-            if (value) {
-                next.search = value;
-            } else {
-                delete next.search;
-            }
-            return next;
-        });
+        const next = { ...filters };
+        if (value) {
+            next.search = value;
+        } else {
+            delete next.search;
+        }
+        setFilters(next);
     };
 
     const handleApplyFilters = (filterValues) => {
-        setFilters(prev => ({
+        setFilters({
             ...filterValues,
-            ...(prev.search ? { search: prev.search } : {}),
-        }));
+            ...(filters.search ? { search: filters.search } : {}),
+        });
     };
 
     const handleResetFilters = () => {
@@ -129,11 +128,21 @@ const SuppliersOutstandingPage = () => {
                     </p>
                 </div>
             ) : (
-                <Table
-                    columns={columns}
-                    data={data}
-                    onRowClick={(supplier) => navigate(`/purchases/suppliers/${supplier.id}`)}
-                />
+                <>
+                    <Table
+                        columns={columns}
+                        data={data}
+                        onRowClick={(supplier) => navigate(`/purchases/suppliers/${supplier.id}`)}
+                    />
+
+                    {meta.totalPages > 1 && (
+                        <Pagination
+                            currentPage={meta.currentPage}
+                            totalPages={meta.totalPages}
+                            onPageChange={setPage}
+                        />
+                    )}
+                </>
             )}
         </div>
     );

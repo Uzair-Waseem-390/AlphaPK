@@ -31,12 +31,12 @@ const CustomerDetailPage = () => {
             const [customerData, summaryData, invoicesData] = await Promise.all([
                 billingApi.customers.getById(id),
                 billingApi.customers.getOutstandingSummary(id),
-                billingApi.invoices.getAll({ customer_id: id }),
+                billingApi.invoices.getAll({ customer_id: id, page_size: 500 }),
             ]);
 
             setCustomer(customerData);
             setOutstandingSummary(summaryData);
-            setInvoices(invoicesData || []);
+            setInvoices(invoicesData?.results ?? invoicesData ?? []);
         } catch (error) {
             console.error('Failed to fetch customer details:', error);
         } finally {

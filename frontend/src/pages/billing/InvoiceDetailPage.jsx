@@ -53,18 +53,20 @@ const InvoiceDetailPage = () => {
 
             // Fetch additional data with error catching for each request
             const [paymentsData, returnsData, pdfsData] = await Promise.all([
-                billingApi.payments.getByInvoice(id).catch(() => []),
-                billingApi.returns.getByInvoice(id).catch(() => []),
+                billingApi.payments.getByInvoice(id, { page_size: 500 }).catch(() => []),
+                billingApi.returns.getByInvoice(id, { page_size: 500 }).catch(() => []),
                 invoiceData?.status !== 'draft'
                     ? billingApi.invoices.getPDFs(id).catch(() => [])
                     : Promise.resolve([]),
             ]);
-            setPayments(paymentsData || []);
-            setReturns(returnsData || []);
+            const paymentsList = paymentsData?.results ?? paymentsData ?? [];
+            const returnsList = returnsData?.results ?? returnsData ?? [];
+            setPayments(paymentsList);
+            setReturns(returnsList);
             setPdfs(pdfsData || []);
 
             // Check if there's a pending return
-            const hasPending = (returnsData || []).some(r => r.status === 'pending');
+            const hasPending = returnsList.some(r => r.status === 'pending');
             setHasPendingReturn(hasPending);
         } catch (error) {
             console.error('Failed to fetch invoice details:', error);

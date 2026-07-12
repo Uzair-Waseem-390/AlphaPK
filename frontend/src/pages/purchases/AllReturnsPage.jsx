@@ -31,7 +31,7 @@ const AllReturnsPage = () => {
     const {
         data: returns, meta, page, setPage, loading,
         filters, setFilters, refetch: fetchAllReturns,
-    } = usePaginatedList(fetchReturnsPage, {});
+    } = usePaginatedList(fetchReturnsPage, {}, 25, [searchTerm]);
 
     useEffect(() => {
         loadSuppliers();

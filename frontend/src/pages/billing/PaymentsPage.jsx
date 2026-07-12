@@ -28,7 +28,7 @@ const PaymentsPage = () => {
     const {
         data: payments, meta, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchPaymentsPage, {});
+    } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
 
     useEffect(() => {
         // Fetch invoice details for each payment on the current page
