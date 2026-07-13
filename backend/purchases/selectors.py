@@ -38,7 +38,8 @@ def get_shelf_by_id(pk: int) -> Shelf:
 # ---------------------------------------------------------------------------
 
 def get_all_suppliers(*, search: str = None) -> QuerySet:
-    qs = Supplier.objects.filter(is_deleted=False)
+    # SYS-OPENING is the internal system supplier for opening stock — never shown to users.
+    qs = Supplier.objects.filter(is_deleted=False).exclude(code="SYS-OPENING")
     if search:
         qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
     return qs
@@ -104,7 +105,7 @@ def get_all_purchase_orders(
     All params are optional. Only non-empty values are applied.
     _clean() ensures empty strings from query params don't slip through.
     """
-    qs = _order_qs().filter(is_deleted=False)
+    qs = _order_qs().filter(is_deleted=False, is_data_entry=False)
 
     if _clean(status):
         qs = qs.filter(status=_clean(status))
@@ -133,7 +134,7 @@ def get_all_purchase_orders(
 
 
 def get_draft_purchase_orders() -> QuerySet:
-    return _order_qs().filter(is_deleted=False, status=PurchaseOrder.Status.DRAFT)
+    return _order_qs().filter(is_deleted=False, is_data_entry=False, status=PurchaseOrder.Status.DRAFT)
 
 
 def get_confirmed_purchase_orders(
@@ -338,12 +339,13 @@ def get_suppliers_with_outstanding(
     # Build the order filter for annotation
     order_filter = Q(
         purchase_orders__is_deleted=False,
+        purchase_orders__is_data_entry=False,
         purchase_orders__status=PurchaseOrder.Status.CONFIRMED,
     )
     if _clean(payment_status):
         order_filter &= Q(purchase_orders__payment_status=_clean(payment_status))
 
-    qs = Supplier.objects.filter(is_deleted=False).annotate(
+    qs = Supplier.objects.filter(is_deleted=False).exclude(code="SYS-OPENING").annotate(
         outstanding=Coalesce(
             Sum(
                 "purchase_orders__payable_outstanding",
@@ -425,6 +427,7 @@ def get_outstanding_orders_for_supplier(supplier_id: int) -> QuerySet:
         .filter(
             supplier_id=supplier_id,
             is_deleted=False,
+            is_data_entry=False,
             status=PurchaseOrder.Status.CONFIRMED,
             payable_outstanding__gt=0,
         )
@@ -452,6 +455,7 @@ def get_all_outstanding_orders(
         _order_qs()
         .filter(
             is_deleted=False,
+            is_data_entry=False,
             status=PurchaseOrder.Status.CONFIRMED,
             payable_outstanding__gt=0,
         )

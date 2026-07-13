@@ -348,6 +348,43 @@ def sync_advance_payment_updated(*, old_amount: Decimal, new_amount: Decimal, us
     )
 
 
+def sync_data_entry_supplier_opening_balance(*, amount: Decimal, user) -> None:
+    """
+    Data-entry bootstrap: records a supplier opening balance (what we owed a
+    supplier before go-live). Mirrors a confirmed purchase: we owe them more,
+    and total purchase value increases. No cash movement.
+    """
+    _adjust_cashflow(
+        supplier_payable_outstanding_delta = +amount,
+        total_purchases_cash_delta         = +amount,
+        user=user,
+    )
+
+
+def sync_data_entry_customer_opening_balance(*, amount: Decimal, user) -> None:
+    """
+    Data-entry bootstrap: records a customer opening balance (what a customer
+    owed us before go-live). Only customer_outstanding increases — NO cash was
+    received, so total_invoices_cash is deliberately left untouched.
+    """
+    _adjust_cashflow(
+        customer_outstanding_delta = +amount,
+        user=user,
+    )
+
+
+def sync_data_entry_opening_cash(*, amount: Decimal, user) -> None:
+    """
+    Data-entry bootstrap: seeds starting cash on hand. Treated as collected cash,
+    so both cash_in_hand and total_invoices_cash increase.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta        = +amount,
+        total_invoices_cash_delta = +amount,
+        user=user,
+    )
+
+
 def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     Called when a draft purchase order with advance is deleted.

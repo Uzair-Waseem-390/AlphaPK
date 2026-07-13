@@ -119,6 +119,30 @@ def add_purchase_entry(
 
 
 @transaction.atomic
+def add_opening_balance_entry(
+    *, supplier, amount: Decimal, date, reference: str,
+    details: str = "Opening Balance", user,
+) -> SupplierLedgerEntry:
+    """
+    Data-entry bootstrap: one-time opening balance for a supplier.
+    Credit entry (we owe supplier from before go-live).
+    """
+    ledger = SupplierLedger.objects.get(supplier=supplier)
+    entry  = SupplierLedgerEntry.objects.create(
+        ledger     = ledger,
+        entry_type = SupplierLedgerEntry.EntryType.OPENING_BALANCE,
+        date       = date,
+        details    = details,
+        reference  = reference,
+        credit     = amount,
+        debit      = Decimal("0"),
+        created_by = user,
+    )
+    _recalculate_snapshots_from(ledger, _get_year_month(date))
+    return entry
+
+
+@transaction.atomic
 def add_payment_entry(
     *, supplier, supplier_payment, amount: Decimal, date, user,
 ) -> SupplierLedgerEntry:

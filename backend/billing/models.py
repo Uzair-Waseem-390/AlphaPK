@@ -78,6 +78,10 @@ class Invoice(AuditMixin):
     customer    = models.ForeignKey(
         Customer, on_delete=models.PROTECT, related_name="invoices",
     )
+    is_data_entry = models.BooleanField(
+        default=False, db_index=True,
+        help_text="True for bootstrap customer opening-balance invoices. Hidden from normal list views.",
+    )
     status      = models.CharField(
         max_length=20, choices=Status.choices, default=Status.DRAFT, db_index=True,
     )

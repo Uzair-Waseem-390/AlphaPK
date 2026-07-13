@@ -140,6 +140,10 @@ class PurchaseOrder(AuditMixin):
 
     order_number = models.CharField(max_length=30, unique=True, editable=False)
     supplier     = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchase_orders")
+    is_data_entry = models.BooleanField(
+        default=False, db_index=True,
+        help_text="True for bootstrap opening-balance / opening-stock orders. Hidden from normal list views.",
+    )
     status       = models.CharField(max_length=12, choices=Status.choices, default=Status.DRAFT, db_index=True)
     description  = models.TextField(blank=True, default="", help_text="Optional notes about this purchase order.")
     payment_type = models.CharField(

@@ -597,6 +597,73 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
 
 
 # ---------------------------------------------------------------------------
+# Data-entry bootstrap orders (called from data_entry.services)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_opening_balance_order(*, supplier, amount: Decimal, user) -> PurchaseOrder:
+    """
+    Creates a CONFIRMED, is_data_entry PurchaseOrder with no line items,
+    net_payable = payable_outstanding = amount. Exists so normal supplier
+    payment APIs can work against the opening balance. No inventory/ledger/
+    cashflow here — the caller orchestrates those.
+    """
+    return PurchaseOrder.objects.create(
+        order_number        = _generate_order_number(),
+        supplier            = supplier,
+        status              = PurchaseOrder.Status.CONFIRMED,
+        is_data_entry       = True,
+        description         = "Opening balance (data entry).",
+        gross_amount        = amount,
+        net_payable         = amount,
+        payable_outstanding = amount,
+        payment_status      = PurchaseOrder.PaymentStatus.UNPAID,
+        confirmed_by        = user,
+        confirmed_at        = timezone.now(),
+        created_by          = user,
+        updated_by          = user,
+    )
+
+
+@transaction.atomic
+def create_opening_stock_order(*, supplier, items: list[dict], user) -> PurchaseOrder:
+    """
+    Creates a CONFIRMED, is_data_entry PurchaseOrder with line items for the
+    system supplier. Sets remaining_quantity for FIFO and adds to inventory.
+    No cashflow/ledger effect (system supplier is excluded from payable tracking).
+    """
+    order = PurchaseOrder.objects.create(
+        order_number  = _generate_order_number(),
+        supplier      = supplier,
+        status        = PurchaseOrder.Status.CONFIRMED,
+        is_data_entry = True,
+        description   = "Opening stock (data entry).",
+        confirmed_by  = user,
+        confirmed_at  = timezone.now(),
+        created_by    = user,
+        updated_by    = user,
+    )
+    for item in items:
+        pi = PurchaseItem.objects.create(
+            order=order,
+            product_id=item["product_id"],
+            quantity=item["quantity"],
+            unit_price=item["unit_price"],
+            gst=item.get("gst", 0),
+            wht=item.get("wht", 0),
+            description=item.get("description", ""),
+            created_by=user,
+            updated_by=user,
+        )  # .save() auto-computes gross/gst/wht/total
+        pi.remaining_quantity = pi.quantity
+        pi.save(update_fields=["remaining_quantity"])
+        _sync_inventory(product=pi.product, quantity_delta=pi.quantity, user=user)
+
+    _recalculate_order_totals(order)
+    return order
+
+
+# ---------------------------------------------------------------------------
 # Supplier Payment services
 # ---------------------------------------------------------------------------
 

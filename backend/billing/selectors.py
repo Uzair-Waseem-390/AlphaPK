@@ -207,6 +207,7 @@ def get_customer_outstanding(customer_id: int) -> dict:
     invoices = Invoice.objects.filter(
         customer_id=customer_id,
         is_deleted=False,
+        is_data_entry=False,
     ).exclude(status=Invoice.Status.DRAFT)
 
     agg = invoices.aggregate(
@@ -255,6 +256,7 @@ def get_customers_with_outstanding(
 
     invoice_filter = Q(
         invoices__is_deleted=False,
+        invoices__is_data_entry=False,
         invoices__status__in=[
             Invoice.Status.CONFIRMED,
             Invoice.Status.PARTIAL,
@@ -320,7 +322,7 @@ def get_filtered_invoices(
     Every parameter is optional; combining them narrows results.
     _clean() ensures empty strings from query params don't slip through.
     """
-    qs = _invoice_qs().filter(is_deleted=False)
+    qs = _invoice_qs().filter(is_deleted=False, is_data_entry=False)
 
     if _clean(status):
         qs = qs.filter(status=_clean(status))
@@ -373,6 +375,7 @@ def get_all_outstanding_invoices(
     """
     qs = _invoice_qs().filter(
         is_deleted=False,
+        is_data_entry=False,
         credit_outstanding__gt=0,
     ).exclude(status=Invoice.Status.DRAFT)
 

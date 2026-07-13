@@ -29,7 +29,7 @@ def get_cashflow_stats() -> dict:
         # total_invoices_cash: GROSS collected from customers (never reduced by expenses/payments)
         "total_invoices_cash"       : cf.total_invoices_cash,
         "total_number_of_invoices"  : Invoice.objects.filter(
-                                          is_deleted=False
+                                          is_deleted=False, is_data_entry=False,
                                       ).exclude(status="draft").count(),
 
         # Payables
@@ -41,6 +41,7 @@ def get_cashflow_stats() -> dict:
         "total_purchases_cash"          : cf.total_purchases_cash,
         "total_number_of_purchases"     : PurchaseOrder.objects.filter(
                                               is_deleted=False,
+                                              is_data_entry=False,
                                               status="confirmed",
                                           ).count(),
 
@@ -170,9 +171,27 @@ def get_cash_in_hand_breakdown(
     """
     from billing.models import Payment
     from purchases.models import SupplierPayment
-    from .models import Expense
+    from .models import Expense, OpeningCashEntry
 
     movements = []
+
+    # --- Inflows: opening cash (data-entry bootstrap) ---
+    oc_qs = OpeningCashEntry.objects.all()
+    if _clean(date_from):
+        oc_qs = oc_qs.filter(added_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        oc_qs = oc_qs.filter(added_at__date__lte=_clean(date_to))
+
+    for e in oc_qs:
+        movements.append({
+            "direction"  : "inflow",
+            "type"       : "opening_cash",
+            "date"       : str(e.added_at.date()),
+            "description": "Opening cash — data entry",
+            "reference"  : f"OCE-{e.id}",
+            "amount"     : e.amount,
+            "method"     : None,
+        })
 
     # --- Inflows: positive invoice payments ---
     inv_qs = Payment.objects.filter(
@@ -261,6 +280,7 @@ def get_customer_outstanding_breakdown(
 
     qs = Invoice.objects.filter(
         is_deleted=False,
+        is_data_entry=False,
         credit_outstanding__gt=0,
     ).exclude(status="draft").select_related("customer")
 
@@ -338,6 +358,7 @@ def get_supplier_payable_outstanding_breakdown(
 
     qs = PurchaseOrder.objects.filter(
         is_deleted=False,
+        is_data_entry=False,
         status="confirmed",
         payable_outstanding__gt=0,
     ).select_related("supplier")
@@ -378,6 +399,7 @@ def get_invoices_breakdown(
 
     qs = Invoice.objects.filter(
         is_deleted=False,
+        is_data_entry=False,
     ).exclude(status="draft").select_related("customer")
 
     if _clean(customer_name):
@@ -417,6 +439,7 @@ def get_purchases_breakdown(
 
     qs = PurchaseOrder.objects.filter(
         is_deleted=False,
+        is_data_entry=False,
         status="confirmed",
     ).select_related("supplier")
 

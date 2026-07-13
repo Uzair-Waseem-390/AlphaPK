@@ -40,6 +40,7 @@ EXTERNAL_APPS = [
     'cash_flow',
     'ledger',
     'reports',
+    'data_entry',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS

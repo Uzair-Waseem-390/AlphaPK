@@ -29,7 +29,7 @@ def get_invoices_report_queryset(
     evaluated in settings.TIME_ZONE (Asia/Karachi), so this already matches
     the local calendar day shown in the UI.
     """
-    qs = Invoice.objects.filter(is_deleted=False).exclude(
+    qs = Invoice.objects.filter(is_deleted=False, is_data_entry=False).exclude(
         status=Invoice.Status.DRAFT,
     ).select_related("customer").order_by("-confirmed_at")
 

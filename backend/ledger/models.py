@@ -43,9 +43,10 @@ class SupplierLedgerEntry(models.Model):
         PAYMENT  = "payment",  "Payment"
         RETURN   = "return",   "Return"
         ADVANCE  = "advance",  "Advance Payment"
+        OPENING_BALANCE = "opening_balance", "Opening Balance"
 
     ledger          = models.ForeignKey(SupplierLedger, on_delete=models.PROTECT, related_name="entries")
-    entry_type      = models.CharField(max_length=10, choices=EntryType.choices, db_index=True)
+    entry_type      = models.CharField(max_length=20, choices=EntryType.choices, db_index=True)
     date            = models.DateField(db_index=True)
     details         = models.CharField(max_length=500)
     reference       = models.CharField(max_length=50, db_index=True)

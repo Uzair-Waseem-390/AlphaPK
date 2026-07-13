@@ -575,6 +575,39 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
 
 
 # ---------------------------------------------------------------------------
+# Data-entry bootstrap invoice (called from data_entry.services)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_opening_balance_invoice(*, customer, amount: Decimal, user) -> Invoice:
+    """
+    Creates a CONFIRMED, is_data_entry Invoice with no line items,
+    grand_total = credit_outstanding = amount. Exists so normal billing
+    payment APIs can work against the customer opening balance.
+
+    IMPORTANT: this deliberately does NOT call sync_invoice_confirmed() or any
+    other CashFlow sync. The CashFlow adjustment for a customer opening balance
+    is handled separately by
+    cash_flow.services.sync_data_entry_customer_opening_balance().
+    """
+    return Invoice.objects.create(
+        bill_number        = _generate_bill_number(),
+        customer           = customer,
+        status             = Invoice.Status.CONFIRMED,
+        is_data_entry      = True,
+        subtotal           = amount,
+        grand_total        = amount,
+        credit_outstanding = amount,
+        remaining_amount   = amount,
+        payment_status     = Invoice.PaymentStatus.UNPAID,
+        confirmed_by       = user,
+        confirmed_at       = timezone.now(),
+        created_by         = user,
+        updated_by         = user,
+    )
+
+
+# ---------------------------------------------------------------------------
 # Payment services
 # ---------------------------------------------------------------------------
 
