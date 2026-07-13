@@ -126,11 +126,11 @@
     Period:
     {% if date_from %}From {{ date_from }}{% endif %}
     {% if date_to %}To {{ date_to }}{% endif %}
-    &nbsp;|&nbsp; Opening Balance: {{ currency }} 0.00
+    &nbsp;|&nbsp; Opening Balance: {{ currency }} {{ opening_balance|floatformat:2 }}
   </div>
   {% else %}
   <div class="date-bar">
-    Period: Complete Ledger History &nbsp;|&nbsp; Opening Balance: {{ currency }} 0.00
+    Period: Complete Ledger History &nbsp;|&nbsp; Opening Balance: {{ currency }} {{ opening_balance|floatformat:2 }}
   </div>
   {% endif %}
 

@@ -13,7 +13,8 @@ def _clean(value):
 
 
 def get_all_ledgers(*, search: str = None) -> QuerySet:
-    qs = SupplierLedger.objects.select_related("supplier")
+    # Hide the internal SYS-OPENING system supplier's ledger from users.
+    qs = SupplierLedger.objects.select_related("supplier").exclude(supplier_code="SYS-OPENING")
     if _clean(search):
         qs = qs.filter(
             Q(supplier_name__icontains=_clean(search)) |
@@ -48,7 +49,7 @@ def get_ledger_entries(
     ledger = get_object_or_404(SupplierLedger, pk=ledger_id)
 
     # Get full running balance entries (hybrid method)
-    entries, closing_balance = _get_entries_with_running_balance(
+    entries, _opening_balance, closing_balance = _get_entries_with_running_balance(
         ledger=ledger,
         date_from=date_from,
         date_to=date_to,

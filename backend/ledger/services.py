@@ -300,13 +300,25 @@ def generate_ledger_pdf_bytes(
     from django.shortcuts import get_object_or_404
 
     ledger  = get_object_or_404(SupplierLedger, pk=ledger_id)
-    entries, closing_balance = _get_entries_with_running_balance(
+    entries, opening_balance, closing_balance = _get_entries_with_running_balance(
         ledger=ledger, date_from=date_from, date_to=date_to,
     )
 
+    # Treat opening-balance entries as the account's Opening Balance figure shown
+    # in the header, rather than as a transaction row. Their effect is already
+    # baked into every subsequent running balance, so the remaining rows stay
+    # correct. `opening_balance` is the carried-forward balance for date ranges;
+    # add any opening_balance entries that fall inside the shown window.
+    ob_from_entries = sum(
+        (e["credit"] - e["debit"]) for e in entries if e["entry_type"] == "opening_balance"
+    )
+    header_opening_balance = opening_balance + ob_from_entries
+    display_entries = [e for e in entries if e["entry_type"] != "opening_balance"]
+
     context = {
         "ledger"          : ledger,
-        "entries"         : entries,
+        "entries"         : display_entries,
+        "opening_balance" : header_opening_balance,
         "closing_balance" : closing_balance,
         "date_from"       : date_from,
         "date_to"         : date_to,
@@ -322,7 +334,7 @@ def generate_ledger_pdf_bytes(
 
 def _get_entries_with_running_balance(
     *, ledger: SupplierLedger, date_from=None, date_to=None,
-) -> tuple[list[dict], Decimal]:
+) -> tuple[list[dict], Decimal, Decimal]:
     """
     Returns list of entry dicts with running_balance computed using hybrid method.
     Hybrid: grab last snapshot before date_from (or start), then accumulate current entries.
@@ -370,4 +382,4 @@ def _get_entries_with_running_balance(
         })
 
     closing_balance = running_balance
-    return result, closing_balance
+    return result, opening_balance, closing_balance
