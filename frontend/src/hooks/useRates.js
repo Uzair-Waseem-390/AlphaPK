@@ -40,6 +40,10 @@ export const useRates = (initialFilters = {}) => {
     // show up again here as unpriced.
     const [allProducts, setAllProducts] = useState([]);
     const [allRatedProductIds, setAllRatedProductIds] = useState(new Set());
+    // Bumped after every create/update so the full-catalog "which products are
+    // already priced" set is refreshed — otherwise a just-priced product stays
+    // in the set as stale and shows a second time as "No price set".
+    const [catalogVersion, setCatalogVersion] = useState(0);
 
     useEffect(() => {
         let cancelled = false;
@@ -61,9 +65,15 @@ export const useRates = (initialFilters = {}) => {
             ));
         })();
         return () => { cancelled = true; };
-    }, []);
+    }, [catalogVersion]);
 
-    const productsWithoutRate = allProducts.filter(product => !allRatedProductIds.has(product.id));
+    // Exclude products already shown (with a price) on the current rates page,
+    // so a just-priced product never appears a second time as "No price set"
+    // even before the catalog set above has refreshed.
+    const ratedIdsOnPage = new Set(rates.map(r => r.product?.id).filter(Boolean));
+    const productsWithoutRate = allProducts.filter(
+        product => !allRatedProductIds.has(product.id) && !ratedIdsOnPage.has(product.id)
+    );
 
     // Current page of priced rates, followed by any (filtered) unpriced
     // products — same ordering the old client-side combine used.
@@ -90,6 +100,7 @@ export const useRates = (initialFilters = {}) => {
         try {
             const result = await ratesApi.create(payload);
             await refetch();
+            setCatalogVersion(v => v + 1);
             return result;
         } catch (err) {
             setMutationError(err.message);
@@ -104,6 +115,7 @@ export const useRates = (initialFilters = {}) => {
         try {
             const result = await ratesApi.update(id, payload);
             await refetch();
+            setCatalogVersion(v => v + 1);
             return result;
         } catch (err) {
             setMutationError(err.message);
