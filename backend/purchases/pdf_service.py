@@ -92,7 +92,8 @@ def save_purchase_order_pdf(*, order_id: int, file_name: str, user) -> SavedPurc
     with open(full_path, "wb") as f:
         f.write(pdf)
 
-    relative_path = str(Path("purchase_orders") / str(year) / filename)
+    # Forward slashes (as_posix) so the stored path is URL-safe on every OS.
+    relative_path = (Path("purchase_orders") / str(year) / filename).as_posix()
     return SavedPurchaseOrderPDF.objects.create(
         order=order, file_name=file_name.strip(),
         file_path=relative_path, saved_by=user,

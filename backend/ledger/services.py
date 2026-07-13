@@ -264,7 +264,8 @@ def save_ledger_pdf(
     with open(full_path, "wb") as f:
         f.write(pdf)
 
-    relative_path = str(Path("ledgers") / str(year) / filename)
+    # Forward slashes (as_posix) so the stored path is URL-safe on every OS.
+    relative_path = (Path("ledgers") / str(year) / filename).as_posix()
     return SavedLedgerPDF.objects.create(
         ledger=ledger,
         file_name=file_name.strip(),

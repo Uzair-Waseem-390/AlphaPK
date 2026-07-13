@@ -180,8 +180,9 @@ def save_invoice_pdf(
     with open(full_path, "wb") as f:
         f.write(pdf)
 
-    # Store relative path (relative to MEDIA_ROOT) for portability
-    relative_path = str(Path("invoices") / str(year) / filename)
+    # Store relative path (relative to MEDIA_ROOT) using forward slashes
+    # (as_posix) so it's URL-safe on every OS, including Windows dev machines.
+    relative_path = (Path("invoices") / str(year) / filename).as_posix()
 
     return SavedInvoicePDF.objects.create(
         invoice   = invoice,

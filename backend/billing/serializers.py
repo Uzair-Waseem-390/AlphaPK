@@ -392,12 +392,14 @@ class SavedInvoicePDFSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_file_url(self, obj):
-        request = self.context.get("request")
-        if request and obj.file_path:
-            from django.conf import settings
-            url = f"{settings.MEDIA_URL}{obj.file_path}"
-            return request.build_absolute_uri(url)
-        return None
+        if not obj.file_path:
+            return None
+        from django.conf import settings
+        # Normalize any backslashes (Windows Path()) to forward slashes so the
+        # URL is well-formed, and build off BACKEND_URL — not the request's
+        # Host header — so this stays correct behind proxies and on deploy.
+        path = obj.file_path.replace("\\", "/")
+        return f"{settings.BACKEND_URL}{settings.MEDIA_URL}{path}"
 
 
 class SavePDFRequestSerializer(serializers.Serializer):

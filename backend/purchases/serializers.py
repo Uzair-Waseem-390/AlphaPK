@@ -468,11 +468,11 @@ class SavedPurchaseOrderPDFSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_file_url(self, obj):
-        request = self.context.get("request")
-        if request and obj.file_path:
-            from django.conf import settings
-            return request.build_absolute_uri(f"{settings.MEDIA_URL}{obj.file_path}")
-        return None
+        if not obj.file_path:
+            return None
+        from django.conf import settings
+        path = obj.file_path.replace("\\", "/")
+        return f"{settings.BACKEND_URL}{settings.MEDIA_URL}{path}"
 
 
 class SavePurchaseOrderPDFRequestSerializer(serializers.Serializer):
