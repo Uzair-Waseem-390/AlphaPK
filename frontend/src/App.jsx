@@ -59,6 +59,9 @@ import ReportsHomePage from './pages/reports/ReportsHomePage';
 import InvoicesReportPage from './pages/reports/InvoicesReportPage';
 import CashCollectedReportPage from './pages/reports/CashCollectedReportPage';
 
+// Data Entry (superuser-only bootstrap tool)
+import DataEntryPage from './pages/dataentry/DataEntryPage';
+
 import './App.css';
 
 const AppContent = () => {
@@ -419,6 +422,15 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <CashCollectedReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Data Entry (superuser-only; page self-guards + backend enforces) */}
+        <Route path="/data-entry" element={
+          <ProtectedRoute>
+            <Layout>
+              <DataEntryPage />
             </Layout>
           </ProtectedRoute>
         } />
