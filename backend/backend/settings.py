@@ -16,10 +16,6 @@ def env_list(name):
 ALLOWED_HOSTS = env_list("ALLOWED_HOSTS")
 CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
-
-# Public base URL of this backend (no trailing slash), used to build absolute
-# file URLs (saved PDFs, etc.) instead of relying on the request's Host header.
-# Change this one value on deploy — every app that builds a media URL reads it.
 BACKEND_URL = os.getenv("BACKEND_URL").rstrip("/")
 
 
