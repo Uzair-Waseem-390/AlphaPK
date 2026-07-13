@@ -41,9 +41,8 @@ def get_cashflow_stats() -> dict:
         "total_purchases_cash"          : cf.total_purchases_cash,
         "total_number_of_purchases"     : PurchaseOrder.objects.filter(
                                               is_deleted=False,
-                                              is_data_entry=False,
                                               status="confirmed",
-                                          ).count(),
+                                          ).exclude(supplier__code="SYS-OPENING").count(),
 
         # Expenses
         "total_expenses_amount"     : cf.total_expenses_amount,
@@ -171,27 +170,33 @@ def get_cash_in_hand_breakdown(
     """
     from billing.models import Payment
     from purchases.models import SupplierPayment
-    from .models import Expense, OpeningCashEntry
+    from .models import Expense
 
     movements = []
 
     # --- Inflows: opening cash (data-entry bootstrap) ---
-    oc_qs = OpeningCashEntry.objects.all()
-    if _clean(date_from):
-        oc_qs = oc_qs.filter(added_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        oc_qs = oc_qs.filter(added_at__date__lte=_clean(date_to))
-
-    for e in oc_qs:
-        movements.append({
-            "direction"  : "inflow",
-            "type"       : "opening_cash",
-            "date"       : str(e.added_at.date()),
-            "description": "Opening cash — data entry",
-            "reference"  : f"OCE-{e.id}",
-            "amount"     : e.amount,
-            "method"     : None,
-        })
+    # data_entry is a removable bootstrap app. Import defensively so this
+    # breakdown keeps working after the app (and its table) are removed
+    # post-go-live — it simply stops itemising opening-cash inflows.
+    try:
+        from data_entry.models import OpeningCashEntry
+        oc_qs = OpeningCashEntry.objects.all()
+        if _clean(date_from):
+            oc_qs = oc_qs.filter(added_at__date__gte=_clean(date_from))
+        if _clean(date_to):
+            oc_qs = oc_qs.filter(added_at__date__lte=_clean(date_to))
+        for e in oc_qs:
+            movements.append({
+                "direction"  : "inflow",
+                "type"       : "opening_cash",
+                "date"       : str(e.added_at.date()),
+                "description": "Opening cash — data entry",
+                "reference"  : f"OCE-{e.id}",
+                "amount"     : e.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
 
     # --- Inflows: positive invoice payments ---
     inv_qs = Payment.objects.filter(
@@ -280,7 +285,6 @@ def get_customer_outstanding_breakdown(
 
     qs = Invoice.objects.filter(
         is_deleted=False,
-        is_data_entry=False,
         credit_outstanding__gt=0,
     ).exclude(status="draft").select_related("customer")
 
@@ -358,7 +362,6 @@ def get_supplier_payable_outstanding_breakdown(
 
     qs = PurchaseOrder.objects.filter(
         is_deleted=False,
-        is_data_entry=False,
         status="confirmed",
         payable_outstanding__gt=0,
     ).select_related("supplier")
@@ -437,11 +440,12 @@ def get_purchases_breakdown(
     """
     from purchases.models import PurchaseOrder
 
+    # Opening-balance POs (real suppliers) count as purchase value and reconcile
+    # with total_purchases_cash. Only opening-STOCK (SYS-OPENING) is excluded.
     qs = PurchaseOrder.objects.filter(
         is_deleted=False,
-        is_data_entry=False,
         status="confirmed",
-    ).select_related("supplier")
+    ).exclude(supplier__code="SYS-OPENING").select_related("supplier")
 
     if _clean(supplier_name):
         qs = qs.filter(supplier__name__icontains=_clean(supplier_name))

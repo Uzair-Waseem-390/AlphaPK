@@ -105,7 +105,10 @@ def get_all_purchase_orders(
     All params are optional. Only non-empty values are applied.
     _clean() ensures empty strings from query params don't slip through.
     """
-    qs = _order_qs().filter(is_deleted=False, is_data_entry=False)
+    # Opening-balance orders (real suppliers) ARE shown — they are real
+    # outstanding payables that must be tracked and settled. Only opening-STOCK
+    # orders (the internal SYS-OPENING supplier) are hidden.
+    qs = _order_qs().filter(is_deleted=False).exclude(supplier__code="SYS-OPENING")
 
     if _clean(status):
         qs = qs.filter(status=_clean(status))
@@ -134,7 +137,8 @@ def get_all_purchase_orders(
 
 
 def get_draft_purchase_orders() -> QuerySet:
-    return _order_qs().filter(is_deleted=False, is_data_entry=False, status=PurchaseOrder.Status.DRAFT)
+    # Data-entry orders are always confirmed, so drafts are naturally unaffected.
+    return _order_qs().filter(is_deleted=False, status=PurchaseOrder.Status.DRAFT)
 
 
 def get_confirmed_purchase_orders(
@@ -339,7 +343,6 @@ def get_suppliers_with_outstanding(
     # Build the order filter for annotation
     order_filter = Q(
         purchase_orders__is_deleted=False,
-        purchase_orders__is_data_entry=False,
         purchase_orders__status=PurchaseOrder.Status.CONFIRMED,
     )
     if _clean(payment_status):
@@ -427,7 +430,6 @@ def get_outstanding_orders_for_supplier(supplier_id: int) -> QuerySet:
         .filter(
             supplier_id=supplier_id,
             is_deleted=False,
-            is_data_entry=False,
             status=PurchaseOrder.Status.CONFIRMED,
             payable_outstanding__gt=0,
         )
@@ -455,7 +457,6 @@ def get_all_outstanding_orders(
         _order_qs()
         .filter(
             is_deleted=False,
-            is_data_entry=False,
             status=PurchaseOrder.Status.CONFIRMED,
             payable_outstanding__gt=0,
         )

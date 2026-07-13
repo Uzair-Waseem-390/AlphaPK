@@ -69,7 +69,7 @@ export const useRates = (initialFilters = {}) => {
     // products — same ordering the old client-side combine used.
     const data = [
         ...rates.map(rate => ({ product: rate.product, rate })),
-        ...filterProducts(productsWithoutRate, filters),
+        ...filterProducts(productsWithoutRate, filters).map(product => ({ product, rate: null })),
     ];
 
     // Category filter dropdown derived from the FULL product catalog rather
