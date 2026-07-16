@@ -222,10 +222,17 @@ class BreakdownTotalsMixin:
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
 
-        totals = {
-            key: (queryset.aggregate(v=Coalesce(Sum(field), Decimal("0")))["v"])
-            for key, field in self.totals_fields.items()
-        }
+        # One combined aggregate() call computes every sum in a single query —
+        # calling .aggregate() once per field (the original version of this
+        # mixin) issued N separate queries for a view with N totals_fields.
+        if self.totals_fields:
+            aggregate_kwargs = {
+                key: Coalesce(Sum(field), Decimal("0"))
+                for key, field in self.totals_fields.items()
+            }
+            totals = queryset.aggregate(**aggregate_kwargs)
+        else:
+            totals = {}
         totals["count"] = queryset.count()
 
         page = self.paginate_queryset(queryset)

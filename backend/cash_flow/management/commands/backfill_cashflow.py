@@ -15,12 +15,17 @@ class Command(BaseCommand):
 
         self.stdout.write("Starting CashFlow backfill...\n")
 
-        # Reset singleton
+        # Reset singleton — EVERY field this command touches must be reset here.
+        # A backfill command must be idempotent (safe to re-run, always lands
+        # on the correct absolute value); any field summed further down but
+        # left out of this reset silently compounds on every re-run instead.
         cf, _ = CashFlow.objects.get_or_create(pk=1)
         cf.cash_in_hand               = Decimal("0")
         cf.customer_outstanding       = Decimal("0")
+        cf.total_invoices_cash        = Decimal("0")
         cf.total_paid_payables        = Decimal("0")
         cf.supplier_payable_outstanding = Decimal("0")
+        cf.total_purchases_cash       = Decimal("0")
         cf.total_expenses_amount      = Decimal("0")
         cf.total_lost_inventory_worth = Decimal("0")
         cf.total_purchase_returns_value = Decimal("0")
@@ -41,6 +46,17 @@ class Command(BaseCommand):
             cf.customer_outstanding += inv.credit_outstanding or Decimal("0")
         self.stdout.write(f"  customer_outstanding: {cf.customer_outstanding}")
 
+        # 1b. Opening cash (data-entry bootstrap) — sync_data_entry_opening_cash
+        #     treats this as collected cash, incrementing BOTH cash_in_hand and
+        #     total_invoices_cash. Must mirror both, not just cash_in_hand.
+        try:
+            from data_entry.models import OpeningCashEntry
+            for oc in OpeningCashEntry.objects.all():
+                cf.cash_in_hand        += oc.amount or Decimal("0")
+                cf.total_invoices_cash += oc.amount or Decimal("0")
+        except Exception:
+            pass  # data_entry is a removable bootstrap app — fine if absent post-go-live
+
         # 2. Cash in hand + total_invoices_cash = sum of all positive invoice payments received
         payments = Payment.objects.filter(
             is_deleted=False,
@@ -55,6 +71,8 @@ class Command(BaseCommand):
         self.stdout.write(f"  total_invoices_cash: {cf.total_invoices_cash}")
 
         # 3. Supplier payable outstanding = sum of payable_outstanding on confirmed orders
+        #    (includes data-entry opening-balance orders — those DO count as real
+        #    outstanding debt, per sync_data_entry_supplier_opening_balance).
         orders = PurchaseOrder.objects.filter(
             is_deleted=False,
             status="confirmed",
@@ -63,12 +81,20 @@ class Command(BaseCommand):
             cf.supplier_payable_outstanding += order.payable_outstanding or Decimal("0")
         self.stdout.write(f"  supplier_payable_outstanding: {cf.supplier_payable_outstanding}")
 
-        # 3b. total_purchases_cash = sum of net_payable on all confirmed orders
-        for order in orders:
+        # 3b. total_purchases_cash = sum of net_payable on confirmed orders, EXCLUDING
+        #     data-entry orders (opening balance/opening stock) — these are carried-
+        #     forward payables, not operating-period purchases. sync_data_entry_
+        #     supplier_opening_balance deliberately leaves total_purchases_cash
+        #     untouched on the live path, and the purchases breakdown selector
+        #     applies the same is_data_entry=False exclusion — this must match both.
+        for order in orders.filter(is_data_entry=False):
             cf.total_purchases_cash += order.net_payable or Decimal("0")
         self.stdout.write(f"  total_purchases_cash: {cf.total_purchases_cash}")
 
-        # 4. Total paid payables = sum of positive supplier payments (non-advance)
+        # 4. Total paid payables = sum of positive supplier payments on confirmed orders.
+        #    These also reduce cash_in_hand (mirrors sync_supplier_payment_made) —
+        #    the previous version of this command missed this subtraction entirely,
+        #    overstating cash_in_hand by the full total_paid_payables amount.
         sp = SupplierPayment.objects.filter(
             is_deleted=False,
             amount__gt=0,
@@ -77,6 +103,8 @@ class Command(BaseCommand):
         )
         for p in sp:
             cf.total_paid_payables += p.amount
+            cf.cash_in_hand        -= p.amount
+        cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
         self.stdout.write(f"  total_paid_payables: {cf.total_paid_payables}")
 
         # 5. Expenses

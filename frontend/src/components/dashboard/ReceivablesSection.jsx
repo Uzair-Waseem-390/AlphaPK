@@ -8,8 +8,7 @@ const ReceivablesSection = ({ stats, loading, onCardClick }) => {
         return (
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-neutral-900">Receivables</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                    <StatCardSkeleton color="green" />
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <StatCardSkeleton color="amber" />
                     <StatCardSkeleton color="blue" />
                     <StatCardSkeleton color="blue" />
@@ -21,14 +20,7 @@ const ReceivablesSection = ({ stats, loading, onCardClick }) => {
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-neutral-900">Receivables</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
-                <StatCard
-                    label="Cash in Hand"
-                    value={stats?.cash_in_hand}
-                    icon="💰"
-                    color="green"
-                    onClick={() => onCardClick('cashInHand', 'Cash in Hand Breakdown')}
-                />
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <StatCard
                     label="Customer Outstanding"
                     value={stats?.customer_outstanding}

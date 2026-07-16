@@ -639,18 +639,49 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
     from django.utils import timezone
     from datetime import date as date_cls
 
+    from rest_framework.exceptions import ValidationError
+
     today = timezone.localtime(timezone.now()).date()
 
     date_from = _clean(date_from)
     date_to = _clean(date_to)
 
+    def _parse(value, field_name):
+        try:
+            return date_cls.fromisoformat(value)
+        except ValueError:
+            raise ValidationError({field_name: f"'{value}' is not a valid date (expected YYYY-MM-DD)."})
+
     if not date_from and not date_to:
+        # No filter at all — default window: last 6 months ending today.
         start_year, start_month = _add_months(today.year, today.month, -5)
         range_start = date_cls(start_year, start_month, 1)
         range_end = today
+    elif date_from and not date_to:
+        # Only a start given — bounded naturally by today, no cap risk.
+        range_start = _parse(date_from, "date_from")
+        range_end = today
+    elif date_to and not date_from:
+        # Only an end given — mirror the "6 months" default, anchored at
+        # date_to instead of today. Previously defaulted range_start to
+        # 2000-01-01, which combined with the range-size cap below made
+        # every date_to-only request fail validation.
+        range_end = _parse(date_to, "date_to")
+        start_year, start_month = _add_months(range_end.year, range_end.month, -5)
+        range_start = date_cls(start_year, start_month, 1)
     else:
-        range_start = date_cls.fromisoformat(date_from) if date_from else date_cls(2000, 1, 1)
-        range_end = date_cls.fromisoformat(date_to) if date_to else today
+        range_start = _parse(date_from, "date_from")
+        range_end = _parse(date_to, "date_to")
+
+    if range_start > range_end:
+        raise ValidationError({"date_from": "date_from cannot be after date_to."})
+
+    # Bound the number of months a single request can generate — an
+    # unreasonably wide range (e.g. a typo'd year) would otherwise iterate
+    # the gap-filling loop below thousands of times for no useful chart.
+    months_in_range = (range_end.year - range_start.year) * 12 + (range_end.month - range_start.month) + 1
+    if months_in_range > 120:
+        raise ValidationError({"date_from": "Date range cannot exceed 10 years (120 months)."})
 
     qs = Invoice.objects.filter(
         is_deleted=False, is_data_entry=False,

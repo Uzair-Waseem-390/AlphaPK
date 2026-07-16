@@ -66,9 +66,9 @@ const LostInventoryRecordsPage = () => {
             render: (items) => (items || []).map((it) => `${it.product_name} x${it.quantity}`).join(', ') || 'N/A',
         },
         {
-            key: 'items',
+            key: 'reason',
             label: 'Reason',
-            render: (items) => (items || []).map((it) => it.reason).filter(Boolean).join(', ') || '-',
+            render: (_value, row) => (row.items || []).map((it) => it.reason).filter(Boolean).join(', ') || '-',
         },
         {
             key: 'total_lost_amount',
