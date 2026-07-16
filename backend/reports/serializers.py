@@ -1,8 +1,8 @@
 from rest_framework import serializers
 
-from billing.models import Invoice, Payment
+from billing.models import Invoice, Payment, Return
 from cash_flow.models import Expense
-from purchases.models import LostInventoryItem
+from purchases.models import LostInventoryItem, PurchaseReturn
 
 
 # ---------------------------------------------------------------------------
@@ -98,3 +98,75 @@ class LostInventoryReportItemSerializer(serializers.ModelSerializer):
             "quantity", "reason", "unit_cost", "total_cost", "created_at",
         ]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Purchase returns report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class PurchaseReturnReportItemSerializer(serializers.ModelSerializer):
+    order_number  = serializers.CharField(source="order.order_number", read_only=True)
+    supplier_name = serializers.CharField(source="order.supplier.name", read_only=True)
+
+    class Meta:
+        model = PurchaseReturn
+        fields = [
+            "id", "reference_number", "order_number", "supplier_name",
+            "total_return_gross", "total_return_gst", "total_return_wht",
+            "total_return_amount", "accepted_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Customer returns report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class CustomerReturnReportItemSerializer(serializers.ModelSerializer):
+    bill_number   = serializers.CharField(source="invoice.bill_number", read_only=True)
+    customer_name = serializers.CharField(source="invoice.customer.name", read_only=True)
+
+    class Meta:
+        model = Return
+        fields = [
+            "id", "reference_number", "bill_number", "customer_name",
+            "total_return_amount", "total_return_cogs", "accepted_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Profit / margin report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class ProfitMarginReportItemSerializer(serializers.ModelSerializer):
+    customer_name  = serializers.CharField(source="customer.name", read_only=True)
+    margin_percent = serializers.SerializerMethodField()
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "id", "bill_number", "customer_name",
+            "grand_total", "total_cogs", "gross_profit",
+            "margin_percent", "confirmed_at",
+        ]
+        read_only_fields = fields
+
+    def get_margin_percent(self, obj):
+        if not obj.grand_total:
+            return 0
+        return obj.gross_profit / obj.grand_total * 100
+
+
+# ---------------------------------------------------------------------------
+# Inventory valuation report — plain serializer, rows are dicts not models
+# ---------------------------------------------------------------------------
+
+class InventoryValuationReportItemSerializer(serializers.Serializer):
+    product_id       = serializers.IntegerField()
+    product_name     = serializers.CharField()
+    product_code     = serializers.CharField()
+    category_name    = serializers.CharField()
+    quantity_on_hand = serializers.IntegerField()
+    avg_unit_cost    = serializers.DecimalField(max_digits=14, decimal_places=4)
+    total_value      = serializers.DecimalField(max_digits=20, decimal_places=4)

@@ -107,6 +107,10 @@ const Layout = ({ children }) => {
         { name: 'Cash Collected Report', path: '/reports/cash-collected', icon: '💵' },
         { name: 'Expenses Report', path: '/reports/expenses', icon: '📋' },
         { name: 'Lost Inventory Report', path: '/reports/lost-inventory', icon: '📦' },
+        { name: 'Profit Margin Report', path: '/reports/profit-margin', icon: '💰' },
+        { name: 'Purchase Returns Report', path: '/reports/purchase-returns', icon: '↩️' },
+        { name: 'Customer Returns Report', path: '/reports/customer-returns', icon: '↩️' },
+        { name: 'Inventory Valuation Report', path: '/reports/inventory-valuation', icon: '🏪' },
     ];
 
     const isActive = (path) => location.pathname === path;

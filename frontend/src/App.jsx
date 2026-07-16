@@ -62,6 +62,10 @@ import InvoicesReportPage from './pages/reports/InvoicesReportPage';
 import CashCollectedReportPage from './pages/reports/CashCollectedReportPage';
 import ExpensesReportPage from './pages/reports/ExpensesReportPage';
 import LostInventoryReportPage from './pages/reports/LostInventoryReportPage';
+import PurchaseReturnsReportPage from './pages/reports/PurchaseReturnsReportPage';
+import CustomerReturnsReportPage from './pages/reports/CustomerReturnsReportPage';
+import ProfitMarginReportPage from './pages/reports/ProfitMarginReportPage';
+import InventoryValuationReportPage from './pages/reports/InventoryValuationReportPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -458,6 +462,38 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <LostInventoryReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/purchase-returns" element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchaseReturnsReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/customer-returns" element={
+          <ProtectedRoute>
+            <Layout>
+              <CustomerReturnsReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/profit-margin" element={
+          <ProtectedRoute>
+            <Layout>
+              <ProfitMarginReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/inventory-valuation" element={
+          <ProtectedRoute>
+            <Layout>
+              <InventoryValuationReportPage />
             </Layout>
           </ProtectedRoute>
         } />

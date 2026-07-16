@@ -27,6 +27,30 @@ const REPORTS = [
         icon: '📉',
         path: '/reports/lost-inventory',
     },
+    {
+        title: 'Purchase Returns Report',
+        description: 'Accepted returns to suppliers for a selected date range',
+        icon: '🔄',
+        path: '/reports/purchase-returns',
+    },
+    {
+        title: 'Customer Returns Report',
+        description: 'Accepted returns from customers for a selected date range',
+        icon: '↩️',
+        path: '/reports/customer-returns',
+    },
+    {
+        title: 'Profit / Margin Report',
+        description: 'Revenue, cost of goods sold, and gross profit for a selected date range',
+        icon: '📈',
+        path: '/reports/profit-margin',
+    },
+    {
+        title: 'Inventory Valuation Report',
+        description: 'Live snapshot of current stock valued at FIFO cost',
+        icon: '🏷️',
+        path: '/reports/inventory-valuation',
+    },
 ];
 
 const ReportsHomePage = () => {
