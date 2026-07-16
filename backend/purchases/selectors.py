@@ -6,7 +6,7 @@ from django.db.models import DecimalField, Value
 from django.shortcuts import get_object_or_404
 
 from .models import (
-    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
+    Category, Inventory, LostInventoryRecord, Product,
     PurchaseItem, PurchaseOrder, PurchaseReturn, Shelf, Supplier,
 )
 
@@ -537,14 +537,6 @@ def get_fifo_cost_preview(*, product_id: int, quantity: int) -> dict:
         "total_cost"        : total_cost,
         "sufficient_stock"  : remaining <= 0,
     }
-
-
-def get_total_lost_inventory_worth() -> Decimal:
-    """Sum of total_cost across all non-deleted lost inventory items. Used by the dashboard stats."""
-    total = LostInventoryItem.objects.filter(
-        record__is_deleted=False,
-    ).aggregate(total=Sum("total_cost"))["total"]
-    return total or Decimal("0")
 
 
 def get_all_outstanding_orders(

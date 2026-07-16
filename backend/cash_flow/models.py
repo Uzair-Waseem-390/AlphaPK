@@ -99,6 +99,10 @@ class CashFlow(models.Model):
         - supplier payment made
         - purchase return credit note
         - advance amount (already paid on draft creation)
+
+    total_lost_inventory_worth:
+        + lost inventory record created (FIFO cost of the batch)
+        No reversal path exists — this field only ever increases.
     """
 
     # ---- Receivables (from customers) ----
@@ -119,6 +123,10 @@ class CashFlow(models.Model):
 
     # ---- Expenses ----
     total_expenses_amount = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+
+    # ---- Lost inventory ----
+    total_lost_inventory_worth = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                     help_text="Total FIFO cost of all products marked lost. Only ever increases — no reversal exists.")
 
     # ---- Last sync metadata ----
     last_updated_at = models.DateTimeField(auto_now=True)

@@ -1039,4 +1039,8 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
     record.total_lost_amount = total_lost_amount
     record.save(update_fields=["total_lost_amount"])
 
+    # Sync CashFlow: total_lost_inventory_worth increases by this batch's FIFO cost
+    from cash_flow.services import sync_lost_inventory_created
+    sync_lost_inventory_created(amount=total_lost_amount, user=user)
+
     return record

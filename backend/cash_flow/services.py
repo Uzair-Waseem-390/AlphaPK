@@ -19,6 +19,7 @@ def _adjust_cashflow(
     supplier_payable_outstanding_delta : Decimal = Decimal("0"),
     total_purchases_cash_delta         : Decimal = Decimal("0"),
     total_expenses_amount_delta        : Decimal = Decimal("0"),
+    total_lost_inventory_worth_delta   : Decimal = Decimal("0"),
     user,
 ) -> CashFlow:
     """
@@ -35,6 +36,7 @@ def _adjust_cashflow(
         supplier_payable_outstanding = what we still owe suppliers
         total_purchases_cash    = total purchase value confirmed (paid + outstanding, only ever increases)
         total_expenses_amount   = total expenses recorded
+        total_lost_inventory_worth = total FIFO cost of products marked lost (only ever increases)
     """
     with transaction.atomic():
         cf = CashFlow.objects.select_for_update().get_or_create(pk=1)[0]
@@ -61,6 +63,9 @@ def _adjust_cashflow(
         )
         cf.total_expenses_amount = max(
             Decimal("0"), cf.total_expenses_amount + total_expenses_amount_delta
+        )
+        cf.total_lost_inventory_worth = max(
+            Decimal("0"), cf.total_lost_inventory_worth + total_lost_inventory_worth_delta
         )
         cf.last_updated_by = user
         cf.save()
@@ -393,5 +398,17 @@ def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     _adjust_cashflow(
         cash_in_hand_delta = +advance_amount,
+        user=user,
+    )
+
+
+def sync_lost_inventory_created(*, amount: Decimal, user) -> None:
+    """
+    Called when a lost inventory record is created.
+    total_lost_inventory_worth increases by the batch's FIFO cost.
+    No reversal path exists — lost inventory records cannot be deleted/undone.
+    """
+    _adjust_cashflow(
+        total_lost_inventory_worth_delta = +amount,
         user=user,
     )

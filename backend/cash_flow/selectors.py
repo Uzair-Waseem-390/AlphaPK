@@ -17,7 +17,6 @@ def get_cashflow_stats() -> dict:
     """
     from billing.models import Invoice
     from purchases.models import PurchaseOrder
-    from purchases.selectors import get_total_lost_inventory_worth
 
     cf = CashFlow.get_instance()
 
@@ -51,7 +50,7 @@ def get_cashflow_stats() -> dict:
         "total_number_of_expenses"  : Expense.objects.filter(is_deleted=False).count(),
 
         # Lost inventory
-        "total_lost_inventory_worth": get_total_lost_inventory_worth(),
+        "total_lost_inventory_worth": cf.total_lost_inventory_worth,
     }
 
 

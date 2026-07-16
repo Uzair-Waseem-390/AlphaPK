@@ -10,7 +10,7 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         from billing.models import Invoice, Payment
-        from purchases.models import PurchaseOrder, SupplierPayment
+        from purchases.models import LostInventoryItem, PurchaseOrder, SupplierPayment
         from cash_flow.models import Expense
 
         self.stdout.write("Starting CashFlow backfill...\n")
@@ -22,6 +22,7 @@ class Command(BaseCommand):
         cf.total_paid_payables        = Decimal("0")
         cf.supplier_payable_outstanding = Decimal("0")
         cf.total_expenses_amount      = Decimal("0")
+        cf.total_lost_inventory_worth = Decimal("0")
         cf.save()
 
         # 1. Customer outstanding = sum of credit_outstanding on confirmed invoices
@@ -92,6 +93,12 @@ class Command(BaseCommand):
         cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
         self.stdout.write(f"  cash_in_hand (final): {cf.cash_in_hand}")
 
+        # 7. Lost inventory worth = sum of total_cost on all lost inventory items
+        lost_items = LostInventoryItem.objects.filter(record__is_deleted=False)
+        for li in lost_items:
+            cf.total_lost_inventory_worth += li.total_cost or Decimal("0")
+        self.stdout.write(f"  total_lost_inventory_worth: {cf.total_lost_inventory_worth}")
+
         cf.save()
         self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))
         self.stdout.write(f"""
@@ -103,4 +110,5 @@ Final CashFlow state:
   supplier_payable_outstanding  : {cf.supplier_payable_outstanding}
   total_purchases_cash          : {cf.total_purchases_cash}
   total_expenses_amount         : {cf.total_expenses_amount}
+  total_lost_inventory_worth    : {cf.total_lost_inventory_worth}
 """)
