@@ -199,16 +199,29 @@ const InventoryPage = () => {
                     <p className="text-sm text-neutral-400 mt-1">Click on any row to view detailed product information</p>
                 </div>
                 {isAdmin && (
-                    <Button
-                        onClick={() => navigate('/purchases/lost-inventory')}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                            </svg>
-                        )}
-                    >
-                        Manage Inventory
-                    </Button>
+                    <div className="flex flex-wrap gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => navigate('/purchases/lost-inventory/records')}
+                            icon={({ className }) => (
+                                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 17v-6h6v6m-9 4h12a2 2 0 002-2V5a2 2 0 00-2-2H5a2 2 0 00-2 2v14a2 2 0 002 2z" />
+                                </svg>
+                            )}
+                        >
+                            Lost Inventory Records
+                        </Button>
+                        <Button
+                            onClick={() => navigate('/purchases/lost-inventory')}
+                            icon={({ className }) => (
+                                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                                </svg>
+                            )}
+                        >
+                            Manage Inventory
+                        </Button>
+                    </div>
                 )}
             </div>
 

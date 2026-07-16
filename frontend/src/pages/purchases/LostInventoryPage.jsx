@@ -1,16 +1,13 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
-import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Card from '../../components/ui/Card';
-import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import Pagination from '../../components/ui/Pagination';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -18,7 +15,6 @@ const formatCurrency = (value) => {
 };
 
 const LostInventoryPage = () => {
-    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
@@ -33,10 +29,6 @@ const LostInventoryPage = () => {
     const [successMessage, setSuccessMessage] = useState('');
 
     const previewTimer = useRef(null);
-
-    const {
-        data: records, meta, page, setPage, loading: recordsLoading, refetch: refetchRecords,
-    } = usePaginatedList((params) => purchasesApi.lostInventory.getAll(params), {}, 10);
 
     useEffect(() => {
         if (!searchTerm) {
@@ -159,7 +151,6 @@ const LostInventoryPage = () => {
             setSuccessMessage(`Recorded as ${result.reference_number} — total loss Rs. ${formatCurrency(result.total_lost_amount)}.`);
             setCart([]);
             setNote('');
-            refetchRecords();
         } catch (err) {
             const data = err.response?.data;
             if (data && typeof data === 'object') {
@@ -174,31 +165,6 @@ const LostInventoryPage = () => {
             setSubmitting(false);
         }
     };
-
-    const recordColumns = [
-        { key: 'reference_number', label: 'Reference', width: '140px' },
-        {
-            key: 'items',
-            label: 'Products',
-            render: (items) => (items || []).map((it) => `${it.product_name} x${it.quantity}`).join(', ') || 'N/A',
-        },
-        {
-            key: 'total_lost_amount',
-            label: 'Total Loss (PKR)',
-            render: (value) => formatCurrency(value),
-        },
-        { key: 'note', label: 'Note', render: (value) => value || '-' },
-        {
-            key: 'created_at',
-            label: 'Date',
-            render: (value) => value ? new Date(value).toLocaleString() : 'N/A',
-        },
-        {
-            key: 'created_by',
-            label: 'Recorded By',
-            render: (value) => value || 'N/A',
-        },
-    ];
 
     if (!isAdmin) {
         return (
@@ -217,9 +183,12 @@ const LostInventoryPage = () => {
             <div>
                 <h1 className="text-3xl font-bold text-neutral-900">Manage Inventory</h1>
                 <p className="text-neutral-500 mt-1">Mark lost, damaged, or missing products from inventory</p>
-                <div className="mt-2">
+                <div className="mt-2 flex gap-4">
                     <Link to="/purchases/inventory" className="text-sm text-primary-600 hover:text-primary-700">
                         ← Back to Inventory
+                    </Link>
+                    <Link to="/purchases/lost-inventory/records" className="text-sm text-primary-600 hover:text-primary-700">
+                        View Lost Inventory Records →
                     </Link>
                 </div>
             </div>
@@ -353,26 +322,6 @@ const LostInventoryPage = () => {
                         Record Lost Inventory
                     </Button>
                 </div>
-            </Card>
-
-            <Card className="p-6 space-y-4">
-                <h3 className="font-semibold text-neutral-900">Recent Lost Inventory Records</h3>
-                {recordsLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                        <LoadingSpinner size="lg" />
-                    </div>
-                ) : (
-                    <>
-                        <Table columns={recordColumns} data={records} />
-                        {meta.totalPages > 1 && (
-                            <Pagination
-                                currentPage={meta.currentPage}
-                                totalPages={meta.totalPages}
-                                onPageChange={setPage}
-                            />
-                        )}
-                    </>
-                )}
             </Card>
         </div>
     );

@@ -441,14 +441,27 @@ def get_all_lost_inventory_records(
     *,
     search        : str = None,
     product_id    : str = None,
+    product_name  : str = None,
+    product_code  : str = None,
+    reason        : str = None,
+    date          : str = None,
     date_from     : str = None,
     date_to       : str = None,
+    min_amount    : str = None,
+    max_amount    : str = None,
 ) -> QuerySet:
     """
-    Master filter selector for lost inventory records.
-        search     : reference number (partial match)
-        product_id : filter records containing a specific product
+    Master filter selector for lost inventory records — mirrors the
+    PurchaseOrder filter set (get_all_purchase_orders) wherever an
+    equivalent field exists on lost inventory.
+        search       : reference number (partial match)
+        product_id   : filter records containing a specific product
+        product_name : partial match on any item's product name
+        product_code : partial match on any item's product code
+        reason       : partial match on any item's reason
+        date         : exact created_at date
         date_from / date_to : created_at date range
+        min_amount / max_amount : total_lost_amount range
     """
     qs = LostInventoryRecord.objects.filter(is_deleted=False).select_related(
         "created_by", "updated_by",
@@ -457,11 +470,26 @@ def get_all_lost_inventory_records(
     if _clean(search):
         qs = qs.filter(reference_number__icontains=_clean(search))
     if _clean(product_id):
-        qs = qs.filter(items__product_id=_clean(product_id)).distinct()
+        qs = qs.filter(items__product_id=_clean(product_id))
+    if _clean(product_name):
+        qs = qs.filter(items__product__name__icontains=_clean(product_name))
+    if _clean(product_code):
+        qs = qs.filter(items__product__code__icontains=_clean(product_code))
+    if _clean(reason):
+        qs = qs.filter(items__reason__icontains=_clean(reason))
+    if _clean(date):
+        qs = qs.filter(created_at__date=_clean(date))
     if _clean(date_from):
         qs = qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
         qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(min_amount):
+        qs = qs.filter(total_lost_amount__gte=_clean(min_amount))
+    if _clean(max_amount):
+        qs = qs.filter(total_lost_amount__lte=_clean(max_amount))
+
+    if any(_clean(v) for v in (product_id, product_name, product_code, reason)):
+        qs = qs.distinct()
 
     return qs.order_by("-created_at")
 

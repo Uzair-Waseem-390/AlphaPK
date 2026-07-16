@@ -23,6 +23,7 @@ import PurchaseReturnDetailPage from './pages/purchases/PurchaseReturnDetailPage
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
 import LostInventoryPage from './pages/purchases/LostInventoryPage';
+import LostInventoryRecordsPage from './pages/purchases/LostInventoryRecordsPage';
 import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
 import PurchasePaymentDetailPage from './pages/purchases/PurchasePaymentDetailPage';
 
@@ -235,6 +236,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <LostInventoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/lost-inventory/records" element={
+          <ProtectedRoute>
+            <Layout>
+              <LostInventoryRecordsPage />
             </Layout>
           </ProtectedRoute>
         } />

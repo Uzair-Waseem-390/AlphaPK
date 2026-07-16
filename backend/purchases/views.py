@@ -744,7 +744,9 @@ class LostInventoryListCreateView(generics.ListCreateAPIView):
     GET  /purchases/lost-inventory/  — all lost inventory records, newest first
     POST /purchases/lost-inventory/  — mark one or more products as lost
 
-    Filter params for GET: search (reference number), product_id, date_from, date_to
+    Filter params for GET:
+        search, product_id, product_name, product_code, reason,
+        date, date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
 
@@ -754,10 +756,16 @@ class LostInventoryListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         p = self.request.query_params
         return get_all_lost_inventory_records(
-            search     = p.get("search"),
-            product_id = p.get("product_id"),
-            date_from  = p.get("date_from"),
-            date_to    = p.get("date_to"),
+            search       = p.get("search"),
+            product_id   = p.get("product_id"),
+            product_name = p.get("product_name"),
+            product_code = p.get("product_code"),
+            reason       = p.get("reason"),
+            date         = p.get("date"),
+            date_from    = p.get("date_from"),
+            date_to      = p.get("date_to"),
+            min_amount   = p.get("min_amount"),
+            max_amount   = p.get("max_amount"),
         )
 
     def create(self, request, *args, **kwargs):
