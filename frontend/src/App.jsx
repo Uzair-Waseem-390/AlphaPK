@@ -22,6 +22,7 @@ import AllReturnsPage from './pages/purchases/AllReturnsPage';
 import PurchaseReturnDetailPage from './pages/purchases/PurchaseReturnDetailPage';
 import SuppliersOutstandingPage from './pages/purchases/SuppliersOutstandingPage';
 import InventoryPage from './pages/purchases/InventoryPage';
+import LostInventoryPage from './pages/purchases/LostInventoryPage';
 import GlobalPaymentsPage from './pages/purchases/GlobalPaymentsPage';
 import PurchasePaymentDetailPage from './pages/purchases/PurchasePaymentDetailPage';
 
@@ -226,6 +227,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InventoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/lost-inventory" element={
+          <ProtectedRoute>
+            <Layout>
+              <LostInventoryPage />
             </Layout>
           </ProtectedRoute>
         } />

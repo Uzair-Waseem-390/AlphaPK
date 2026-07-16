@@ -62,5 +62,9 @@ export const cashFlowApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/cash-flow/breakdown/expenses/${query ? `?${query}` : ''}`);
         },
+        lostInventory: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/breakdown/lost-inventory/${query ? `?${query}` : ''}`);
+        },
     },
 };

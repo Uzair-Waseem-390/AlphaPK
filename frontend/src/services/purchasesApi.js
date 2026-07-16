@@ -143,4 +143,18 @@ export const purchasesApi = {
         },
         getByProduct: (productId) => api.get(`/inventory/${productId}/`),
     },
+
+    // Lost Inventory
+    lostInventory: {
+        getAll: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/lost-inventory/${query ? `?${query}` : ''}`);
+        },
+        getById: (id) => api.get(`/lost-inventory/${id}/`),
+        create: (data) => api.post('/lost-inventory/', data),
+        fifoPreview: (productId, quantity) => {
+            const query = new URLSearchParams({ product_id: productId, quantity }).toString();
+            return api.get(`/lost-inventory/fifo-preview/?${query}`);
+        },
+    },
 };

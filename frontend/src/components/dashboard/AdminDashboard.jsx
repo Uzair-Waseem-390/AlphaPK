@@ -5,6 +5,7 @@ import { useCashFlowStats } from '../../hooks/useCashFlow';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
+import LostInventorySectionStats from './LostInventorySectionStats';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
@@ -62,6 +63,11 @@ const AdminDashboard = () => {
                     onCardClick={handleCardClick}
                 />
                 <ExpensesSectionStats
+                    stats={stats}
+                    loading={statsLoading}
+                    onCardClick={handleCardClick}
+                />
+                <LostInventorySectionStats
                     stats={stats}
                     loading={statsLoading}
                     onCardClick={handleCardClick}

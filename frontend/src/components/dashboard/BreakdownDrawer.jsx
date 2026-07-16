@@ -210,7 +210,7 @@ BreakdownDrawer.propTypes = {
     type: PropTypes.oneOf([
         'cashInHand', 'invoicesCash', 'customerOutstanding',
         'paidPayables', 'supplierOutstanding', 'invoices',
-        'purchases', 'expenses'
+        'purchases', 'expenses', 'lostInventory'
     ]).isRequired,
     initialFilters: PropTypes.object,
 };

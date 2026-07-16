@@ -63,6 +63,8 @@ export const useBreakdown = (type, initialFilters = {}) => {
                 return cashFlowApi.breakdowns.purchases(filterParams);
             case 'expenses':
                 return cashFlowApi.breakdowns.expenses(filterParams);
+            case 'lostInventory':
+                return cashFlowApi.breakdowns.lostInventory(filterParams);
             default:
                 return Promise.resolve([]);
         }

@@ -1,5 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { useNavigate } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Table from '../../components/ui/Table';
@@ -13,6 +15,10 @@ import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 
 const InventoryPage = () => {
+    const navigate = useNavigate();
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+
     const [searchTerm, setSearchTerm] = useState('');
     const [categories, setCategories] = useState([]);
     const [shelves, setShelves] = useState([]);
@@ -186,10 +192,24 @@ const InventoryPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Inventory</h1>
-                <p className="text-neutral-500 mt-1">View current inventory levels across all products</p>
-                <p className="text-sm text-neutral-400 mt-1">Click on any row to view detailed product information</p>
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Inventory</h1>
+                    <p className="text-neutral-500 mt-1">View current inventory levels across all products</p>
+                    <p className="text-sm text-neutral-400 mt-1">Click on any row to view detailed product information</p>
+                </div>
+                {isAdmin && (
+                    <Button
+                        onClick={() => navigate('/purchases/lost-inventory')}
+                        icon={({ className }) => (
+                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 3v2m6-2v2M9 19v2m6-2v2M5 9H3m2 6H3m18-6h-2m2 6h-2M7 19h10a2 2 0 002-2V7a2 2 0 00-2-2H7a2 2 0 00-2 2v10a2 2 0 002 2z" />
+                            </svg>
+                        )}
+                    >
+                        Manage Inventory
+                    </Button>
+                )}
             </div>
 
             {/* Summary Cards */}
