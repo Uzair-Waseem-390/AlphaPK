@@ -1,7 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    Category, Inventory, Product, PurchaseItem, PurchaseOrder,
+    Category, Inventory, LostInventoryItem, LostInventoryRecord,
+    Product, PurchaseItem, PurchaseOrder,
     PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
     Shelf, Supplier, SupplierPayment,
 )
@@ -115,6 +116,22 @@ class PurchaseReturnAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmi
         "total_return_wht", "total_return_amount",
     )
     inlines = [PurchaseReturnItemInline]
+
+
+class LostInventoryItemInline(admin.TabularInline):
+    model         = LostInventoryItem
+    extra         = 0
+    readonly_fields = ["unit_cost", "total_cost"]
+    can_delete = False
+
+
+@admin.register(LostInventoryRecord)
+class LostInventoryRecordAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmin):
+    list_display  = ["reference_number", "total_lost_amount", "created_by", "created_at", "is_deleted"]
+    list_filter   = ["is_deleted"]
+    search_fields = ["reference_number"]
+    readonly_fields = AuditAdminMixin.readonly_fields + ("reference_number", "total_lost_amount")
+    inlines = [LostInventoryItemInline]
 
 
 @admin.register(SavedPurchaseOrderPDF)

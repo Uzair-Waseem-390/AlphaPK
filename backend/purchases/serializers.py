@@ -1,9 +1,9 @@
 from rest_framework import serializers
 
 from .models import (
-    Category, Inventory, Product, PurchaseItem, PurchaseOrder,
-    PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
-    Shelf, Supplier, SupplierPayment,
+    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
+    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
+    SavedPurchaseOrderPDF, Shelf, Supplier, SupplierPayment,
 )
 
 
@@ -446,6 +446,68 @@ class PurchaseReturnReadSerializer(serializers.ModelSerializer):
             "items", "note",
             "accepted_by", "accepted_at",
             "created_by", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Lost Inventory
+# ---------------------------------------------------------------------------
+
+class LostInventoryItemWriteSerializer(serializers.Serializer):
+    product_id = serializers.IntegerField()
+    quantity   = serializers.IntegerField(min_value=1)
+    reason     = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+
+
+class LostInventoryCreateSerializer(serializers.Serializer):
+    items = LostInventoryItemWriteSerializer(many=True)
+    note  = serializers.CharField(max_length=500, required=False, allow_blank=True, default="")
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one item is required.")
+        return value
+
+
+class LostInventoryItemReadSerializer(serializers.ModelSerializer):
+    product_name = serializers.CharField(source="product.name", read_only=True)
+    product_code = serializers.CharField(source="product.code", read_only=True)
+
+    class Meta:
+        model  = LostInventoryItem
+        fields = [
+            "id", "product", "product_name", "product_code",
+            "quantity", "reason", "unit_cost", "total_cost",
+        ]
+        read_only_fields = fields
+
+
+class LostInventoryFifoPreviewQuerySerializer(serializers.Serializer):
+    """Validates query params for the FIFO cost preview endpoint."""
+    product_id = serializers.IntegerField()
+    quantity   = serializers.IntegerField(min_value=1)
+
+
+class LostInventoryFifoPreviewSerializer(serializers.Serializer):
+    product_id         = serializers.IntegerField()
+    quantity           = serializers.IntegerField()
+    available_quantity = serializers.IntegerField()
+    unit_cost          = serializers.DecimalField(max_digits=14, decimal_places=4)
+    total_cost         = serializers.DecimalField(max_digits=18, decimal_places=4)
+    sufficient_stock   = serializers.BooleanField()
+
+
+class LostInventoryReadSerializer(serializers.ModelSerializer):
+    items       = LostInventoryItemReadSerializer(many=True, read_only=True)
+    created_by  = serializers.StringRelatedField(read_only=True)
+    updated_by  = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = LostInventoryRecord
+        fields = [
+            "id", "reference_number", "note", "total_lost_amount",
+            "items", "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
 

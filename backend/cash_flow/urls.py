@@ -10,6 +10,7 @@ from .views import (
     ExpenseRetrieveUpdateDestroyView,
     ExpensesBreakdownView,
     InvoicesBreakdownView,
+    LostInventoryBreakdownView,
     PurchasesBreakdownView,
     SupplierOutstandingBreakdownView,
     TotalInvoicesCashBreakdownView,
@@ -37,4 +38,5 @@ urlpatterns = [
     path("breakdown/invoices/",             InvoicesBreakdownView.as_view(),            name="breakdown-invoices"),
     path("breakdown/purchases/",            PurchasesBreakdownView.as_view(),           name="breakdown-purchases"),
     path("breakdown/expenses/",             ExpensesBreakdownView.as_view(),            name="breakdown-expenses"),
+    path("breakdown/lost-inventory/",       LostInventoryBreakdownView.as_view(),       name="breakdown-lost-inventory"),
 ]

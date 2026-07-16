@@ -325,6 +325,63 @@ class PurchaseReturnItem(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# Lost Inventory
+# ---------------------------------------------------------------------------
+
+class LostInventoryRecord(AuditMixin):
+    """
+    A batch event where one or more products are marked as lost from inventory
+    (damaged, expired, stolen, misplaced, etc.). Takes effect immediately on
+    creation — unlike PurchaseReturn there is no pending/accept step.
+
+    On creation:
+        - Cost per unit is snapshotted from FIFO purchase batches (same
+          costing logic as billing._run_fifo).
+        - Inventory decreases immediately.
+    """
+
+    reference_number = models.CharField(max_length=30, unique=True, editable=False,
+                           help_text="Auto-generated e.g. LOSS-2026-0001")
+    note = models.TextField(blank=True, default="", help_text="Optional overall note for this batch.")
+
+    # Computed and stored on creation
+    total_lost_amount = models.DecimalField(max_digits=18, decimal_places=4, default=0)
+
+    class Meta:
+        verbose_name        = "Lost Inventory Record"
+        verbose_name_plural = "Lost Inventory Records"
+        ordering            = ["-created_at"]
+
+    def __str__(self):
+        return self.reference_number
+
+
+class LostInventoryItem(models.Model):
+    """
+    One product lost within a LostInventoryRecord.
+    unit_cost is the blended FIFO cost snapshotted at creation time — immutable.
+    """
+
+    record   = models.ForeignKey(LostInventoryRecord, on_delete=models.CASCADE, related_name="items")
+    product  = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="lost_inventory_items")
+    quantity = models.PositiveIntegerField()
+    reason   = models.CharField(max_length=255, blank=True, default="",
+                   help_text="Optional reason e.g. damaged, expired, stolen, misplaced.")
+
+    # Snapshotted from FIFO purchase batches at creation
+    unit_cost  = models.DecimalField(max_digits=14, decimal_places=4, default=0, editable=False)
+    total_cost = models.DecimalField(max_digits=18, decimal_places=4, default=0, editable=False)
+
+    class Meta:
+        verbose_name        = "Lost Inventory Item"
+        verbose_name_plural = "Lost Inventory Items"
+        unique_together     = [("record", "product")]
+
+    def __str__(self):
+        return f"{self.record.reference_number} — {self.product.name} x {self.quantity}"
+
+
+# ---------------------------------------------------------------------------
 # Supplier Payment
 # ---------------------------------------------------------------------------
 

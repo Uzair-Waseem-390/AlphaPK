@@ -13,6 +13,7 @@ from .selectors import (
     get_expense_category_by_id,
     get_invoice_payments_breakdown,
     get_invoices_breakdown,
+    get_lost_inventory_breakdown,
     get_purchases_breakdown,
     get_supplier_payable_outstanding_breakdown,
     get_supplier_payments_breakdown,
@@ -26,6 +27,7 @@ from .serializers import (
     ExpenseWriteSerializer,
     InvoiceBreakdownSerializer,
     InvoicePaymentBreakdownSerializer,
+    LostInventoryBreakdownSerializer,
     PurchaseBreakdownSerializer,
     SupplierOutstandingBreakdownSerializer,
     SupplierPaymentBreakdownSerializer,
@@ -390,4 +392,28 @@ class ExpensesBreakdownView(generics.ListAPIView):
             date_to     = p.get("date_to"),
             min_amount  = p.get("min_amount"),
             max_amount  = p.get("max_amount"),
+        )
+
+
+class LostInventoryBreakdownView(generics.ListAPIView):
+    """
+    GET /cash-flow/breakdown/lost-inventory/
+    All lost inventory line items (total_lost_inventory_worth drill-down).
+
+    Filter params:
+        search      : reference number (partial match)
+        product_id  : filter by product
+        date_from   : YYYY-MM-DD
+        date_to     : YYYY-MM-DD
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = LostInventoryBreakdownSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_lost_inventory_breakdown(
+            search     = p.get("search"),
+            product_id = p.get("product_id"),
+            date_from  = p.get("date_from"),
+            date_to    = p.get("date_to"),
         )

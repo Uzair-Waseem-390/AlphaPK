@@ -86,6 +86,9 @@ class CashFlowStatsSerializer(serializers.Serializer):
     total_expenses_amount        = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_number_of_expenses     = serializers.IntegerField()
 
+    # Lost inventory
+    total_lost_inventory_worth   = serializers.DecimalField(max_digits=20, decimal_places=4)
+
 
 # ---------------------------------------------------------------------------
 # Breakdown serializers — reuse existing app serializers where possible
@@ -169,3 +172,18 @@ class PurchaseBreakdownSerializer(serializers.Serializer):
     payment_type    = serializers.CharField()
     confirmed_at    = serializers.DateTimeField()
     created_at      = serializers.DateTimeField()
+
+
+class LostInventoryBreakdownSerializer(serializers.Serializer):
+    """Slim lost-inventory item for total_lost_inventory_worth breakdown."""
+    id                = serializers.IntegerField()
+    reference_number  = serializers.CharField(source="record.reference_number")
+    product_name      = serializers.CharField(source="product.name")
+    product_code      = serializers.CharField(source="product.code")
+    quantity          = serializers.IntegerField()
+    reason            = serializers.CharField()
+    unit_cost         = serializers.DecimalField(max_digits=14, decimal_places=4)
+    total_cost        = serializers.DecimalField(max_digits=18, decimal_places=4)
+    note              = serializers.CharField(source="record.note")
+    created_by        = serializers.StringRelatedField(source="record.created_by")
+    created_at        = serializers.DateTimeField(source="record.created_at")

@@ -12,11 +12,12 @@ from .models import CashFlow, Expense, ExpenseCategory
 
 def get_cashflow_stats() -> dict:
     """
-    Returns all 10 dashboard stats from the CashFlow singleton.
+    Returns all 11 dashboard stats from the CashFlow singleton.
     Counts use .count() on the source models — never summed in runtime.
     """
     from billing.models import Invoice
     from purchases.models import PurchaseOrder
+    from purchases.selectors import get_total_lost_inventory_worth
 
     cf = CashFlow.get_instance()
 
@@ -48,6 +49,9 @@ def get_cashflow_stats() -> dict:
         # Expenses
         "total_expenses_amount"     : cf.total_expenses_amount,
         "total_number_of_expenses"  : Expense.objects.filter(is_deleted=False).count(),
+
+        # Lost inventory
+        "total_lost_inventory_worth": get_total_lost_inventory_worth(),
     }
 
 
@@ -466,6 +470,35 @@ def get_purchases_breakdown(
         qs = qs.filter(net_payable__lte=_clean(max_amount))
 
     return qs.order_by("-created_at")
+
+
+def get_lost_inventory_breakdown(
+    *,
+    search     : str = None,
+    product_id : str = None,
+    date_from  : str = None,
+    date_to    : str = None,
+) -> QuerySet:
+    """
+    Breakdown of every lost-inventory line item (total_lost_inventory_worth drill-down).
+    Flattened to item level (not record level) so each row shows one product's loss.
+    """
+    from purchases.models import LostInventoryItem
+
+    qs = LostInventoryItem.objects.filter(
+        record__is_deleted=False,
+    ).select_related("record", "record__created_by", "product")
+
+    if _clean(search):
+        qs = qs.filter(record__reference_number__icontains=_clean(search))
+    if _clean(product_id):
+        qs = qs.filter(product_id=_clean(product_id))
+    if _clean(date_from):
+        qs = qs.filter(record__created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(record__created_at__date__lte=_clean(date_to))
+
+    return qs.order_by("-record__created_at")
 
 
 # ---------------------------------------------------------------------------

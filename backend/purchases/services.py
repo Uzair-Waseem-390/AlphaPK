@@ -3,14 +3,15 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    Category, Inventory, Product, PurchaseItem, PurchaseOrder,
-    PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
-    Shelf, Supplier, SupplierPayment,
+    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
+    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
+    SavedPurchaseOrderPDF, Shelf, Supplier, SupplierPayment,
 )
 from .selectors import (
-    get_category_by_id, get_product_by_id, get_purchase_item_by_id,
-    get_purchase_order_by_id, get_purchase_return_by_id,
-    get_shelf_by_id, get_supplier_by_id, get_supplier_payment_by_id,
+    get_available_purchase_items_for_fifo, get_category_by_id,
+    get_product_by_id, get_purchase_item_by_id, get_purchase_order_by_id,
+    get_purchase_return_by_id, get_shelf_by_id, get_supplier_by_id,
+    get_supplier_payment_by_id,
 )
 from .utils import calculate_total_price
 
@@ -64,6 +65,20 @@ def _generate_purchase_return_reference() -> str:
     prefix = f"RTN-{year}-"
     last   = (
         PurchaseReturn.all_objects
+        .filter(reference_number__startswith=prefix)
+        .order_by("-reference_number")
+        .first()
+    )
+    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
+    return f"{prefix}{seq:04d}"
+
+
+def _generate_lost_inventory_reference() -> str:
+    """Generates sequential lost inventory reference: LOSS-2026-0001."""
+    year   = timezone.now().year
+    prefix = f"LOSS-{year}-"
+    last   = (
+        LostInventoryRecord.all_objects
         .filter(reference_number__startswith=prefix)
         .order_by("-reference_number")
         .first()
@@ -908,3 +923,120 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
     )
 
     return return_record
+
+
+# ---------------------------------------------------------------------------
+# Lost Inventory
+# ---------------------------------------------------------------------------
+
+def _consume_fifo_for_loss(*, product: Product, quantity: int) -> Decimal:
+    """
+    Consumes stock from purchase batches in FIFO order for a lost product.
+    Mirrors billing._run_fifo — oldest batch first, tax-inclusive unit cost
+    (total_price / quantity), decrements remaining_quantity on each batch.
+    Returns the blended cost per unit for the consumed quantity.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    remaining_to_consume = quantity
+    total_cost = Decimal("0")
+    batches = get_available_purchase_items_for_fifo(product.id)
+
+    for batch in batches:
+        if remaining_to_consume <= 0:
+            break
+
+        consume = min(batch.remaining_quantity, remaining_to_consume)
+        tax_inclusive_unit_cost = (
+            batch.total_price / batch.quantity
+            if batch.quantity > 0 else batch.unit_price
+        )
+        total_cost += consume * tax_inclusive_unit_cost
+
+        batch.remaining_quantity -= consume
+        batch.save(update_fields=["remaining_quantity"])
+
+        remaining_to_consume -= consume
+
+    if remaining_to_consume > 0:
+        raise ValidationError({
+            "quantity": f"Stock ran out mid-processing for '{product.name}'. Please refresh and try again."
+        })
+
+    return total_cost / Decimal(str(quantity))
+
+
+def _validate_lost_stock(*, product: Product, requested_qty: int) -> None:
+    """Guard: ensures enough FIFO stock exists before consuming it. Mirrors billing._validate_stock."""
+    from rest_framework.exceptions import ValidationError
+
+    batches = get_available_purchase_items_for_fifo(product.id)
+    available = sum(b.remaining_quantity for b in batches)
+    if available < requested_qty:
+        raise ValidationError({
+            "quantity": (
+                f"Insufficient stock for '{product.name}'. "
+                f"Requested: {requested_qty}, Available: {available}."
+            )
+        })
+
+
+@transaction.atomic
+def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> LostInventoryRecord:
+    """
+    Marks one or more products as lost from inventory in a single batch.
+    items = [{"product_id": 1, "quantity": 5, "reason": "damaged"}, ...]
+
+    For each item:
+        1. Validates stock availability against FIFO purchase batches.
+        2. Consumes stock FIFO-first, snapshotting the blended unit cost.
+        3. Decreases live inventory by the lost quantity.
+    Takes effect immediately — no pending/accept step.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if not items:
+        raise ValidationError({"items": "At least one item is required."})
+
+    seen_products = set()
+    for item in items:
+        if item["product_id"] in seen_products:
+            raise ValidationError({"items": f"Duplicate product id {item['product_id']}."})
+        seen_products.add(item["product_id"])
+        if item["quantity"] <= 0:
+            raise ValidationError({"quantity": "Quantity must be greater than zero."})
+
+    record = LostInventoryRecord.objects.create(
+        reference_number=_generate_lost_inventory_reference(),
+        note=note,
+        created_by=user,
+        updated_by=user,
+    )
+
+    total_lost_amount = Decimal("0")
+
+    for item_data in items:
+        product = get_product_by_id(item_data["product_id"])
+        quantity = item_data["quantity"]
+
+        _validate_lost_stock(product=product, requested_qty=quantity)
+        unit_cost = _consume_fifo_for_loss(product=product, quantity=quantity)
+        total_cost = unit_cost * Decimal(str(quantity))
+
+        LostInventoryItem.objects.create(
+            record=record,
+            product=product,
+            quantity=quantity,
+            reason=item_data.get("reason", ""),
+            unit_cost=unit_cost,
+            total_cost=total_cost,
+        )
+
+        _sync_inventory(product=product, quantity_delta=-quantity, user=user)
+
+        total_lost_amount += total_cost
+
+    record.total_lost_amount = total_lost_amount
+    record.save(update_fields=["total_lost_amount"])
+
+    return record

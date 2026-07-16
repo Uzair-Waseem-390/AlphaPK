@@ -6,8 +6,8 @@ from django.db.models import DecimalField, Value
 from django.shortcuts import get_object_or_404
 
 from .models import (
-    Category, Inventory, Product, PurchaseItem,
-    PurchaseOrder, PurchaseReturn, Shelf, Supplier,
+    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
+    PurchaseItem, PurchaseOrder, PurchaseReturn, Shelf, Supplier,
 )
 
 
@@ -435,6 +435,88 @@ def get_outstanding_orders_for_supplier(supplier_id: int) -> QuerySet:
         )
         .order_by("created_at")
     )
+
+
+def get_all_lost_inventory_records(
+    *,
+    search        : str = None,
+    product_id    : str = None,
+    date_from     : str = None,
+    date_to       : str = None,
+) -> QuerySet:
+    """
+    Master filter selector for lost inventory records.
+        search     : reference number (partial match)
+        product_id : filter records containing a specific product
+        date_from / date_to : created_at date range
+    """
+    qs = LostInventoryRecord.objects.filter(is_deleted=False).select_related(
+        "created_by", "updated_by",
+    ).prefetch_related("items__product")
+
+    if _clean(search):
+        qs = qs.filter(reference_number__icontains=_clean(search))
+    if _clean(product_id):
+        qs = qs.filter(items__product_id=_clean(product_id)).distinct()
+    if _clean(date_from):
+        qs = qs.filter(created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(created_at__date__lte=_clean(date_to))
+
+    return qs.order_by("-created_at")
+
+
+def get_lost_inventory_record_by_id(pk: int) -> LostInventoryRecord:
+    return get_object_or_404(
+        LostInventoryRecord.objects.select_related(
+            "created_by", "updated_by",
+        ).prefetch_related("items__product"),
+        pk=pk, is_deleted=False,
+    )
+
+
+def get_fifo_cost_preview(*, product_id: int, quantity: int) -> dict:
+    """
+    Read-only preview of the blended FIFO unit cost for a product/quantity,
+    without consuming any stock. Used by the lost-inventory page to show the
+    expected cost before submission. Mirrors the walk in
+    purchases.services._consume_fifo_for_loss, but never writes.
+    """
+    batches   = get_available_purchase_items_for_fifo(product_id)
+    remaining = quantity
+    total_cost = Decimal("0")
+    available  = 0
+
+    for batch in batches:
+        available += batch.remaining_quantity
+        if remaining <= 0:
+            continue
+        consume = min(batch.remaining_quantity, remaining)
+        tax_inclusive_unit_cost = (
+            batch.total_price / batch.quantity if batch.quantity > 0 else batch.unit_price
+        )
+        total_cost += consume * tax_inclusive_unit_cost
+        remaining  -= consume
+
+    consumed  = quantity - remaining
+    unit_cost = (total_cost / Decimal(str(consumed))) if consumed > 0 else Decimal("0")
+
+    return {
+        "product_id"        : product_id,
+        "quantity"          : quantity,
+        "available_quantity": available,
+        "unit_cost"         : unit_cost,
+        "total_cost"        : total_cost,
+        "sufficient_stock"  : remaining <= 0,
+    }
+
+
+def get_total_lost_inventory_worth() -> Decimal:
+    """Sum of total_cost across all non-deleted lost inventory items. Used by the dashboard stats."""
+    total = LostInventoryItem.objects.filter(
+        record__is_deleted=False,
+    ).aggregate(total=Sum("total_cost"))["total"]
+    return total or Decimal("0")
 
 
 def get_all_outstanding_orders(

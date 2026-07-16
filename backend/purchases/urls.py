@@ -46,6 +46,11 @@ from .views import (
     # Inventory
     InventoryListView,
     InventoryRetrieveView,
+
+    # Lost Inventory
+    LostInventoryFifoPreviewView,
+    LostInventoryListCreateView,
+    LostInventoryRetrieveView,
 )
 
 urlpatterns = [
@@ -180,4 +185,20 @@ urlpatterns = [
     path("inventory/<int:product_id>/",
          InventoryRetrieveView.as_view(),
          name="inventory-detail"),
+
+    # -----------------------------------------------------------------------
+    # Lost Inventory
+    # IMPORTANT: static paths (fifo-preview/) BEFORE dynamic paths (<int:pk>/)
+    # -----------------------------------------------------------------------
+    path("lost-inventory/",
+         LostInventoryListCreateView.as_view(),
+         name="lost-inventory-list-create"),
+
+    path("lost-inventory/fifo-preview/",
+         LostInventoryFifoPreviewView.as_view(),
+         name="lost-inventory-fifo-preview"),
+
+    path("lost-inventory/<int:pk>/",
+         LostInventoryRetrieveView.as_view(),
+         name="lost-inventory-detail"),
 ]

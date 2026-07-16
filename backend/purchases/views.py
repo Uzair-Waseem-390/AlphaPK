@@ -12,19 +12,23 @@ from .pdf_service import (
 )
 from .permissions import IsAdminOrSuperuser, IsAdminOrSuperuserOrReadOnly
 from .selectors import (
-    get_all_categories, get_all_inventory, get_all_products,
-    get_all_purchase_orders, get_all_returns, get_all_shelves,
-    get_all_suppliers, get_category_by_id, get_confirmed_purchase_orders,
-    get_draft_purchase_orders, get_inventory_by_product_id,
-    get_order_payment_summary, get_payments_for_order,
-    get_purchase_order_by_id, get_purchase_return_by_id,
-    get_returns_for_order, get_shelf_by_id, get_supplier_by_id,
-    get_supplier_payable_summary, get_supplier_payment_by_id,
-    get_suppliers_with_outstanding,
+    get_all_categories, get_all_inventory, get_all_lost_inventory_records,
+    get_all_products, get_all_purchase_orders, get_all_returns,
+    get_all_shelves, get_all_suppliers, get_category_by_id,
+    get_confirmed_purchase_orders, get_draft_purchase_orders,
+    get_fifo_cost_preview, get_inventory_by_product_id,
+    get_lost_inventory_record_by_id, get_order_payment_summary,
+    get_payments_for_order, get_purchase_order_by_id,
+    get_purchase_return_by_id, get_returns_for_order, get_shelf_by_id,
+    get_supplier_by_id, get_supplier_payable_summary,
+    get_supplier_payment_by_id, get_suppliers_with_outstanding,
 )
 from .serializers import (
     CategoryReadSerializer, CategoryWriteSerializer,
-    InventoryReadSerializer, ProductReadSerializer, ProductWriteSerializer,
+    InventoryReadSerializer, LostInventoryCreateSerializer,
+    LostInventoryFifoPreviewQuerySerializer,
+    LostInventoryFifoPreviewSerializer, LostInventoryReadSerializer,
+    ProductReadSerializer, ProductWriteSerializer,
     PurchaseItemReadSerializer, PurchaseOrderCreateSerializer,
     PurchaseOrderPaymentSummarySerializer, PurchaseOrderReadSerializer,
     PurchaseOrderUpdateSerializer, PurchaseReturnCreateSerializer,
@@ -37,12 +41,12 @@ from .serializers import (
 )
 from .services import (
     accept_purchase_return, confirm_purchase_order, create_category,
-    create_product, create_purchase_order, create_purchase_return,
-    create_shelf, create_supplier, create_supplier_payment,
-    delete_category, delete_product, delete_purchase_order,
-    delete_shelf, delete_supplier, delete_supplier_payment,
-    update_category, update_product, update_purchase_order_items,
-    update_shelf, update_supplier,
+    create_lost_inventory_record, create_product, create_purchase_order,
+    create_purchase_return, create_shelf, create_supplier,
+    create_supplier_payment, delete_category, delete_product,
+    delete_purchase_order, delete_shelf, delete_supplier,
+    delete_supplier_payment, update_category, update_product,
+    update_purchase_order_items, update_shelf, update_supplier,
 )
 
 
@@ -729,3 +733,69 @@ class AllSupplierPaymentsView(generics.ListAPIView):
             date_from     = p.get("date_from"),
             date_to       = p.get("date_to"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Lost Inventory (admin/superuser only)
+# ---------------------------------------------------------------------------
+
+class LostInventoryListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /purchases/lost-inventory/  — all lost inventory records, newest first
+    POST /purchases/lost-inventory/  — mark one or more products as lost
+
+    Filter params for GET: search (reference number), product_id, date_from, date_to
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get_serializer_class(self):
+        return LostInventoryCreateSerializer if self.request.method == "POST" else LostInventoryReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_lost_inventory_records(
+            search     = p.get("search"),
+            product_id = p.get("product_id"),
+            date_from  = p.get("date_from"),
+            date_to    = p.get("date_to"),
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d   = serializer.validated_data
+        obj = create_lost_inventory_record(
+            items=d["items"],
+            note=d.get("note", ""),
+            user=request.user,
+        )
+        return Response(LostInventoryReadSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class LostInventoryRetrieveView(generics.RetrieveAPIView):
+    """GET /purchases/lost-inventory/<pk>/"""
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = LostInventoryReadSerializer
+
+    def get_object(self):
+        return get_lost_inventory_record_by_id(self.kwargs["pk"])
+
+
+class LostInventoryFifoPreviewView(APIView):
+    """
+    GET /purchases/lost-inventory/fifo-preview/?product_id=<id>&quantity=<n>
+    Read-only preview of the blended FIFO cost for marking a product lost,
+    shown on the lost-inventory page before submission. Consumes no stock.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        query = LostInventoryFifoPreviewQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        d = query.validated_data
+
+        from .selectors import get_product_by_id
+        get_product_by_id(d["product_id"])  # 404s if the product doesn't exist
+
+        preview = get_fifo_cost_preview(product_id=d["product_id"], quantity=d["quantity"])
+        return Response(LostInventoryFifoPreviewSerializer(preview).data)
