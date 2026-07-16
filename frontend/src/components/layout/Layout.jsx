@@ -105,6 +105,7 @@ const Layout = ({ children }) => {
     const reportsNavigation = [
         { name: 'Invoices Report', path: '/reports/invoices', icon: '🧾' },
         { name: 'Cash Collected Report', path: '/reports/cash-collected', icon: '💵' },
+        { name: 'Expenses Report', path: '/reports/expenses', icon: '📋' },
     ];
 
     const isActive = (path) => location.pathname === path;
@@ -168,77 +169,77 @@ const Layout = ({ children }) => {
 
                         {/* Purchases Section — admin/superuser only */}
                         {isAdmin && (
-                        <div className="mt-2 pt-2 border-t border-neutral-200">
-                            <button
-                                onClick={() => setPurchasesOpen(!purchasesOpen)}
-                                className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isPurchasesActiveNow
-                                    ? 'bg-primary-50 text-primary-700'
-                                    : 'text-neutral-600 hover:bg-neutral-100'
-                                    }`}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <span className="text-xl">🛒</span>
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <button
+                                    onClick={() => setPurchasesOpen(!purchasesOpen)}
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isPurchasesActiveNow
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">🛒</span>
+                                        {sidebarOpen && (
+                                            <span className="font-medium">Purchases</span>
+                                        )}
+                                    </div>
                                     {sidebarOpen && (
-                                        <span className="font-medium">Purchases</span>
+                                        <motion.span
+                                            animate={{ rotate: purchasesOpen ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="text-sm"
+                                        >
+                                            ▼
+                                        </motion.span>
                                     )}
-                                </div>
-                                {sidebarOpen && (
-                                    <motion.span
-                                        animate={{ rotate: purchasesOpen ? 180 : 0 }}
-                                        transition={{ duration: 0.2 }}
-                                        className="text-sm"
-                                    >
-                                        ▼
-                                    </motion.span>
-                                )}
-                            </button>
+                                </button>
 
-                            {/* Purchases Sub-items */}
-                            <AnimatePresence>
-                                {purchasesOpen && sidebarOpen && (
-                                    <motion.div
-                                        initial={{ opacity: 0, height: 0 }}
-                                        animate={{ opacity: 1, height: 'auto' }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        transition={{ duration: 0.2 }}
-                                        className="ml-4 space-y-1 overflow-hidden"
-                                    >
+                                {/* Purchases Sub-items */}
+                                <AnimatePresence>
+                                    {purchasesOpen && sidebarOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="ml-4 space-y-1 overflow-hidden"
+                                        >
+                                            {purchasesNavigation.map((item) => (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                        ? 'bg-primary-50 text-primary-700'
+                                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                                        }`}
+                                                >
+                                                    <span className="text-base">{item.icon}</span>
+                                                    <span className="font-medium">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* When sidebar is collapsed, show purchases as icons */}
+                                {!sidebarOpen && (
+                                    <div className="mt-1 space-y-1">
                                         {purchasesNavigation.map((item) => (
                                             <Link
                                                 key={item.path}
                                                 to={item.path}
-                                                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
                                                     ? 'bg-primary-50 text-primary-700'
                                                     : 'text-neutral-600 hover:bg-neutral-100'
                                                     }`}
+                                                title={item.name}
                                             >
-                                                <span className="text-base">{item.icon}</span>
-                                                <span className="font-medium">{item.name}</span>
+                                                <span className="text-xl">{item.icon}</span>
                                             </Link>
                                         ))}
-                                    </motion.div>
+                                    </div>
                                 )}
-                            </AnimatePresence>
-
-                            {/* When sidebar is collapsed, show purchases as icons */}
-                            {!sidebarOpen && (
-                                <div className="mt-1 space-y-1">
-                                    {purchasesNavigation.map((item) => (
-                                        <Link
-                                            key={item.path}
-                                            to={item.path}
-                                            className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
-                                                ? 'bg-primary-50 text-primary-700'
-                                                : 'text-neutral-600 hover:bg-neutral-100'
-                                                }`}
-                                            title={item.name}
-                                        >
-                                            <span className="text-xl">{item.icon}</span>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                            </div>
                         )}
 
                         {/* Billing Section */}
@@ -316,77 +317,77 @@ const Layout = ({ children }) => {
 
                         {/* Expenses Section — admin/superuser only (Cash Flow app) */}
                         {isAdmin && (
-                        <div className="mt-2 pt-2 border-t border-neutral-200">
-                            <button
-                                onClick={() => setExpensesOpen(!expensesOpen)}
-                                className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isExpensesActiveNow
-                                    ? 'bg-primary-50 text-primary-700'
-                                    : 'text-neutral-600 hover:bg-neutral-100'
-                                    }`}
-                            >
-                                <div className="flex items-center gap-3">
-                                    <span className="text-xl">💸</span>
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <button
+                                    onClick={() => setExpensesOpen(!expensesOpen)}
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isExpensesActiveNow
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">💸</span>
+                                        {sidebarOpen && (
+                                            <span className="font-medium">Expenses</span>
+                                        )}
+                                    </div>
                                     {sidebarOpen && (
-                                        <span className="font-medium">Expenses</span>
+                                        <motion.span
+                                            animate={{ rotate: expensesOpen ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="text-sm"
+                                        >
+                                            ▼
+                                        </motion.span>
                                     )}
-                                </div>
-                                {sidebarOpen && (
-                                    <motion.span
-                                        animate={{ rotate: expensesOpen ? 180 : 0 }}
-                                        transition={{ duration: 0.2 }}
-                                        className="text-sm"
-                                    >
-                                        ▼
-                                    </motion.span>
-                                )}
-                            </button>
+                                </button>
 
-                            {/* Expenses Sub-items */}
-                            <AnimatePresence>
-                                {expensesOpen && sidebarOpen && (
-                                    <motion.div
-                                        initial={{ opacity: 0, height: 0 }}
-                                        animate={{ opacity: 1, height: 'auto' }}
-                                        exit={{ opacity: 0, height: 0 }}
-                                        transition={{ duration: 0.2 }}
-                                        className="ml-4 space-y-1 overflow-hidden"
-                                    >
+                                {/* Expenses Sub-items */}
+                                <AnimatePresence>
+                                    {expensesOpen && sidebarOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="ml-4 space-y-1 overflow-hidden"
+                                        >
+                                            {expensesNavigation.map((item) => (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                        ? 'bg-primary-50 text-primary-700'
+                                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                                        }`}
+                                                >
+                                                    <span className="text-base">{item.icon}</span>
+                                                    <span className="font-medium">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* When sidebar is collapsed, show expenses as icons */}
+                                {!sidebarOpen && (
+                                    <div className="mt-1 space-y-1">
                                         {expensesNavigation.map((item) => (
                                             <Link
                                                 key={item.path}
                                                 to={item.path}
-                                                className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
                                                     ? 'bg-primary-50 text-primary-700'
                                                     : 'text-neutral-600 hover:bg-neutral-100'
                                                     }`}
+                                                title={item.name}
                                             >
-                                                <span className="text-base">{item.icon}</span>
-                                                <span className="font-medium">{item.name}</span>
+                                                <span className="text-xl">{item.icon}</span>
                                             </Link>
                                         ))}
-                                    </motion.div>
+                                    </div>
                                 )}
-                            </AnimatePresence>
-
-                            {/* When sidebar is collapsed, show expenses as icons */}
-                            {!sidebarOpen && (
-                                <div className="mt-1 space-y-1">
-                                    {expensesNavigation.map((item) => (
-                                        <Link
-                                            key={item.path}
-                                            to={item.path}
-                                            className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
-                                                ? 'bg-primary-50 text-primary-700'
-                                                : 'text-neutral-600 hover:bg-neutral-100'
-                                                }`}
-                                            title={item.name}
-                                        >
-                                            <span className="text-xl">{item.icon}</span>
-                                        </Link>
-                                    ))}
-                                </div>
-                            )}
-                        </div>
+                            </div>
                         )}
 
                         {/* Reports Section — admin/superuser only */}

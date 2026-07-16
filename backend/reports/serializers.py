@@ -1,6 +1,7 @@
 from rest_framework import serializers
 
 from billing.models import Invoice, Payment
+from cash_flow.models import Expense
 
 
 # ---------------------------------------------------------------------------
@@ -63,4 +64,17 @@ class PaymentReportItemSerializer(serializers.ModelSerializer):
             "id", "reference_number", "invoice_bill_number", "customer_name",
             "amount", "method", "method_display", "payment_date",
         ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Expenses report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class ExpenseReportItemSerializer(serializers.ModelSerializer):
+    category_name = serializers.CharField(source="category.name", read_only=True)
+
+    class Meta:
+        model = Expense
+        fields = ["id", "name", "category_name", "amount", "expense_date"]
         read_only_fields = fields

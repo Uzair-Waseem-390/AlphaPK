@@ -15,6 +15,12 @@ const REPORTS = [
         icon: '💵',
         path: '/reports/cash-collected',
     },
+    {
+        title: 'Expenses Report',
+        description: 'Total expenses and their value for a selected date range',
+        icon: '💸',
+        path: '/reports/expenses',
+    },
 ];
 
 const ReportsHomePage = () => {

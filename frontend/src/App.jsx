@@ -60,6 +60,7 @@ import LedgerBySupplierPage from './pages/ledger/LedgerBySupplierPage';
 import ReportsHomePage from './pages/reports/ReportsHomePage';
 import InvoicesReportPage from './pages/reports/InvoicesReportPage';
 import CashCollectedReportPage from './pages/reports/CashCollectedReportPage';
+import ExpensesReportPage from './pages/reports/ExpensesReportPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -440,6 +441,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <CashCollectedReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/expenses" element={
+          <ProtectedRoute>
+            <Layout>
+              <ExpensesReportPage />
             </Layout>
           </ProtectedRoute>
         } />

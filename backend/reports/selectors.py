@@ -4,6 +4,7 @@ from django.db.models import Count, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
 from billing.models import Invoice, Payment
+from cash_flow.models import Expense
 
 
 def _clean(value):
@@ -82,4 +83,36 @@ def get_cash_collected_report_stats(queryset: QuerySet) -> dict:
     return queryset.aggregate(
         total_payments        = Count("id"),
         total_cash_collected  = Coalesce(Sum("amount"), Decimal("0")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Expenses report
+# ---------------------------------------------------------------------------
+
+def get_expenses_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    All non-deleted expenses, filtered by expense_date.
+    """
+    qs = Expense.objects.filter(is_deleted=False).select_related("category").order_by("-expense_date")
+
+    if _clean(date):
+        qs = qs.filter(expense_date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(expense_date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(expense_date__lte=_clean(date_to))
+
+    return qs
+
+
+def get_expenses_report_stats(queryset: QuerySet) -> dict:
+    return queryset.aggregate(
+        total_expenses      = Count("id"),
+        total_expenses_cash = Coalesce(Sum("amount"), Decimal("0")),
     )
