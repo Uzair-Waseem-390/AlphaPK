@@ -21,6 +21,7 @@ def _adjust_cashflow(
     total_expenses_amount_delta        : Decimal = Decimal("0"),
     total_lost_inventory_worth_delta   : Decimal = Decimal("0"),
     total_purchase_returns_value_delta : Decimal = Decimal("0"),
+    total_purchase_returns_cogs_delta  : Decimal = Decimal("0"),
     total_customer_returns_value_delta : Decimal = Decimal("0"),
     total_customer_returns_cogs_delta  : Decimal = Decimal("0"),
     total_invoice_revenue_delta        : Decimal = Decimal("0"),
@@ -44,6 +45,7 @@ def _adjust_cashflow(
         total_expenses_amount   = total expenses recorded
         total_lost_inventory_worth = total FIFO cost of products marked lost (only ever increases)
         total_purchase_returns_value = total value of accepted returns to suppliers (only ever increases)
+        total_purchase_returns_cogs  = total pre-tax cost of accepted returns to suppliers (only ever increases)
         total_customer_returns_value = total value of accepted returns from customers (only ever increases)
         total_customer_returns_cogs  = total COGS reversed via accepted customer returns (only ever increases)
         total_invoice_revenue   = total grand_total across confirmed invoices (only ever increases)
@@ -81,6 +83,9 @@ def _adjust_cashflow(
         )
         cf.total_purchase_returns_value = max(
             Decimal("0"), cf.total_purchase_returns_value + total_purchase_returns_value_delta
+        )
+        cf.total_purchase_returns_cogs = max(
+            Decimal("0"), cf.total_purchase_returns_cogs + total_purchase_returns_cogs_delta
         )
         cf.total_customer_returns_value = max(
             Decimal("0"), cf.total_customer_returns_value + total_customer_returns_value_delta
@@ -366,17 +371,22 @@ def sync_supplier_payment_deleted(*, amount: Decimal, user) -> None:
         )
 
 
-def sync_purchase_return_accepted(*, return_amount: Decimal, user) -> None:
+def sync_purchase_return_accepted(
+    *, return_amount: Decimal, return_cogs: Decimal = Decimal("0"), user,
+) -> None:
     """
     Called when a purchase return is accepted.
     We get goods back → supplier owes us less → payable_outstanding decreases.
-    total_purchase_returns_value is the all-time running total for the
-    Purchase Returns report — no reversal path exists for an accepted
-    return, so this only ever increases.
+    total_purchase_returns_value/total_purchase_returns_cogs are the all-time
+    running totals for the Purchase Returns report (return_cogs is the
+    pre-tax cost portion — total_return_gross — mirroring how
+    total_customer_returns_cogs works for symmetry on the dashboard).
+    No reversal path exists for an accepted return, so these only increase.
     """
     _adjust_cashflow(
         supplier_payable_outstanding_delta = -return_amount,
         total_purchase_returns_value_delta = +return_amount,
+        total_purchase_returns_cogs_delta  = +return_cogs,
         user=user,
     )
 

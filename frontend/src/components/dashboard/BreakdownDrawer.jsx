@@ -11,8 +11,32 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 import Pagination from '../ui/Pagination';
 import DirectionBadge from './DirectionBadge';
 
+// Only a genuine ISO datetime (e.g. "2026-07-16T21:01:49...") should ever be
+// reformatted as a date — matching on ".includes('T')" alone false-positives
+// on any plain string that happens to contain a capital T (a customer code,
+// a reference number, etc.), garbling it into a nonsense date.
+const ISO_DATETIME_REGEX = /^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}/;
+
+// Only fields whose NAME suggests a money amount should be forced to 2
+// decimals — blindly parseFloat-ing any numeric-looking string also mangles
+// plain numeric codes/references (e.g. a customer code of "1005" becoming
+// "1005.00", or worse, mis-caught by the date check above).
+const AMOUNT_KEY_REGEX = /(amount|total|cost|value|profit|revenue|price|balance|outstanding|paid|due)/i;
+
+const formatTotalLabel = (key) => key
+    .replace(/_/g, ' ')
+    .split(' ')
+    .map(word => (word.toLowerCase() === 'cogs' ? 'COGS' : word.charAt(0).toUpperCase() + word.slice(1)))
+    .join(' ');
+
+const formatTotalValue = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num)) return '0.00';
+    return num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) => {
-    const { data, meta, page, setPage, loading, filters, setFilters, refetch } = useBreakdown(type, initialFilters);
+    const { data, meta, extra, page, setPage, loading, filters, setFilters, refetch } = useBreakdown(type, initialFilters);
     const [localFilters, setLocalFilters] = useState(initialFilters);
 
     useEffect(() => {
@@ -58,17 +82,24 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
             ];
         }
 
-        // Default columns for other breakdowns
+        // Default columns for other breakdowns — type decided by the FIELD
+        // NAME, not by guessing from the value. Guessing from the value
+        // (e.g. "contains a T" -> date, "parses as a number" -> amount)
+        // false-positives on plain codes/references and garbles them.
         const defaultColumns = [
             { key: 'id', label: 'ID' },
             ...Object.keys(data[0] || {}).filter(k => k !== 'id').map(key => ({
                 key,
                 label: key.replace(/_/g, ' ').toUpperCase(),
                 render: (v) => {
-                    if (typeof v === 'string' && v.includes('T')) return new Date(v).toLocaleString();
-                    if (typeof v === 'string' && !isNaN(parseFloat(v))) return parseFloat(v).toFixed(2);
-                    if (typeof v === 'object' && v !== null) return v.name || v.bill_number || v.order_number || 'N/A';
-                    return v || 'N/A';
+                    if (v === null || v === undefined || v === '') return 'N/A';
+                    if (typeof v === 'string' && ISO_DATETIME_REGEX.test(v)) return new Date(v).toLocaleString();
+                    if (AMOUNT_KEY_REGEX.test(key)) {
+                        const num = typeof v === 'string' ? parseFloat(v) : v;
+                        if (typeof num === 'number' && !isNaN(num)) return num.toFixed(2);
+                    }
+                    if (typeof v === 'object') return v.name || v.bill_number || v.order_number || 'N/A';
+                    return v;
                 }
             }))
         ];
@@ -130,6 +161,23 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                             </div>
                             {meta.count > 0 && (
                                 <p className="text-sm text-neutral-500">{meta.count} records found</p>
+                            )}
+
+                            {/* Exact totals — computed over the FULL filtered set server-side,
+                                not just the 25 rows visible on this page. */}
+                            {extra?.totals && (
+                                <div className="flex flex-wrap gap-3 mt-3">
+                                    {Object.entries(extra.totals)
+                                        .filter(([key]) => key !== 'count')
+                                        .map(([key, value]) => (
+                                            <div key={key} className="px-3 py-2 bg-primary-50 rounded-lg border border-primary-100">
+                                                <p className="text-xs text-neutral-500">{formatTotalLabel(key)}</p>
+                                                <p className="text-sm font-bold text-primary-700">
+                                                    Rs. {formatTotalValue(value)}
+                                                </p>
+                                            </div>
+                                        ))}
+                                </div>
                             )}
                         </div>
 
@@ -210,7 +258,8 @@ BreakdownDrawer.propTypes = {
     type: PropTypes.oneOf([
         'cashInHand', 'invoicesCash', 'customerOutstanding',
         'paidPayables', 'supplierOutstanding', 'invoices',
-        'purchases', 'expenses', 'lostInventory'
+        'purchases', 'expenses', 'lostInventory',
+        'purchaseReturns', 'customerReturns', 'profit'
     ]).isRequired,
     initialFilters: PropTypes.object,
 };

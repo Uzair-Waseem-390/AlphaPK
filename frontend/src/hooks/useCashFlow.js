@@ -28,10 +28,10 @@ export const useCashFlowStats = () => {
     return { data, loading, error, refetch: fetchStats };
 };
 
-// Hook for breakdown data.
-// Most breakdown endpoints are now paginated (standard ListAPIView); the
-// cashInHand one is a plain APIView returning a raw array — usePaginatedList
-// handles both shapes transparently, so no per-type branching needed here.
+// Hook for breakdown data. Every breakdown endpoint returns the standard
+// paginated shape plus a `totals` block (exact sums over the full filtered
+// set, computed server-side — not just the current page) which passes
+// through as `extra.totals` via usePaginatedList's generic extra-fields capture.
 export const useBreakdown = (type, initialFilters = {}) => {
     const cleanFilters = (raw) => {
         const cleaned = {};
@@ -65,15 +65,21 @@ export const useBreakdown = (type, initialFilters = {}) => {
                 return cashFlowApi.breakdowns.expenses(filterParams);
             case 'lostInventory':
                 return cashFlowApi.breakdowns.lostInventory(filterParams);
+            case 'purchaseReturns':
+                return cashFlowApi.breakdowns.purchaseReturns(filterParams);
+            case 'customerReturns':
+                return cashFlowApi.breakdowns.customerReturns(filterParams);
+            case 'profit':
+                return cashFlowApi.breakdowns.profit(filterParams);
             default:
                 return Promise.resolve([]);
         }
     };
 
-    const { data, meta, loading, error, filters, setFilters, page, setPage, refetch } =
+    const { data, meta, extra, loading, error, filters, setFilters, page, setPage, refetch } =
         usePaginatedList(fetchBreakdownPage, initialFilters);
 
-    return { data, meta, page, setPage, loading, error, filters, setFilters, refetch };
+    return { data, meta, extra, page, setPage, loading, error, filters, setFilters, refetch };
 };
 
 // Hook for expense management — thin wrapper around usePaginatedList.

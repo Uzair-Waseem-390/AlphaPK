@@ -22,7 +22,22 @@ const StatCard = ({
         purple: 'border-l-4 border-purple-500',
     };
 
+    // Abbreviated to K/M/B so the box width stays consistent as real data
+    // grows over months/years — a raw "Rs. 7,279,266.79" is roughly 3x longer
+    // than "Rs. 7.28M" and would otherwise stretch/wrap the card. The exact
+    // figure is still available via the title tooltip on hover.
     const formatCurrency = (val) => {
+        const num = typeof val === 'string' ? parseFloat(val) : val;
+        if (isNaN(num)) return 'Rs. 0.00';
+        const sign = num < 0 ? '-' : '';
+        const abs = Math.abs(num);
+        if (abs >= 1_000_000_000) return `${sign}Rs. ${(abs / 1_000_000_000).toFixed(2)}B`;
+        if (abs >= 1_000_000) return `${sign}Rs. ${(abs / 1_000_000).toFixed(2)}M`;
+        if (abs >= 100_000) return `${sign}Rs. ${(abs / 1_000).toFixed(1)}K`;
+        return `${sign}Rs. ${abs.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+    };
+
+    const formatFullCurrency = (val) => {
         const num = typeof val === 'string' ? parseFloat(val) : val;
         if (isNaN(num)) return 'Rs. 0.00';
         return `Rs. ${num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
@@ -35,20 +50,26 @@ const StatCard = ({
     };
 
     const displayValue = loading ? '...' : isCurrency ? formatCurrency(value) : formatNumber(value);
+    const fullValueTitle = loading ? undefined : isCurrency ? formatFullCurrency(value) : formatNumber(value);
 
     return (
         <motion.div
             whileHover={{ y: -4, transition: { duration: 0.2 } }}
             whileTap={{ scale: 0.98 }}
-            className={`cursor-pointer ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
+            className={`h-full ${onClick ? 'cursor-pointer' : 'cursor-default'}`}
             onClick={onClick}
         >
-            <Card className={`p-5 ${colors[color] || colors.primary} hover:shadow-card-hover transition-all`}>
-                <div className="flex items-start justify-between">
-                    <div className="flex-1">
-                        <p className="text-sm font-medium text-neutral-500">{label}</p>
-                        <p className="text-2xl font-bold text-neutral-900 mt-1">{displayValue}</p>
-                        {subtitle && <p className="text-xs text-neutral-400 mt-1">{subtitle}</p>}
+            <Card className={`p-5 h-full min-h-[112px] ${colors[color] || colors.primary} hover:shadow-card-hover transition-all`}>
+                <div className="flex items-start justify-between h-full">
+                    <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-neutral-500 truncate">{label}</p>
+                        <p
+                            className="text-2xl font-bold text-neutral-900 mt-1 truncate"
+                            title={fullValueTitle}
+                        >
+                            {displayValue}
+                        </p>
+                        {subtitle && <p className="text-xs text-neutral-400 mt-1 truncate">{subtitle}</p>}
                     </div>
                     {icon && (
                         <div className="w-10 h-10 rounded-xl bg-neutral-100 flex items-center justify-center text-xl flex-shrink-0">

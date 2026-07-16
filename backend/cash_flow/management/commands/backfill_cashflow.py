@@ -24,6 +24,7 @@ class Command(BaseCommand):
         cf.total_expenses_amount      = Decimal("0")
         cf.total_lost_inventory_worth = Decimal("0")
         cf.total_purchase_returns_value = Decimal("0")
+        cf.total_purchase_returns_cogs  = Decimal("0")
         cf.total_customer_returns_value = Decimal("0")
         cf.total_customer_returns_cogs  = Decimal("0")
         cf.total_invoice_revenue      = Decimal("0")
@@ -105,11 +106,13 @@ class Command(BaseCommand):
             cf.total_lost_inventory_worth += li.total_cost or Decimal("0")
         self.stdout.write(f"  total_lost_inventory_worth: {cf.total_lost_inventory_worth}")
 
-        # 8. Purchase returns value = sum of total_return_amount on accepted purchase returns
+        # 8. Purchase returns value/cogs = sum of total_return_amount/total_return_gross on accepted purchase returns
         purchase_returns = PurchaseReturn.objects.filter(is_deleted=False, status="accepted")
         for pr in purchase_returns:
             cf.total_purchase_returns_value += pr.total_return_amount or Decimal("0")
+            cf.total_purchase_returns_cogs  += pr.total_return_gross or Decimal("0")
         self.stdout.write(f"  total_purchase_returns_value: {cf.total_purchase_returns_value}")
+        self.stdout.write(f"  total_purchase_returns_cogs: {cf.total_purchase_returns_cogs}")
 
         # 9. Customer returns value/cogs = sum on accepted billing returns
         customer_returns = Return.objects.filter(is_deleted=False, status="accepted")
@@ -143,6 +146,7 @@ Final CashFlow state:
   total_expenses_amount         : {cf.total_expenses_amount}
   total_lost_inventory_worth    : {cf.total_lost_inventory_worth}
   total_purchase_returns_value  : {cf.total_purchase_returns_value}
+  total_purchase_returns_cogs   : {cf.total_purchase_returns_cogs}
   total_customer_returns_value  : {cf.total_customer_returns_value}
   total_customer_returns_cogs   : {cf.total_customer_returns_cogs}
   total_invoice_revenue         : {cf.total_invoice_revenue}

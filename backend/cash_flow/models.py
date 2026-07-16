@@ -104,7 +104,8 @@ class CashFlow(models.Model):
         + lost inventory record created (FIFO cost of the batch)
         No reversal path exists — this field only ever increases.
 
-    total_purchase_returns_value / total_customer_returns_value / total_customer_returns_cogs:
+    total_purchase_returns_value / total_purchase_returns_cogs /
+    total_customer_returns_value / total_customer_returns_cogs:
         + purchase/customer return accepted
         No reversal path exists — these fields only ever increase.
 
@@ -141,6 +142,8 @@ class CashFlow(models.Model):
     # ---- Returns ----
     total_purchase_returns_value = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                         help_text="Total value of accepted returns to suppliers. Only ever increases.")
+    total_purchase_returns_cogs  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Total pre-tax cost portion (total_return_gross) of accepted returns to suppliers — mirrors total_customer_returns_cogs for dashboard symmetry. Only ever increases.")
     total_customer_returns_value = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                         help_text="Total value of accepted returns from customers. Only ever increases.")
     total_customer_returns_cogs  = models.DecimalField(max_digits=20, decimal_places=4, default=0,

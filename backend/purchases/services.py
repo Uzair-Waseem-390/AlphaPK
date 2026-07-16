@@ -908,9 +908,9 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
     )
     _sync_order_payable(order)
 
-    # Sync CashFlow: payable_outstanding reduces, total_purchase_returns_value increases
+    # Sync CashFlow: payable_outstanding reduces, total_purchase_returns_value/cogs increase
     from cash_flow.services import sync_purchase_return_accepted
-    sync_purchase_return_accepted(return_amount=total_amount, user=user)
+    sync_purchase_return_accepted(return_amount=total_amount, return_cogs=total_gross, user=user)
 
     # Ledger entry: return debit (supplier owes us back)
     from ledger.services import add_return_entry

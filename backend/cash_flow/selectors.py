@@ -1,6 +1,7 @@
 from decimal import Decimal
 
 from django.db.models import Q, QuerySet, Sum, Count
+from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
 from .models import CashFlow, Expense, ExpenseCategory
@@ -54,6 +55,7 @@ def get_cashflow_stats() -> dict:
 
         # Returns
         "total_purchase_returns_value": cf.total_purchase_returns_value,
+        "total_purchase_returns_cogs" : cf.total_purchase_returns_cogs,
         "total_customer_returns_value": cf.total_customer_returns_value,
         "total_customer_returns_cogs" : cf.total_customer_returns_cogs,
 
@@ -508,6 +510,186 @@ def get_lost_inventory_breakdown(
         qs = qs.filter(record__created_at__date__lte=_clean(date_to))
 
     return qs.order_by("-record__created_at")
+
+
+# ---------------------------------------------------------------------------
+# Purchase returns breakdown (total_purchase_returns_value/cogs drill-down)
+# ---------------------------------------------------------------------------
+
+def get_purchase_returns_breakdown(
+    *,
+    supplier_name : str = None,
+    supplier_code : str = None,
+    date_from     : str = None,
+    date_to       : str = None,
+) -> QuerySet:
+    """
+    Full breakdown of accepted returns to suppliers
+    (total_purchase_returns_value / total_purchase_returns_cogs drill-down).
+    """
+    from purchases.models import PurchaseReturn
+
+    qs = PurchaseReturn.objects.filter(
+        is_deleted=False, status=PurchaseReturn.Status.ACCEPTED,
+    ).select_related("order__supplier")
+
+    if _clean(supplier_name):
+        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+    if _clean(supplier_code):
+        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
+    if _clean(date_from):
+        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
+
+    return qs.order_by("-accepted_at")
+
+
+# ---------------------------------------------------------------------------
+# Customer returns breakdown (total_customer_returns_value/cogs drill-down)
+# ---------------------------------------------------------------------------
+
+def get_customer_returns_breakdown(
+    *,
+    customer_name : str = None,
+    customer_code : str = None,
+    date_from     : str = None,
+    date_to       : str = None,
+) -> QuerySet:
+    """
+    Full breakdown of accepted returns from customers
+    (total_customer_returns_value / total_customer_returns_cogs drill-down).
+    """
+    from billing.models import Return
+
+    qs = Return.objects.filter(
+        is_deleted=False, status=Return.Status.ACCEPTED,
+    ).select_related("invoice__customer")
+
+    if _clean(customer_name):
+        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+    if _clean(customer_code):
+        qs = qs.filter(invoice__customer__code__icontains=_clean(customer_code))
+    if _clean(date_from):
+        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
+
+    return qs.order_by("-accepted_at")
+
+
+# ---------------------------------------------------------------------------
+# Profit breakdown (total_invoice_revenue/cogs/total_gross_profit drill-down)
+# ---------------------------------------------------------------------------
+
+def get_profit_breakdown(
+    *,
+    customer_name : str = None,
+    customer_code : str = None,
+    date_from     : str = None,
+    date_to       : str = None,
+) -> QuerySet:
+    """
+    Full breakdown of confirmed invoices' revenue/COGS/profit
+    (total_invoice_revenue / total_invoice_cogs / total_gross_profit drill-down).
+    """
+    from billing.models import Invoice
+
+    qs = Invoice.objects.filter(
+        is_deleted=False, is_data_entry=False,
+    ).exclude(status=Invoice.Status.DRAFT).select_related("customer")
+
+    if _clean(customer_name):
+        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+    if _clean(customer_code):
+        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+    if _clean(date_from):
+        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
+
+    return qs.order_by("-confirmed_at")
+
+
+# ---------------------------------------------------------------------------
+# Gross profit trend (dashboard graph)
+# ---------------------------------------------------------------------------
+
+def _add_months(year: int, month: int, delta: int) -> tuple:
+    """Month-only arithmetic, no external date libraries needed."""
+    total = (year * 12 + (month - 1)) + delta
+    return total // 12, (total % 12) + 1
+
+
+def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> list:
+    """
+    Revenue/COGS/gross profit grouped by month — powers the dashboard graph.
+    Defaults to the last 6 months (inclusive of the current month) when no
+    range is given; otherwise honors the caller's date_from/date_to.
+
+    Scales to any date range (3-5+ years) because the query result size is
+    bounded by the number of MONTHS in range, not the number of invoices —
+    a 5-year range is at most 60 rows, computed by a single GROUP BY query
+    backed by the index on Invoice.confirmed_at (see reports date-index work).
+    Gaps (months with zero confirmed invoices) are filled with zeros in
+    Python so the chart always renders a complete, contiguous series.
+    """
+    from billing.models import Invoice
+    from django.db.models.functions import TruncMonth
+    from django.utils import timezone
+    from datetime import date as date_cls
+
+    today = timezone.localtime(timezone.now()).date()
+
+    date_from = _clean(date_from)
+    date_to = _clean(date_to)
+
+    if not date_from and not date_to:
+        start_year, start_month = _add_months(today.year, today.month, -5)
+        range_start = date_cls(start_year, start_month, 1)
+        range_end = today
+    else:
+        range_start = date_cls.fromisoformat(date_from) if date_from else date_cls(2000, 1, 1)
+        range_end = date_cls.fromisoformat(date_to) if date_to else today
+
+    qs = Invoice.objects.filter(
+        is_deleted=False, is_data_entry=False,
+    ).exclude(status=Invoice.Status.DRAFT).filter(
+        confirmed_at__date__gte=range_start,
+        confirmed_at__date__lte=range_end,
+    )
+
+    grouped = {
+        row["month"].strftime("%Y-%m"): row
+        for row in (
+            qs.annotate(month=TruncMonth("confirmed_at"))
+              .values("month")
+              .annotate(
+                  revenue     = Coalesce(Sum("grand_total"), Decimal("0")),
+                  cogs        = Coalesce(Sum("total_cogs"), Decimal("0")),
+                  gross_profit = Coalesce(Sum("gross_profit"), Decimal("0")),
+              )
+        )
+    }
+
+    # Fill every month in [range_start, range_end], even ones with no data.
+    result = []
+    year, month = range_start.year, range_start.month
+    end_key = range_end.strftime("%Y-%m")
+    while True:
+        key = f"{year:04d}-{month:02d}"
+        row = grouped.get(key)
+        result.append({
+            "month"        : key,
+            "revenue"      : row["revenue"] if row else Decimal("0"),
+            "cogs"         : row["cogs"] if row else Decimal("0"),
+            "gross_profit" : row["gross_profit"] if row else Decimal("0"),
+        })
+        if key >= end_key:
+            break
+        year, month = _add_months(year, month, 1)
+
+    return result
 
 
 # ---------------------------------------------------------------------------

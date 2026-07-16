@@ -8,6 +8,7 @@ import ExpensesSectionStats from './ExpensesSectionStats';
 import LostInventorySectionStats from './LostInventorySectionStats';
 import ReturnsSectionStats from './ReturnsSectionStats';
 import ProfitSectionStats from './ProfitSectionStats';
+import GrossProfitTrendChart from './GrossProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
@@ -52,8 +53,14 @@ const AdminDashboard = () => {
                 </div>
             </motion.div>
 
-            {/* Stats Section */}
+            {/* Stats Section — Profit leads, it's the most important number at a glance */}
             <div className="space-y-8">
+                <ProfitSectionStats
+                    stats={stats}
+                    loading={statsLoading}
+                    onCardClick={handleCardClick}
+                />
+                <GrossProfitTrendChart />
                 <ReceivablesSection
                     stats={stats}
                     loading={statsLoading}
@@ -69,18 +76,15 @@ const AdminDashboard = () => {
                     loading={statsLoading}
                     onCardClick={handleCardClick}
                 />
-                <LostInventorySectionStats
+                <ReturnsSectionStats
                     stats={stats}
                     loading={statsLoading}
                     onCardClick={handleCardClick}
                 />
-                <ReturnsSectionStats
+                <LostInventorySectionStats
                     stats={stats}
                     loading={statsLoading}
-                />
-                <ProfitSectionStats
-                    stats={stats}
-                    loading={statsLoading}
+                    onCardClick={handleCardClick}
                 />
             </div>
 

@@ -6,6 +6,14 @@ export const cashFlowApi = {
         get: () => api.get('/cash-flow/stats/'),
     },
 
+    // Dashboard graph
+    grossProfitTrend: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/gross-profit-trend/${query ? `?${query}` : ''}`);
+        },
+    },
+
     // Expense Categories
     categories: {
         getAll: (params = {}) => {
@@ -65,6 +73,18 @@ export const cashFlowApi = {
         lostInventory: (params = {}) => {
             const query = new URLSearchParams(params).toString();
             return api.get(`/cash-flow/breakdown/lost-inventory/${query ? `?${query}` : ''}`);
+        },
+        purchaseReturns: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/breakdown/purchase-returns/${query ? `?${query}` : ''}`);
+        },
+        customerReturns: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/breakdown/customer-returns/${query ? `?${query}` : ''}`);
+        },
+        profit: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/breakdown/profit/${query ? `?${query}` : ''}`);
         },
     },
 };

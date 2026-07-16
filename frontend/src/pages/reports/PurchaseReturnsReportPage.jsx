@@ -103,7 +103,7 @@ const PurchaseReturnsReportPage = () => {
             ) : (
                 <>
                     {stats && (
-                        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                             <Card className="p-4">
                                 <p className="text-sm text-neutral-500">Total Returns</p>
                                 <p className="text-2xl font-bold text-neutral-900">{stats.total_returns}</p>
@@ -112,6 +112,12 @@ const PurchaseReturnsReportPage = () => {
                                 <p className="text-sm text-neutral-500">Total Return Value (PKR)</p>
                                 <p className="text-2xl font-bold text-error-600">
                                     {Number(stats.total_return_value || 0).toFixed(2)}
+                                </p>
+                            </Card>
+                            <Card className="p-4">
+                                <p className="text-sm text-neutral-500">Total Return COGS (PKR)</p>
+                                <p className="text-2xl font-bold text-neutral-900">
+                                    {Number(stats.total_return_cogs || 0).toFixed(2)}
                                 </p>
                             </Card>
                         </div>

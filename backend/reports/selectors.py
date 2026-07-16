@@ -230,17 +230,19 @@ def get_purchase_returns_report_stats(queryset: QuerySet) -> dict:
     return queryset.aggregate(
         total_returns      = Count("id"),
         total_return_value = Coalesce(Sum("total_return_amount"), Decimal("0")),
+        total_return_cogs  = Coalesce(Sum("total_return_gross"), Decimal("0")),
     )
 
 
 def get_purchase_returns_report_stats_all_time() -> dict:
-    """No-filter case — reads the pre-synced CashFlow total."""
+    """No-filter case — reads the pre-synced CashFlow totals."""
     cf = CashFlow.get_instance()
     return {
         "total_returns": PurchaseReturn.objects.filter(
             is_deleted=False, status=PurchaseReturn.Status.ACCEPTED,
         ).count(),
         "total_return_value": cf.total_purchase_returns_value,
+        "total_return_cogs": cf.total_purchase_returns_cogs,
     }
 
 

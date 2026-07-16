@@ -1,3 +1,7 @@
+from decimal import Decimal
+
+from django.db.models import Sum
+from django.db.models.functions import Coalesce
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
@@ -9,11 +13,15 @@ from .selectors import (
     get_cash_in_hand_breakdown,
     get_cashflow_stats,
     get_customer_outstanding_breakdown,
+    get_customer_returns_breakdown,
     get_expense_by_id,
     get_expense_category_by_id,
+    get_gross_profit_trend,
     get_invoice_payments_breakdown,
     get_invoices_breakdown,
     get_lost_inventory_breakdown,
+    get_profit_breakdown,
+    get_purchase_returns_breakdown,
     get_purchases_breakdown,
     get_supplier_payable_outstanding_breakdown,
     get_supplier_payments_breakdown,
@@ -21,6 +29,7 @@ from .selectors import (
 from .serializers import (
     CashFlowStatsSerializer,
     CustomerOutstandingBreakdownSerializer,
+    CustomerReturnBreakdownSerializer,
     ExpenseCategoryReadSerializer,
     ExpenseCategoryWriteSerializer,
     ExpenseReadSerializer,
@@ -28,7 +37,9 @@ from .serializers import (
     InvoiceBreakdownSerializer,
     InvoicePaymentBreakdownSerializer,
     LostInventoryBreakdownSerializer,
+    ProfitBreakdownSerializer,
     PurchaseBreakdownSerializer,
+    PurchaseReturnBreakdownSerializer,
     SupplierOutstandingBreakdownSerializer,
     SupplierPaymentBreakdownSerializer,
 )
@@ -197,6 +208,33 @@ class ExpenseRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
 # Breakdown views (drill-down from dashboard)
 # ---------------------------------------------------------------------------
 
+class BreakdownTotalsMixin:
+    """
+    Injects an exact `totals` block into every breakdown response, computed
+    via Sum() over the FULL filtered queryset — before pagination slices it
+    down to one page — so the drawer can show the precise total matching the
+    stat card the user clicked, not just a sum of the 25 visible rows.
+
+    Subclasses set `totals_fields = {"response_key": "model_field_name"}`.
+    """
+    totals_fields = {}
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+
+        totals = {
+            key: (queryset.aggregate(v=Coalesce(Sum(field), Decimal("0")))["v"])
+            for key, field in self.totals_fields.items()
+        }
+        totals["count"] = queryset.count()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["totals"] = totals
+        return response
+
+
 class CashInHandBreakdownView(APIView):
     """
     GET /cash-flow/breakdown/cash-in-hand/
@@ -219,10 +257,23 @@ class CashInHandBreakdownView(APIView):
             date_to       = p.get("date_to"),
             movement_type = p.get("movement_type"),
         )
-        return Response(movements)
+        total_inflow  = sum((m["amount"] for m in movements if m["direction"] == "inflow"), Decimal("0"))
+        total_outflow = sum((m["amount"] for m in movements if m["direction"] == "outflow"), Decimal("0"))
+        return Response({
+            "count"        : len(movements),
+            "total_pages"  : 1,
+            "current_page" : 1,
+            "page_size"    : len(movements),
+            "results"      : movements,
+            "totals": {
+                "total_inflow"  : total_inflow,
+                "total_outflow" : total_outflow,
+                "net"           : total_inflow - total_outflow,
+            },
+        })
 
 
-class TotalInvoicesCashBreakdownView(generics.ListAPIView):
+class TotalInvoicesCashBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/invoices-cash/
     All invoice payments received from customers (gross collection).
@@ -234,6 +285,7 @@ class TotalInvoicesCashBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = InvoicePaymentBreakdownSerializer
+    totals_fields      = {"total_amount": "amount"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -248,7 +300,7 @@ class TotalInvoicesCashBreakdownView(generics.ListAPIView):
         )
 
 
-class CustomerOutstandingBreakdownView(generics.ListAPIView):
+class CustomerOutstandingBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/customer-outstanding/
     All invoices with outstanding balance.
@@ -259,6 +311,7 @@ class CustomerOutstandingBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = CustomerOutstandingBreakdownSerializer
+    totals_fields      = {"total_outstanding": "credit_outstanding"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -273,7 +326,7 @@ class CustomerOutstandingBreakdownView(generics.ListAPIView):
         )
 
 
-class TotalPaidPayablesBreakdownView(generics.ListAPIView):
+class TotalPaidPayablesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/paid-payables/
     All supplier payments made.
@@ -284,6 +337,7 @@ class TotalPaidPayablesBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = SupplierPaymentBreakdownSerializer
+    totals_fields      = {"total_amount": "amount"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -298,7 +352,7 @@ class TotalPaidPayablesBreakdownView(generics.ListAPIView):
         )
 
 
-class SupplierOutstandingBreakdownView(generics.ListAPIView):
+class SupplierOutstandingBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/supplier-outstanding/
     All purchase orders with outstanding payable.
@@ -309,6 +363,7 @@ class SupplierOutstandingBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = SupplierOutstandingBreakdownSerializer
+    totals_fields      = {"total_outstanding": "payable_outstanding"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -323,7 +378,7 @@ class SupplierOutstandingBreakdownView(generics.ListAPIView):
         )
 
 
-class InvoicesBreakdownView(generics.ListAPIView):
+class InvoicesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/invoices/
     All confirmed invoices (total_number_of_invoices drill-down).
@@ -334,6 +389,7 @@ class InvoicesBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = InvoiceBreakdownSerializer
+    totals_fields      = {"total_amount": "grand_total"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -349,7 +405,7 @@ class InvoicesBreakdownView(generics.ListAPIView):
         )
 
 
-class PurchasesBreakdownView(generics.ListAPIView):
+class PurchasesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/purchases/
     All confirmed purchase orders (total_number_of_purchases drill-down).
@@ -360,6 +416,7 @@ class PurchasesBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = PurchaseBreakdownSerializer
+    totals_fields      = {"total_amount": "net_payable"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -374,7 +431,7 @@ class PurchasesBreakdownView(generics.ListAPIView):
         )
 
 
-class ExpensesBreakdownView(generics.ListAPIView):
+class ExpensesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/expenses/
     All expenses (total_expenses_amount drill-down).
@@ -382,6 +439,7 @@ class ExpensesBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = ExpenseReadSerializer
+    totals_fields      = {"total_amount": "amount"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -395,7 +453,7 @@ class ExpensesBreakdownView(generics.ListAPIView):
         )
 
 
-class LostInventoryBreakdownView(generics.ListAPIView):
+class LostInventoryBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     """
     GET /cash-flow/breakdown/lost-inventory/
     All lost inventory line items (total_lost_inventory_worth drill-down).
@@ -408,6 +466,7 @@ class LostInventoryBreakdownView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = LostInventoryBreakdownSerializer
+    totals_fields      = {"total_amount": "total_cost"}
 
     def get_queryset(self):
         p = self.request.query_params
@@ -417,3 +476,112 @@ class LostInventoryBreakdownView(generics.ListAPIView):
             date_from  = p.get("date_from"),
             date_to    = p.get("date_to"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Purchase returns breakdown
+# ---------------------------------------------------------------------------
+
+class PurchaseReturnsBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
+    """
+    GET /cash-flow/breakdown/purchase-returns/
+    All accepted returns to suppliers (total_purchase_returns_value/cogs drill-down).
+
+    Filter params:
+        supplier_name, supplier_code, date_from, date_to
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = PurchaseReturnBreakdownSerializer
+    totals_fields      = {"total_value": "total_return_amount", "total_cogs": "total_return_gross"}
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_purchase_returns_breakdown(
+            supplier_name = p.get("supplier_name"),
+            supplier_code = p.get("supplier_code"),
+            date_from     = p.get("date_from"),
+            date_to       = p.get("date_to"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Customer returns breakdown
+# ---------------------------------------------------------------------------
+
+class CustomerReturnsBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
+    """
+    GET /cash-flow/breakdown/customer-returns/
+    All accepted returns from customers (total_customer_returns_value/cogs drill-down).
+
+    Filter params:
+        customer_name, customer_code, date_from, date_to
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = CustomerReturnBreakdownSerializer
+    totals_fields      = {"total_value": "total_return_amount", "total_cogs": "total_return_cogs"}
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_customer_returns_breakdown(
+            customer_name = p.get("customer_name"),
+            customer_code = p.get("customer_code"),
+            date_from     = p.get("date_from"),
+            date_to       = p.get("date_to"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Profit breakdown
+# ---------------------------------------------------------------------------
+
+class ProfitBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
+    """
+    GET /cash-flow/breakdown/profit/
+    All confirmed invoices with revenue/COGS/profit
+    (total_invoice_revenue/cogs/total_gross_profit drill-down).
+
+    Filter params:
+        customer_name, customer_code, date_from, date_to
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = ProfitBreakdownSerializer
+    totals_fields      = {
+        "total_revenue": "grand_total",
+        "total_cogs": "total_cogs",
+        "total_gross_profit": "gross_profit",
+    }
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_profit_breakdown(
+            customer_name = p.get("customer_name"),
+            customer_code = p.get("customer_code"),
+            date_from     = p.get("date_from"),
+            date_to       = p.get("date_to"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Gross profit trend (dashboard graph)
+# ---------------------------------------------------------------------------
+
+class GrossProfitTrendView(APIView):
+    """
+    GET /cash-flow/gross-profit-trend/
+    Revenue/COGS/gross profit grouped by month, for the dashboard graph.
+    Defaults to the last 6 months. Bounded to one row per month in range
+    regardless of how many invoices exist — safe for multi-year ranges.
+
+    Filter params:
+        date_from : YYYY-MM-DD
+        date_to   : YYYY-MM-DD
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        p = request.query_params
+        trend = get_gross_profit_trend(
+            date_from = p.get("date_from"),
+            date_to   = p.get("date_to"),
+        )
+        return Response(trend)

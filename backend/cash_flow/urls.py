@@ -4,13 +4,17 @@ from .views import (
     CashFlowStatsView,
     CashInHandBreakdownView,
     CustomerOutstandingBreakdownView,
+    CustomerReturnsBreakdownView,
     ExpenseCategoryListCreateView,
     ExpenseCategoryRetrieveUpdateDestroyView,
     ExpenseListCreateView,
     ExpenseRetrieveUpdateDestroyView,
     ExpensesBreakdownView,
+    GrossProfitTrendView,
     InvoicesBreakdownView,
     LostInventoryBreakdownView,
+    ProfitBreakdownView,
+    PurchaseReturnsBreakdownView,
     PurchasesBreakdownView,
     SupplierOutstandingBreakdownView,
     TotalInvoicesCashBreakdownView,
@@ -39,4 +43,10 @@ urlpatterns = [
     path("breakdown/purchases/",            PurchasesBreakdownView.as_view(),           name="breakdown-purchases"),
     path("breakdown/expenses/",             ExpensesBreakdownView.as_view(),            name="breakdown-expenses"),
     path("breakdown/lost-inventory/",       LostInventoryBreakdownView.as_view(),       name="breakdown-lost-inventory"),
+    path("breakdown/purchase-returns/",     PurchaseReturnsBreakdownView.as_view(),     name="breakdown-purchase-returns"),
+    path("breakdown/customer-returns/",     CustomerReturnsBreakdownView.as_view(),     name="breakdown-customer-returns"),
+    path("breakdown/profit/",               ProfitBreakdownView.as_view(),              name="breakdown-profit"),
+
+    # Dashboard graph
+    path("gross-profit-trend/", GrossProfitTrendView.as_view(), name="gross-profit-trend"),
 ]

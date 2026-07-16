@@ -91,6 +91,7 @@ class CashFlowStatsSerializer(serializers.Serializer):
 
     # Returns
     total_purchase_returns_value = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_purchase_returns_cogs  = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_customer_returns_value = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_customer_returns_cogs  = serializers.DecimalField(max_digits=20, decimal_places=4)
 
@@ -197,3 +198,39 @@ class LostInventoryBreakdownSerializer(serializers.Serializer):
     note              = serializers.CharField(source="record.note")
     created_by        = serializers.StringRelatedField(source="record.created_by")
     created_at        = serializers.DateTimeField(source="record.created_at")
+
+
+class PurchaseReturnBreakdownSerializer(serializers.Serializer):
+    """Slim purchase return for total_purchase_returns_value/cogs breakdown."""
+    id                  = serializers.IntegerField()
+    reference_number    = serializers.CharField()
+    order_number        = serializers.CharField(source="order.order_number")
+    supplier_name       = serializers.CharField(source="order.supplier.name")
+    supplier_code       = serializers.CharField(source="order.supplier.code")
+    total_return_amount = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_return_gross  = serializers.DecimalField(max_digits=18, decimal_places=4)
+    accepted_at         = serializers.DateTimeField()
+
+
+class CustomerReturnBreakdownSerializer(serializers.Serializer):
+    """Slim customer return for total_customer_returns_value/cogs breakdown."""
+    id                  = serializers.IntegerField()
+    reference_number    = serializers.CharField()
+    bill_number         = serializers.CharField(source="invoice.bill_number")
+    customer_name       = serializers.CharField(source="invoice.customer.name")
+    customer_code       = serializers.CharField(source="invoice.customer.code")
+    total_return_amount = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_return_cogs   = serializers.DecimalField(max_digits=18, decimal_places=4)
+    accepted_at         = serializers.DateTimeField()
+
+
+class ProfitBreakdownSerializer(serializers.Serializer):
+    """Slim invoice for total_invoice_revenue/cogs/total_gross_profit breakdown."""
+    id            = serializers.IntegerField()
+    bill_number   = serializers.CharField()
+    customer_name = serializers.CharField(source="customer.name")
+    customer_code = serializers.CharField(source="customer.code")
+    grand_total   = serializers.DecimalField(max_digits=18, decimal_places=4)
+    total_cogs    = serializers.DecimalField(max_digits=18, decimal_places=4)
+    gross_profit  = serializers.DecimalField(max_digits=18, decimal_places=4)
+    confirmed_at  = serializers.DateTimeField()
