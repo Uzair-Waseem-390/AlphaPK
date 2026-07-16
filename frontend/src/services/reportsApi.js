@@ -19,4 +19,10 @@ export const reportsApi = {
             return api.get(`/reports/expenses/${query ? `?${query}` : ''}`);
         },
     },
+    lostInventory: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/lost-inventory/${query ? `?${query}` : ''}`);
+        },
+    },
 };

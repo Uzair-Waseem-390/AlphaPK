@@ -21,6 +21,12 @@ const REPORTS = [
         icon: '💸',
         path: '/reports/expenses',
     },
+    {
+        title: 'Lost Inventory Report',
+        description: 'Products marked as lost, damaged, or missing for a selected date range',
+        icon: '📉',
+        path: '/reports/lost-inventory',
+    },
 ];
 
 const ReportsHomePage = () => {

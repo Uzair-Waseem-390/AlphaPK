@@ -5,6 +5,7 @@ from django.db.models.functions import Coalesce
 
 from billing.models import Invoice, Payment
 from cash_flow.models import Expense
+from purchases.models import LostInventoryItem
 
 
 def _clean(value):
@@ -115,4 +116,40 @@ def get_expenses_report_stats(queryset: QuerySet) -> dict:
     return queryset.aggregate(
         total_expenses      = Count("id"),
         total_expenses_cash = Coalesce(Sum("amount"), Decimal("0")),
+    )
+
+
+# ---------------------------------------------------------------------------
+# Lost inventory report
+# ---------------------------------------------------------------------------
+
+def get_lost_inventory_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    Every product lost in a batch (LostInventoryItem), flattened to one row
+    per product per batch. Filtered by the parent record's created_at date —
+    LostInventoryItem itself has no date field.
+    """
+    qs = LostInventoryItem.objects.filter(record__is_deleted=False).select_related(
+        "record", "product",
+    ).order_by("-record__created_at")
+
+    if _clean(date):
+        qs = qs.filter(record__created_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(record__created_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(record__created_at__date__lte=_clean(date_to))
+
+    return qs
+
+
+def get_lost_inventory_report_stats(queryset: QuerySet) -> dict:
+    return queryset.aggregate(
+        total_lost_items = Count("id"),
+        total_lost_cash   = Coalesce(Sum("total_cost"), Decimal("0")),
     )

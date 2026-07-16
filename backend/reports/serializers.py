@@ -2,6 +2,7 @@ from rest_framework import serializers
 
 from billing.models import Invoice, Payment
 from cash_flow.models import Expense
+from purchases.models import LostInventoryItem
 
 
 # ---------------------------------------------------------------------------
@@ -77,4 +78,23 @@ class ExpenseReportItemSerializer(serializers.ModelSerializer):
     class Meta:
         model = Expense
         fields = ["id", "name", "category_name", "amount", "expense_date"]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Lost inventory report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class LostInventoryReportItemSerializer(serializers.ModelSerializer):
+    reference_number = serializers.CharField(source="record.reference_number", read_only=True)
+    product_name      = serializers.CharField(source="product.name", read_only=True)
+    product_code      = serializers.CharField(source="product.code", read_only=True)
+    created_at        = serializers.DateTimeField(source="record.created_at", read_only=True)
+
+    class Meta:
+        model = LostInventoryItem
+        fields = [
+            "id", "reference_number", "product_name", "product_code",
+            "quantity", "reason", "unit_cost", "total_cost", "created_at",
+        ]
         read_only_fields = fields

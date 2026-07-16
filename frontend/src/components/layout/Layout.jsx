@@ -106,6 +106,7 @@ const Layout = ({ children }) => {
         { name: 'Invoices Report', path: '/reports/invoices', icon: '🧾' },
         { name: 'Cash Collected Report', path: '/reports/cash-collected', icon: '💵' },
         { name: 'Expenses Report', path: '/reports/expenses', icon: '📋' },
+        { name: 'Lost Inventory Report', path: '/reports/lost-inventory', icon: '📦' },
     ];
 
     const isActive = (path) => location.pathname === path;

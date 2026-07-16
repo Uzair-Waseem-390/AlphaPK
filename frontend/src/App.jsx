@@ -61,6 +61,7 @@ import ReportsHomePage from './pages/reports/ReportsHomePage';
 import InvoicesReportPage from './pages/reports/InvoicesReportPage';
 import CashCollectedReportPage from './pages/reports/CashCollectedReportPage';
 import ExpensesReportPage from './pages/reports/ExpensesReportPage';
+import LostInventoryReportPage from './pages/reports/LostInventoryReportPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -449,6 +450,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <ExpensesReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/lost-inventory" element={
+          <ProtectedRoute>
+            <Layout>
+              <LostInventoryReportPage />
             </Layout>
           </ProtectedRoute>
         } />
