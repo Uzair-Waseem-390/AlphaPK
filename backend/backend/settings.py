@@ -3,10 +3,10 @@ from dotenv import load_dotenv
 import os
 from datetime import timedelta
 BASE_DIR = Path(__file__).resolve().parent.parent
-load_dotenv(BASE_DIR / '.env')
+load_dotenv(BASE_DIR / '.env.local')
 SECRET_KEY = os.getenv("SECRET_KEY")
 
-# uvicorn backend.asgi:application --reload
+
 DEBUG = os.getenv("DEBUG").lower() == "true"
 
 def env_list(name):
@@ -31,7 +31,6 @@ INSTALLED_APPS = [
     'rest_framework_simplejwt',
     "rest_framework_simplejwt.token_blacklist",
     "corsheaders",
-    'whitenoise',
 ]
 
 EXTERNAL_APPS = [
@@ -49,7 +48,6 @@ INSTALLED_APPS += EXTERNAL_APPS
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
-    "whitenoise.middleware.WhiteNoiseMiddleware",
     'django.contrib.sessions.middleware.SessionMiddleware',
     "corsheaders.middleware.CorsMiddleware",
     'django.middleware.common.CommonMiddleware',
@@ -81,15 +79,12 @@ WSGI_APPLICATION = 'backend.wsgi.application'
 
 
 DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.postgresql",
-        "NAME": os.getenv("DB_NAME"),
-        "USER": os.getenv("DB_USER"),
-        "PASSWORD": os.getenv("DB_PASSWORD"),
-        "HOST": os.getenv("DB_HOST"),
-        "PORT": os.getenv("DB_PORT"),
+    'default': {
+        'ENGINE': 'django.db.backends.sqlite3',
+        'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
 
 
 AUTH_PASSWORD_VALIDATORS = [
@@ -117,8 +112,7 @@ USE_I18N = True
 
 USE_TZ = True
 
-STATIC_URL = "static/"
-STATIC_ROOT = BASE_DIR / "staticfiles"
+STATIC_URL = 'static/'
 
 
 # ---- Custom user model ----
