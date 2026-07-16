@@ -4,9 +4,8 @@ from django.db.models import Count, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
 from billing.models import Invoice, Payment, Return
-from cash_flow.models import Expense
-from purchases.models import Inventory, LostInventoryItem, PurchaseReturn
-from purchases.selectors import get_available_purchase_items_for_fifo
+from cash_flow.models import CashFlow, Expense
+from purchases.models import Inventory, LostInventoryItem, PurchaseItem, PurchaseOrder, PurchaseReturn
 
 
 def _clean(value):
@@ -53,6 +52,22 @@ def get_invoices_report_stats(queryset: QuerySet) -> dict:
     )
 
 
+def get_invoices_report_stats_all_time() -> dict:
+    """
+    No-filter case — reads the pre-synced CashFlow total instead of scanning
+    the full invoice history. Count stays a live .count() (cheap regardless
+    of table size, same reasoning already applied to the dashboard's
+    total_number_of_invoices).
+    """
+    cf = CashFlow.get_instance()
+    return {
+        "total_invoices": Invoice.objects.filter(
+            is_deleted=False, is_data_entry=False,
+        ).exclude(status=Invoice.Status.DRAFT).count(),
+        "total_invoices_cash": cf.total_invoice_revenue,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Cash collected report
 # ---------------------------------------------------------------------------
@@ -88,6 +103,15 @@ def get_cash_collected_report_stats(queryset: QuerySet) -> dict:
     )
 
 
+def get_cash_collected_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow total (payments received)."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_payments": Payment.objects.filter(is_deleted=False, amount__gt=0).count(),
+        "total_cash_collected": cf.total_invoices_cash,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Expenses report
 # ---------------------------------------------------------------------------
@@ -118,6 +142,15 @@ def get_expenses_report_stats(queryset: QuerySet) -> dict:
         total_expenses      = Count("id"),
         total_expenses_cash = Coalesce(Sum("amount"), Decimal("0")),
     )
+
+
+def get_expenses_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow total."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_expenses": Expense.objects.filter(is_deleted=False).count(),
+        "total_expenses_cash": cf.total_expenses_amount,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -156,6 +189,15 @@ def get_lost_inventory_report_stats(queryset: QuerySet) -> dict:
     )
 
 
+def get_lost_inventory_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow total."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_lost_items": LostInventoryItem.objects.filter(record__is_deleted=False).count(),
+        "total_lost_cash": cf.total_lost_inventory_worth,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Purchase returns report
 # ---------------------------------------------------------------------------
@@ -189,6 +231,17 @@ def get_purchase_returns_report_stats(queryset: QuerySet) -> dict:
         total_returns      = Count("id"),
         total_return_value = Coalesce(Sum("total_return_amount"), Decimal("0")),
     )
+
+
+def get_purchase_returns_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow total."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_returns": PurchaseReturn.objects.filter(
+            is_deleted=False, status=PurchaseReturn.Status.ACCEPTED,
+        ).count(),
+        "total_return_value": cf.total_purchase_returns_value,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,6 +278,18 @@ def get_customer_returns_report_stats(queryset: QuerySet) -> dict:
         total_return_value = Coalesce(Sum("total_return_amount"), Decimal("0")),
         total_return_cogs  = Coalesce(Sum("total_return_cogs"), Decimal("0")),
     )
+
+
+def get_customer_returns_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow totals."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_returns": Return.objects.filter(
+            is_deleted=False, status=Return.Status.ACCEPTED,
+        ).count(),
+        "total_return_value": cf.total_customer_returns_value,
+        "total_return_cogs": cf.total_customer_returns_cogs,
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -265,6 +330,19 @@ def get_profit_margin_report_stats(queryset: QuerySet) -> dict:
     )
 
 
+def get_profit_margin_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced CashFlow totals."""
+    cf = CashFlow.get_instance()
+    return {
+        "total_invoices": Invoice.objects.filter(
+            is_deleted=False, is_data_entry=False,
+        ).exclude(status=Invoice.Status.DRAFT).count(),
+        "total_revenue": cf.total_invoice_revenue,
+        "total_cogs": cf.total_invoice_cogs,
+        "total_gross_profit": cf.total_gross_profit,
+    }
+
+
 # ---------------------------------------------------------------------------
 # Inventory valuation report — live snapshot, no date filtering
 # ---------------------------------------------------------------------------
@@ -274,20 +352,38 @@ def get_inventory_valuation_report_data(*, search: str = None) -> list[dict]:
     One row per product currently in stock, valued at FIFO cost from its
     remaining purchase batches. Point-in-time — no date filter applies.
     Mirrors the batch-walk math in purchases.selectors.get_fifo_cost_preview.
+
+    Fetches every product's batches in ONE bulk query instead of one query
+    per product (get_available_purchase_items_for_fifo called in a loop) —
+    that N+1 pattern scaled with the size of the product catalog on every
+    request; this is now 2 queries total regardless of catalog size.
     """
-    inventories = Inventory.objects.filter(quantity__gt=0).select_related(
+    inventory_qs = Inventory.objects.filter(quantity__gt=0).select_related(
         "product", "product__category",
     ).order_by("product__name")
 
     if _clean(search):
-        inventories = inventories.filter(
+        inventory_qs = inventory_qs.filter(
             Q(product__name__icontains=_clean(search)) | Q(product__code__icontains=_clean(search))
         )
+
+    inventories = list(inventory_qs)
+    product_ids = [inv.product_id for inv in inventories]
+
+    batches_by_product = {}
+    batches = PurchaseItem.objects.filter(
+        product_id__in=product_ids,
+        is_deleted=False,
+        order__status=PurchaseOrder.Status.CONFIRMED,
+        remaining_quantity__gt=0,
+    ).order_by("product_id", "order__confirmed_at")
+    for batch in batches:
+        batches_by_product.setdefault(batch.product_id, []).append(batch)
 
     rows = []
     for inv in inventories:
         total_value = Decimal("0")
-        for batch in get_available_purchase_items_for_fifo(inv.product_id):
+        for batch in batches_by_product.get(inv.product_id, []):
             unit_cost = batch.total_price / batch.quantity if batch.quantity else batch.unit_price
             total_value += batch.remaining_quantity * unit_cost
 

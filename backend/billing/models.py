@@ -89,7 +89,7 @@ class Invoice(AuditMixin):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="confirmed_invoices",
     )
-    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     class PaymentStatus(models.TextChoices):
         UNPAID  = "unpaid",  "Unpaid"
@@ -232,7 +232,7 @@ class Payment(AuditMixin):
                            help_text="Auto-generated e.g. PAY-2026-0001")
     amount           = models.DecimalField(max_digits=18, decimal_places=4)
     method           = models.CharField(max_length=12, choices=Method.choices)
-    payment_date     = models.DateField()
+    payment_date     = models.DateField(db_index=True)
     note             = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:
@@ -270,7 +270,7 @@ class Return(AuditMixin):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="accepted_returns",
     )
-    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True, db_index=True)
     note        = models.CharField(max_length=255, blank=True, default="")
 
     # Totals — computed on acceptance

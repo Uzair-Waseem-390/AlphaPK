@@ -6,6 +6,8 @@ import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
 import LostInventorySectionStats from './LostInventorySectionStats';
+import ReturnsSectionStats from './ReturnsSectionStats';
+import ProfitSectionStats from './ProfitSectionStats';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
@@ -71,6 +73,14 @@ const AdminDashboard = () => {
                     stats={stats}
                     loading={statsLoading}
                     onCardClick={handleCardClick}
+                />
+                <ReturnsSectionStats
+                    stats={stats}
+                    loading={statsLoading}
+                />
+                <ProfitSectionStats
+                    stats={stats}
+                    loading={statsLoading}
                 />
             </div>
 

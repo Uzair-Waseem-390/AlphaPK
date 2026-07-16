@@ -43,7 +43,7 @@ class Expense(models.Model):
     )
     description  = models.TextField(blank=True, default="")
     amount       = models.DecimalField(max_digits=18, decimal_places=4)
-    expense_date = models.DateField()
+    expense_date = models.DateField(db_index=True)
 
     created_by  = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
@@ -103,6 +103,16 @@ class CashFlow(models.Model):
     total_lost_inventory_worth:
         + lost inventory record created (FIFO cost of the batch)
         No reversal path exists — this field only ever increases.
+
+    total_purchase_returns_value / total_customer_returns_value / total_customer_returns_cogs:
+        + purchase/customer return accepted
+        No reversal path exists — these fields only ever increase.
+
+    total_invoice_revenue / total_invoice_cogs / total_gross_profit:
+        + invoice confirmed (grand_total / total_cogs / gross_profit at that moment)
+        Returns do NOT reduce these — confirmed by tracing _recalculate_invoice_totals,
+        which sums unreduced InvoiceItem fields regardless of returned_quantity.
+        So confirm_invoice is the only place these are ever set — only ever increase.
     """
 
     # ---- Receivables (from customers) ----
@@ -127,6 +137,22 @@ class CashFlow(models.Model):
     # ---- Lost inventory ----
     total_lost_inventory_worth = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                      help_text="Total FIFO cost of all products marked lost. Only ever increases — no reversal exists.")
+
+    # ---- Returns ----
+    total_purchase_returns_value = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Total value of accepted returns to suppliers. Only ever increases.")
+    total_customer_returns_value = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Total value of accepted returns from customers. Only ever increases.")
+    total_customer_returns_cogs  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Total COGS reversed via accepted customer returns. Only ever increases.")
+
+    # ---- Profit / margin ----
+    total_invoice_revenue = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                help_text="Total grand_total across all confirmed invoices (invoiced amount, not cash received). Only ever increases.")
+    total_invoice_cogs    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                help_text="Total COGS across all confirmed invoices. Only ever increases.")
+    total_gross_profit    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                help_text="Total gross profit across all confirmed invoices. Only ever increases.")
 
     # ---- Last sync metadata ----
     last_updated_at = models.DateTimeField(auto_now=True)

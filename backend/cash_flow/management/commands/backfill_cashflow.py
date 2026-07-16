@@ -9,8 +9,8 @@ class Command(BaseCommand):
     help = "Backfills the CashFlow singleton from existing invoices, purchases, and expenses."
 
     def handle(self, *args, **kwargs):
-        from billing.models import Invoice, Payment
-        from purchases.models import LostInventoryItem, PurchaseOrder, SupplierPayment
+        from billing.models import Invoice, Payment, Return
+        from purchases.models import LostInventoryItem, PurchaseOrder, PurchaseReturn, SupplierPayment
         from cash_flow.models import Expense
 
         self.stdout.write("Starting CashFlow backfill...\n")
@@ -23,6 +23,12 @@ class Command(BaseCommand):
         cf.supplier_payable_outstanding = Decimal("0")
         cf.total_expenses_amount      = Decimal("0")
         cf.total_lost_inventory_worth = Decimal("0")
+        cf.total_purchase_returns_value = Decimal("0")
+        cf.total_customer_returns_value = Decimal("0")
+        cf.total_customer_returns_cogs  = Decimal("0")
+        cf.total_invoice_revenue      = Decimal("0")
+        cf.total_invoice_cogs         = Decimal("0")
+        cf.total_gross_profit         = Decimal("0")
         cf.save()
 
         # 1. Customer outstanding = sum of credit_outstanding on confirmed invoices
@@ -99,6 +105,31 @@ class Command(BaseCommand):
             cf.total_lost_inventory_worth += li.total_cost or Decimal("0")
         self.stdout.write(f"  total_lost_inventory_worth: {cf.total_lost_inventory_worth}")
 
+        # 8. Purchase returns value = sum of total_return_amount on accepted purchase returns
+        purchase_returns = PurchaseReturn.objects.filter(is_deleted=False, status="accepted")
+        for pr in purchase_returns:
+            cf.total_purchase_returns_value += pr.total_return_amount or Decimal("0")
+        self.stdout.write(f"  total_purchase_returns_value: {cf.total_purchase_returns_value}")
+
+        # 9. Customer returns value/cogs = sum on accepted billing returns
+        customer_returns = Return.objects.filter(is_deleted=False, status="accepted")
+        for cr in customer_returns:
+            cf.total_customer_returns_value += cr.total_return_amount or Decimal("0")
+            cf.total_customer_returns_cogs  += cr.total_return_cogs or Decimal("0")
+        self.stdout.write(f"  total_customer_returns_value: {cf.total_customer_returns_value}")
+        self.stdout.write(f"  total_customer_returns_cogs: {cf.total_customer_returns_cogs}")
+
+        # 10. Invoice revenue/cogs/gross_profit = sum over confirmed, non-data-entry invoices
+        #     (mirrors exactly which invoices go through confirm_invoice in the live sync path)
+        real_invoices = invoices.filter(is_data_entry=False)
+        for inv in real_invoices:
+            cf.total_invoice_revenue += inv.grand_total or Decimal("0")
+            cf.total_invoice_cogs    += inv.total_cogs or Decimal("0")
+            cf.total_gross_profit    += inv.gross_profit or Decimal("0")
+        self.stdout.write(f"  total_invoice_revenue: {cf.total_invoice_revenue}")
+        self.stdout.write(f"  total_invoice_cogs: {cf.total_invoice_cogs}")
+        self.stdout.write(f"  total_gross_profit: {cf.total_gross_profit}")
+
         cf.save()
         self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))
         self.stdout.write(f"""
@@ -111,4 +142,10 @@ Final CashFlow state:
   total_purchases_cash          : {cf.total_purchases_cash}
   total_expenses_amount         : {cf.total_expenses_amount}
   total_lost_inventory_worth    : {cf.total_lost_inventory_worth}
+  total_purchase_returns_value  : {cf.total_purchase_returns_value}
+  total_customer_returns_value  : {cf.total_customer_returns_value}
+  total_customer_returns_cogs   : {cf.total_customer_returns_cogs}
+  total_invoice_revenue         : {cf.total_invoice_revenue}
+  total_invoice_cogs            : {cf.total_invoice_cogs}
+  total_gross_profit            : {cf.total_gross_profit}
 """)

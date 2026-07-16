@@ -20,6 +20,12 @@ def _adjust_cashflow(
     total_purchases_cash_delta         : Decimal = Decimal("0"),
     total_expenses_amount_delta        : Decimal = Decimal("0"),
     total_lost_inventory_worth_delta   : Decimal = Decimal("0"),
+    total_purchase_returns_value_delta : Decimal = Decimal("0"),
+    total_customer_returns_value_delta : Decimal = Decimal("0"),
+    total_customer_returns_cogs_delta  : Decimal = Decimal("0"),
+    total_invoice_revenue_delta        : Decimal = Decimal("0"),
+    total_invoice_cogs_delta           : Decimal = Decimal("0"),
+    total_gross_profit_delta           : Decimal = Decimal("0"),
     user,
 ) -> CashFlow:
     """
@@ -37,6 +43,12 @@ def _adjust_cashflow(
         total_purchases_cash    = total purchase value confirmed (paid + outstanding, only ever increases)
         total_expenses_amount   = total expenses recorded
         total_lost_inventory_worth = total FIFO cost of products marked lost (only ever increases)
+        total_purchase_returns_value = total value of accepted returns to suppliers (only ever increases)
+        total_customer_returns_value = total value of accepted returns from customers (only ever increases)
+        total_customer_returns_cogs  = total COGS reversed via accepted customer returns (only ever increases)
+        total_invoice_revenue   = total grand_total across confirmed invoices (only ever increases)
+        total_invoice_cogs      = total COGS across confirmed invoices (only ever increases)
+        total_gross_profit      = total gross profit across confirmed invoices (only ever increases)
     """
     with transaction.atomic():
         cf = CashFlow.objects.select_for_update().get_or_create(pk=1)[0]
@@ -66,6 +78,24 @@ def _adjust_cashflow(
         )
         cf.total_lost_inventory_worth = max(
             Decimal("0"), cf.total_lost_inventory_worth + total_lost_inventory_worth_delta
+        )
+        cf.total_purchase_returns_value = max(
+            Decimal("0"), cf.total_purchase_returns_value + total_purchase_returns_value_delta
+        )
+        cf.total_customer_returns_value = max(
+            Decimal("0"), cf.total_customer_returns_value + total_customer_returns_value_delta
+        )
+        cf.total_customer_returns_cogs = max(
+            Decimal("0"), cf.total_customer_returns_cogs + total_customer_returns_cogs_delta
+        )
+        cf.total_invoice_revenue = max(
+            Decimal("0"), cf.total_invoice_revenue + total_invoice_revenue_delta
+        )
+        cf.total_invoice_cogs = max(
+            Decimal("0"), cf.total_invoice_cogs + total_invoice_cogs_delta
+        )
+        cf.total_gross_profit = max(
+            Decimal("0"), cf.total_gross_profit + total_gross_profit_delta
         )
         cf.last_updated_by = user
         cf.save()
@@ -218,14 +248,25 @@ def delete_expense(*, pk: int, user) -> None:
 # Public sync functions — called by purchases and billing apps
 # ---------------------------------------------------------------------------
 
-def sync_invoice_confirmed(*, grand_total: Decimal, user) -> None:
+def sync_invoice_confirmed(
+    *, grand_total: Decimal, total_cogs: Decimal = Decimal("0"),
+    gross_profit: Decimal = Decimal("0"), user,
+) -> None:
     """
     Called when an invoice is confirmed.
     Full grand_total moves from nowhere → customer_outstanding.
     (Cash hasn't arrived yet — customer owes it.)
+    total_invoice_revenue/total_invoice_cogs/total_gross_profit are the
+    all-time running totals for the Profit/Margin report — returns don't
+    reduce these (Invoice.total_cogs/gross_profit are unaffected by returns,
+    confirmed by tracing _recalculate_invoice_totals), so this is the only
+    place they're ever incremented.
     """
     _adjust_cashflow(
-        customer_outstanding_delta=+grand_total,
+        customer_outstanding_delta = +grand_total,
+        total_invoice_revenue_delta = +grand_total,
+        total_invoice_cogs_delta    = +total_cogs,
+        total_gross_profit_delta    = +gross_profit,
         user=user,
     )
 
@@ -260,14 +301,21 @@ def sync_invoice_payment_deleted(*, amount: Decimal, user) -> None:
         )
 
 
-def sync_invoice_return_accepted(*, return_amount: Decimal, user) -> None:
+def sync_invoice_return_accepted(
+    *, return_amount: Decimal, return_cogs: Decimal = Decimal("0"), user,
+) -> None:
     """
     Called when a billing return is accepted.
     Customer owes less (credit note) → customer_outstanding decreases.
     No cash movement — goods came back, not money.
+    total_customer_returns_value/total_customer_returns_cogs are all-time
+    running totals for the Customer Returns report — no reversal path exists
+    for an accepted return, so this only ever increases.
     """
     _adjust_cashflow(
-        customer_outstanding_delta = -return_amount,
+        customer_outstanding_delta         = -return_amount,
+        total_customer_returns_value_delta = +return_amount,
+        total_customer_returns_cogs_delta  = +return_cogs,
         user=user,
     )
 
@@ -322,9 +370,13 @@ def sync_purchase_return_accepted(*, return_amount: Decimal, user) -> None:
     """
     Called when a purchase return is accepted.
     We get goods back → supplier owes us less → payable_outstanding decreases.
+    total_purchase_returns_value is the all-time running total for the
+    Purchase Returns report — no reversal path exists for an accepted
+    return, so this only ever increases.
     """
     _adjust_cashflow(
         supplier_payable_outstanding_delta = -return_amount,
+        total_purchase_returns_value_delta = +return_amount,
         user=user,
     )
 

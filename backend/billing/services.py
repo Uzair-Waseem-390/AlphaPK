@@ -567,9 +567,12 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     invoice.payment_status     = Invoice.PaymentStatus.UNPAID
     invoice.save(update_fields=["credit_outstanding", "remaining_amount", "payment_status"])
 
-    # Sync CashFlow: customer owes full grand_total
+    # Sync CashFlow: customer owes full grand_total; total_invoice_revenue/cogs/gross_profit increase
     from cash_flow.services import sync_invoice_confirmed
-    sync_invoice_confirmed(grand_total=invoice.grand_total, user=user)
+    sync_invoice_confirmed(
+        grand_total=invoice.grand_total, total_cogs=invoice.total_cogs,
+        gross_profit=invoice.gross_profit, user=user,
+    )
 
     return invoice
 
@@ -808,8 +811,10 @@ def accept_return(*, return_id: int, user) -> Return:
     )
     _sync_invoice_payment_summary(invoice)
 
-    # Sync CashFlow: customer outstanding reduces (goods came back)
+    # Sync CashFlow: customer outstanding reduces, total_customer_returns_value/cogs increase
     from cash_flow.services import sync_invoice_return_accepted
-    sync_invoice_return_accepted(return_amount=total_return_amount, user=user)
+    sync_invoice_return_accepted(
+        return_amount=total_return_amount, return_cogs=total_return_cogs, user=user,
+    )
 
     return return_record

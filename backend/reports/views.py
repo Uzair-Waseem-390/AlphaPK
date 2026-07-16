@@ -4,20 +4,27 @@ from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_cash_collected_report_queryset,
     get_cash_collected_report_stats,
+    get_cash_collected_report_stats_all_time,
     get_customer_returns_report_queryset,
     get_customer_returns_report_stats,
+    get_customer_returns_report_stats_all_time,
     get_expenses_report_queryset,
     get_expenses_report_stats,
+    get_expenses_report_stats_all_time,
     get_inventory_valuation_report_data,
     get_inventory_valuation_report_stats,
     get_invoices_report_queryset,
     get_invoices_report_stats,
+    get_invoices_report_stats_all_time,
     get_lost_inventory_report_queryset,
     get_lost_inventory_report_stats,
+    get_lost_inventory_report_stats_all_time,
     get_profit_margin_report_queryset,
     get_profit_margin_report_stats,
+    get_profit_margin_report_stats_all_time,
     get_purchase_returns_report_queryset,
     get_purchase_returns_report_stats,
+    get_purchase_returns_report_stats_all_time,
 )
 from .serializers import (
     CustomerReturnReportItemSerializer,
@@ -30,6 +37,17 @@ from .serializers import (
     PurchaseReturnReportItemSerializer,
     ReportDateFilterSerializer,
 )
+
+
+def _has_date_filter(request) -> bool:
+    """
+    True if the caller supplied any date/date_from/date_to query param.
+    When false, views read stats from the pre-synced CashFlow totals instead
+    of aggregating the full table — see reports/selectors.py's
+    get_<name>_report_stats_all_time() functions.
+    """
+    p = request.query_params
+    return bool(p.get("date") or p.get("date_from") or p.get("date_to"))
 
 
 class InvoicesReportView(generics.ListAPIView):
@@ -57,10 +75,13 @@ class InvoicesReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        # stats are computed over the FULL filtered queryset, before pagination
-        # slices it down to one page — the totals must reflect every matching
-        # invoice, not just the ones shown on the current page.
-        stats = get_invoices_report_stats(queryset)
+        # No filter → read the pre-synced CashFlow total (instant at any scale).
+        # Filtered → stats computed over the FULL filtered queryset, before
+        # pagination slices it down to one page.
+        if _has_date_filter(request):
+            stats = get_invoices_report_stats(queryset)
+        else:
+            stats = get_invoices_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -94,9 +115,10 @@ class CashCollectedReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        # stats are computed over the FULL filtered queryset, before pagination
-        # slices it down to one page.
-        stats = get_cash_collected_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_cash_collected_report_stats(queryset)
+        else:
+            stats = get_cash_collected_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -130,9 +152,10 @@ class ExpensesReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        # stats are computed over the FULL filtered queryset, before pagination
-        # slices it down to one page.
-        stats = get_expenses_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_expenses_report_stats(queryset)
+        else:
+            stats = get_expenses_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -166,9 +189,10 @@ class LostInventoryReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        # stats are computed over the FULL filtered queryset, before pagination
-        # slices it down to one page.
-        stats = get_lost_inventory_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_lost_inventory_report_stats(queryset)
+        else:
+            stats = get_lost_inventory_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -202,7 +226,10 @@ class PurchaseReturnsReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        stats = get_purchase_returns_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_purchase_returns_report_stats(queryset)
+        else:
+            stats = get_purchase_returns_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -236,7 +263,10 @@ class CustomerReturnsReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        stats = get_customer_returns_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_customer_returns_report_stats(queryset)
+        else:
+            stats = get_customer_returns_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
@@ -271,7 +301,10 @@ class ProfitMarginReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        stats = get_profit_margin_report_stats(queryset)
+        if _has_date_filter(request):
+            stats = get_profit_margin_report_stats(queryset)
+        else:
+            stats = get_profit_margin_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)

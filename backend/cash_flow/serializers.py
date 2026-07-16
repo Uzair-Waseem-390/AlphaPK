@@ -62,12 +62,12 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
-# CashFlow stats (dashboard — 10 numbers)
+# CashFlow stats (dashboard — 17 numbers)
 # ---------------------------------------------------------------------------
 
 class CashFlowStatsSerializer(serializers.Serializer):
     """
-    Read-only serializer for the 10 dashboard stats.
+    Read-only serializer for the 17 dashboard stats.
     Counts come from .count() queries in the selector, not the model.
     """
     # Receivables
@@ -88,6 +88,16 @@ class CashFlowStatsSerializer(serializers.Serializer):
 
     # Lost inventory
     total_lost_inventory_worth   = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+    # Returns
+    total_purchase_returns_value = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_customer_returns_value = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_customer_returns_cogs  = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+    # Profit / margin
+    total_invoice_revenue        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_invoice_cogs           = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_gross_profit           = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 # ---------------------------------------------------------------------------

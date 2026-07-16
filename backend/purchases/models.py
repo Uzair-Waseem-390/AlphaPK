@@ -164,7 +164,7 @@ class PurchaseOrder(AuditMixin):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="confirmed_purchase_orders",
     )
-    confirmed_at = models.DateTimeField(null=True, blank=True)
+    confirmed_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     # Totals — computed and stored on confirmation
     gross_amount = models.DecimalField(max_digits=18, decimal_places=4, default=0)
@@ -277,7 +277,7 @@ class PurchaseReturn(AuditMixin):
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
         related_name="accepted_purchase_returns",
     )
-    accepted_at = models.DateTimeField(null=True, blank=True)
+    accepted_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
     # Totals — computed on acceptance
     total_return_gross  = models.DecimalField(max_digits=18, decimal_places=4, default=0)
@@ -347,6 +347,12 @@ class LostInventoryRecord(AuditMixin):
     # Computed and stored on creation
     total_lost_amount = models.DecimalField(max_digits=18, decimal_places=4, default=0)
 
+    # Overrides AuditMixin.created_at to add an index — this is the field the
+    # Lost Inventory report filters/orders by. Scoped to this model only, so
+    # AuditMixin's other users (Category, Shelf, Supplier, Product,
+    # PurchaseOrder, PurchaseReturn, SupplierPayment) are unaffected.
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
     class Meta:
         verbose_name        = "Lost Inventory Record"
         verbose_name_plural = "Lost Inventory Records"
@@ -404,7 +410,7 @@ class SupplierPayment(AuditMixin):
                            help_text="Auto-generated e.g. SPY-2026-0001")
     amount           = models.DecimalField(max_digits=18, decimal_places=4)
     method           = models.CharField(max_length=12, choices=Method.choices)
-    payment_date     = models.DateField()
+    payment_date     = models.DateField(db_index=True)
     note             = models.CharField(max_length=255, blank=True, default="")
 
     class Meta:

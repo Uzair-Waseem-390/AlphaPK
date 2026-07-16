@@ -12,7 +12,7 @@ from .models import CashFlow, Expense, ExpenseCategory
 
 def get_cashflow_stats() -> dict:
     """
-    Returns all 11 dashboard stats from the CashFlow singleton.
+    Returns all 17 dashboard stats from the CashFlow singleton.
     Counts use .count() on the source models — never summed in runtime.
     """
     from billing.models import Invoice
@@ -51,6 +51,16 @@ def get_cashflow_stats() -> dict:
 
         # Lost inventory
         "total_lost_inventory_worth": cf.total_lost_inventory_worth,
+
+        # Returns
+        "total_purchase_returns_value": cf.total_purchase_returns_value,
+        "total_customer_returns_value": cf.total_customer_returns_value,
+        "total_customer_returns_cogs" : cf.total_customer_returns_cogs,
+
+        # Profit / margin
+        "total_invoice_revenue": cf.total_invoice_revenue,
+        "total_invoice_cogs"   : cf.total_invoice_cogs,
+        "total_gross_profit"   : cf.total_gross_profit,
     }
 
 
