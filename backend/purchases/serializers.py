@@ -471,16 +471,24 @@ class LostInventoryCreateSerializer(serializers.Serializer):
 
 
 class LostInventoryItemReadSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source="product.name", read_only=True)
-    product_code = serializers.CharField(source="product.code", read_only=True)
+    product_name        = serializers.CharField(source="product.name", read_only=True)
+    product_code        = serializers.CharField(source="product.code", read_only=True)
+    returnable_quantity = serializers.IntegerField(read_only=True)
+    recovered_amount     = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    net_amount           = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
 
     class Meta:
         model  = LostInventoryItem
         fields = [
             "id", "product", "product_name", "product_code",
             "quantity", "reason", "unit_cost", "total_cost",
+            "found_quantity", "returnable_quantity", "recovered_amount", "net_amount",
         ]
         read_only_fields = fields
+
+
+class MarkLostInventoryFoundSerializer(serializers.Serializer):
+    quantity = serializers.IntegerField(min_value=1)
 
 
 class LostInventoryFifoPreviewQuerySerializer(serializers.Serializer):

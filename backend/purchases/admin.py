@@ -134,6 +134,8 @@ class LostInventoryRecordAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.Mode
     inlines = [LostInventoryItemInline]
 
 
+
+
 @admin.register(SavedPurchaseOrderPDF)
 class SavedPurchaseOrderPDFAdmin(admin.ModelAdmin):
     list_display  = ["order", "file_name", "saved_by", "is_deleted", "created_at"]

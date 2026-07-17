@@ -17,7 +17,8 @@ from .selectors import (
     get_all_shelves, get_all_suppliers, get_category_by_id,
     get_confirmed_purchase_orders, get_draft_purchase_orders,
     get_fifo_cost_preview, get_inventory_by_product_id,
-    get_lost_inventory_record_by_id, get_order_payment_summary,
+    get_lost_inventory_item_by_id, get_lost_inventory_record_by_id,
+    get_order_payment_summary,
     get_payments_for_order, get_purchase_order_by_id,
     get_purchase_return_by_id, get_returns_for_order, get_shelf_by_id,
     get_supplier_by_id, get_supplier_payable_summary,
@@ -27,7 +28,8 @@ from .serializers import (
     CategoryReadSerializer, CategoryWriteSerializer,
     InventoryReadSerializer, LostInventoryCreateSerializer,
     LostInventoryFifoPreviewQuerySerializer,
-    LostInventoryFifoPreviewSerializer, LostInventoryReadSerializer,
+    LostInventoryFifoPreviewSerializer, LostInventoryItemReadSerializer,
+    LostInventoryReadSerializer, MarkLostInventoryFoundSerializer,
     ProductReadSerializer, ProductWriteSerializer,
     PurchaseItemReadSerializer, PurchaseOrderCreateSerializer,
     PurchaseOrderPaymentSummarySerializer, PurchaseOrderReadSerializer,
@@ -45,8 +47,9 @@ from .services import (
     create_purchase_return, create_shelf, create_supplier,
     create_supplier_payment, delete_category, delete_product,
     delete_purchase_order, delete_shelf, delete_supplier,
-    delete_supplier_payment, update_category, update_product,
-    update_purchase_order_items, update_shelf, update_supplier,
+    delete_supplier_payment, mark_lost_inventory_found, update_category,
+    update_product, update_purchase_order_items, update_shelf,
+    update_supplier,
 )
 
 
@@ -807,3 +810,25 @@ class LostInventoryFifoPreviewView(APIView):
 
         preview = get_fifo_cost_preview(product_id=d["product_id"], quantity=d["quantity"])
         return Response(LostInventoryFifoPreviewSerializer(preview).data)
+
+
+class MarkLostInventoryFoundView(APIView):
+    """
+    POST /purchases/lost-inventory/items/<item_id>/found/
+    body: {"quantity": <n>}
+    Marks part or all of a previously lost item as found again — restores
+    stock to its original FIFO batch(es) and reduces the net lost-inventory
+    worth shown on the dashboard.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request, item_id):
+        serializer = MarkLostInventoryFoundSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+
+        item = mark_lost_inventory_found(
+            lost_item_id=item_id,
+            quantity=serializer.validated_data["quantity"],
+            user=request.user,
+        )
+        return Response(LostInventoryItemReadSerializer(item).data)

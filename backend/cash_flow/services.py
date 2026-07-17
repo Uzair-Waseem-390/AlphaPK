@@ -20,6 +20,7 @@ def _adjust_cashflow(
     total_purchases_cash_delta         : Decimal = Decimal("0"),
     total_expenses_amount_delta        : Decimal = Decimal("0"),
     total_lost_inventory_worth_delta   : Decimal = Decimal("0"),
+    total_lost_inventory_recovered_delta : Decimal = Decimal("0"),
     total_purchase_returns_value_delta : Decimal = Decimal("0"),
     total_purchase_returns_cogs_delta  : Decimal = Decimal("0"),
     total_customer_returns_value_delta : Decimal = Decimal("0"),
@@ -43,7 +44,8 @@ def _adjust_cashflow(
         supplier_payable_outstanding = what we still owe suppliers
         total_purchases_cash    = total purchase value confirmed (paid + outstanding, only ever increases)
         total_expenses_amount   = total expenses recorded
-        total_lost_inventory_worth = total FIFO cost of products marked lost (only ever increases)
+        total_lost_inventory_worth = total FIFO cost of products marked lost, gross (only ever increases)
+        total_lost_inventory_recovered = total FIFO cost of lost products later found, gross (only ever increases)
         total_purchase_returns_value = total value of accepted returns to suppliers (only ever increases)
         total_purchase_returns_cogs  = total pre-tax cost of accepted returns to suppliers (only ever increases)
         total_customer_returns_value = total value of accepted returns from customers (only ever increases)
@@ -80,6 +82,9 @@ def _adjust_cashflow(
         )
         cf.total_lost_inventory_worth = max(
             Decimal("0"), cf.total_lost_inventory_worth + total_lost_inventory_worth_delta
+        )
+        cf.total_lost_inventory_recovered = max(
+            Decimal("0"), cf.total_lost_inventory_recovered + total_lost_inventory_recovered_delta
         )
         cf.total_purchase_returns_value = max(
             Decimal("0"), cf.total_purchase_returns_value + total_purchase_returns_value_delta
@@ -468,9 +473,25 @@ def sync_lost_inventory_created(*, amount: Decimal, user) -> None:
     """
     Called when a lost inventory record is created.
     total_lost_inventory_worth increases by the batch's FIFO cost.
-    No reversal path exists — lost inventory records cannot be deleted/undone.
+    A record itself cannot be deleted/undone, but individual items can later
+    be marked "found" — see sync_lost_inventory_found, which tracks recovery
+    on a separate gross field rather than decrementing this one.
     """
     _adjust_cashflow(
         total_lost_inventory_worth_delta = +amount,
+        user=user,
+    )
+
+
+def sync_lost_inventory_found(*, amount: Decimal, user) -> None:
+    """
+    Called when previously-lost inventory is marked "found" again.
+    total_lost_inventory_recovered increases — the dashboard shows the NET
+    figure (total_lost_inventory_worth - total_lost_inventory_recovered) as
+    "Lost Inventory Worth", so this reduces displayed exposure without ever
+    decrementing the gross total_lost_inventory_worth running total.
+    """
+    _adjust_cashflow(
+        total_lost_inventory_recovered_delta = +amount,
         user=user,
     )

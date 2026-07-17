@@ -156,5 +156,7 @@ export const purchasesApi = {
             const query = new URLSearchParams({ product_id: productId, quantity }).toString();
             return api.get(`/lost-inventory/fifo-preview/?${query}`);
         },
+        markFound: (itemId, quantity) =>
+            api.post(`/lost-inventory/items/${itemId}/found/`, { quantity }),
     },
 };

@@ -6,7 +6,7 @@ from django.db.models import DecimalField, Value
 from django.shortcuts import get_object_or_404
 
 from .models import (
-    Category, Inventory, LostInventoryRecord, Product,
+    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
     PurchaseItem, PurchaseOrder, PurchaseReturn, Shelf, Supplier,
 )
 
@@ -498,8 +498,15 @@ def get_lost_inventory_record_by_id(pk: int) -> LostInventoryRecord:
     return get_object_or_404(
         LostInventoryRecord.objects.select_related(
             "created_by", "updated_by",
-        ).prefetch_related("items__product"),
+        ).prefetch_related("items__product", "items__fifo_consumptions__purchase_item"),
         pk=pk, is_deleted=False,
+    )
+
+
+def get_lost_inventory_item_by_id(pk: int) -> LostInventoryItem:
+    return get_object_or_404(
+        LostInventoryItem.objects.select_related("product", "record"),
+        pk=pk,
     )
 
 

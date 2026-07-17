@@ -50,8 +50,12 @@ def get_cashflow_stats() -> dict:
         "total_expenses_amount"     : cf.total_expenses_amount,
         "total_number_of_expenses"  : Expense.objects.filter(is_deleted=False).count(),
 
-        # Lost inventory
-        "total_lost_inventory_worth": cf.total_lost_inventory_worth,
+        # Lost inventory — gross fields stay gross (never decrease); net is
+        # computed here for the dashboard card, mirroring how
+        # supplier_payable_outstanding (net) sits alongside total_paid_payables (gross).
+        "total_lost_inventory_worth"    : cf.total_lost_inventory_worth,
+        "total_lost_inventory_recovered": cf.total_lost_inventory_recovered,
+        "net_lost_inventory_worth"      : cf.total_lost_inventory_worth - cf.total_lost_inventory_recovered,
 
         # Returns
         "total_purchase_returns_value": cf.total_purchase_returns_value,

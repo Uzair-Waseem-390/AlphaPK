@@ -51,6 +51,7 @@ from .views import (
     LostInventoryFifoPreviewView,
     LostInventoryListCreateView,
     LostInventoryRetrieveView,
+    MarkLostInventoryFoundView,
 )
 
 urlpatterns = [
@@ -201,4 +202,8 @@ urlpatterns = [
     path("lost-inventory/<int:pk>/",
          LostInventoryRetrieveView.as_view(),
          name="lost-inventory-detail"),
+
+    path("lost-inventory/items/<int:item_id>/found/",
+         MarkLostInventoryFoundView.as_view(),
+         name="lost-inventory-item-found"),
 ]

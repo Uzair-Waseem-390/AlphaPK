@@ -366,6 +366,11 @@ class LostInventoryItem(models.Model):
     """
     One product lost within a LostInventoryRecord.
     unit_cost is the blended FIFO cost snapshotted at creation time — immutable.
+
+    found_quantity tracks how much of this line has since been marked "found"
+    (product turned up again) via mark_lost_inventory_found — supports partial
+    recovery across multiple separate find events, mirroring the
+    quantity/returned_quantity pattern already used on PurchaseItem/InvoiceItem.
     """
 
     record   = models.ForeignKey(LostInventoryRecord, on_delete=models.CASCADE, related_name="items")
@@ -378,13 +383,62 @@ class LostInventoryItem(models.Model):
     unit_cost  = models.DecimalField(max_digits=14, decimal_places=4, default=0, editable=False)
     total_cost = models.DecimalField(max_digits=18, decimal_places=4, default=0, editable=False)
 
+    # How much of this loss has been reversed via "mark as found"
+    found_quantity = models.PositiveIntegerField(default=0)
+
     class Meta:
         verbose_name        = "Lost Inventory Item"
         verbose_name_plural = "Lost Inventory Items"
         unique_together     = [("record", "product")]
 
+    @property
+    def returnable_quantity(self):
+        return self.quantity - self.found_quantity
+
+    @property
+    def recovered_amount(self):
+        return self.unit_cost * self.found_quantity
+
+    @property
+    def net_amount(self):
+        return self.total_cost - self.recovered_amount
+
     def __str__(self):
         return f"{self.record.reference_number} — {self.product.name} x {self.quantity}"
+
+
+class LostInventoryFIFOConsumption(models.Model):
+    """
+    Records exactly which purchase batch(es) a LostInventoryItem's quantity
+    was drawn from at the moment it was marked lost — mirrors billing.FIFOLedger.
+    A single loss can span multiple batches (FIFO may need to pull from more
+    than one PurchaseItem to cover the lost quantity), so this is one row per
+    batch actually touched, not one row per LostInventoryItem.
+
+    Enables mark_lost_inventory_found to restore the EXACT original batches
+    instead of an approximation. restored_quantity tracks how much of THIS
+    specific consumption has already been reversed (supports partial finds
+    that only partially restore a given row before moving to the next).
+    """
+
+    lost_item     = models.ForeignKey(LostInventoryItem, on_delete=models.CASCADE, related_name="fifo_consumptions")
+    purchase_item = models.ForeignKey(PurchaseItem, on_delete=models.PROTECT, related_name="lost_inventory_consumptions")
+    quantity      = models.PositiveIntegerField(help_text="Quantity originally drawn from this batch when marked lost.")
+    unit_cost     = models.DecimalField(max_digits=14, decimal_places=4, help_text="Tax-inclusive unit cost of this batch at the time of loss.")
+    restored_quantity = models.PositiveIntegerField(default=0)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Lost Inventory FIFO Consumption"
+        verbose_name_plural = "Lost Inventory FIFO Consumptions"
+        ordering            = ["id"]
+
+    @property
+    def restorable_quantity(self):
+        return self.quantity - self.restored_quantity
+
+    def __str__(self):
+        return f"{self.lost_item} ← {self.purchase_item} x {self.quantity}"
 
 
 # ---------------------------------------------------------------------------

@@ -102,7 +102,16 @@ class CashFlow(models.Model):
 
     total_lost_inventory_worth:
         + lost inventory record created (FIFO cost of the batch)
-        No reversal path exists — this field only ever increases.
+        Only ever increases — this is the GROSS all-time-lost figure.
+
+    total_lost_inventory_recovered:
+        + previously-lost product marked "found" again (mark_lost_inventory_found)
+        Only ever increases too (it's a gross running total, same as every
+        other field here) — it does NOT decrement total_lost_inventory_worth.
+        The dashboard's displayed "Lost Inventory Worth" is the NET figure
+        (total_lost_inventory_worth - total_lost_inventory_recovered),
+        computed in get_cashflow_stats(), mirroring how supplier_payable_
+        outstanding (net) already sits alongside total_paid_payables (gross).
 
     total_purchase_returns_value / total_purchase_returns_cogs /
     total_customer_returns_value / total_customer_returns_cogs:
@@ -137,7 +146,9 @@ class CashFlow(models.Model):
 
     # ---- Lost inventory ----
     total_lost_inventory_worth = models.DecimalField(max_digits=20, decimal_places=4, default=0,
-                                     help_text="Total FIFO cost of all products marked lost. Only ever increases — no reversal exists.")
+                                     help_text="Total FIFO cost of all products ever marked lost (gross, only ever increases).")
+    total_lost_inventory_recovered = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                     help_text="Total FIFO cost of lost products later marked found (gross, only ever increases). Dashboard shows worth minus this as the net figure.")
 
     # ---- Returns ----
     total_purchase_returns_value = models.DecimalField(max_digits=20, decimal_places=4, default=0,

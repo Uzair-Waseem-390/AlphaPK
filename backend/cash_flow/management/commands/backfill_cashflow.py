@@ -28,6 +28,7 @@ class Command(BaseCommand):
         cf.total_purchases_cash       = Decimal("0")
         cf.total_expenses_amount      = Decimal("0")
         cf.total_lost_inventory_worth = Decimal("0")
+        cf.total_lost_inventory_recovered = Decimal("0")
         cf.total_purchase_returns_value = Decimal("0")
         cf.total_purchase_returns_cogs  = Decimal("0")
         cf.total_customer_returns_value = Decimal("0")
@@ -132,7 +133,9 @@ class Command(BaseCommand):
         lost_items = LostInventoryItem.objects.filter(record__is_deleted=False)
         for li in lost_items:
             cf.total_lost_inventory_worth += li.total_cost or Decimal("0")
+            cf.total_lost_inventory_recovered += li.recovered_amount or Decimal("0")
         self.stdout.write(f"  total_lost_inventory_worth: {cf.total_lost_inventory_worth}")
+        self.stdout.write(f"  total_lost_inventory_recovered: {cf.total_lost_inventory_recovered}")
 
         # 8. Purchase returns value/cogs = sum of total_return_amount/total_return_gross on accepted purchase returns
         purchase_returns = PurchaseReturn.objects.filter(is_deleted=False, status="accepted")
@@ -173,6 +176,7 @@ Final CashFlow state:
   total_purchases_cash          : {cf.total_purchases_cash}
   total_expenses_amount         : {cf.total_expenses_amount}
   total_lost_inventory_worth    : {cf.total_lost_inventory_worth}
+  total_lost_inventory_recovered: {cf.total_lost_inventory_recovered}
   total_purchase_returns_value  : {cf.total_purchase_returns_value}
   total_purchase_returns_cogs   : {cf.total_purchase_returns_cogs}
   total_customer_returns_value  : {cf.total_customer_returns_value}

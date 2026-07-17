@@ -87,7 +87,9 @@ class CashFlowStatsSerializer(serializers.Serializer):
     total_number_of_expenses     = serializers.IntegerField()
 
     # Lost inventory
-    total_lost_inventory_worth   = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_lost_inventory_worth     = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_lost_inventory_recovered = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_lost_inventory_worth       = serializers.DecimalField(max_digits=20, decimal_places=4)
 
     # Returns
     total_purchase_returns_value = serializers.DecimalField(max_digits=20, decimal_places=4)

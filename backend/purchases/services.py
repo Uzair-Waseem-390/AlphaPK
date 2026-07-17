@@ -3,15 +3,16 @@ from django.db import transaction
 from django.utils import timezone
 
 from .models import (
-    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
-    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
-    SavedPurchaseOrderPDF, Shelf, Supplier, SupplierPayment,
+    Category, Inventory, LostInventoryFIFOConsumption, LostInventoryItem,
+    LostInventoryRecord, Product, PurchaseItem, PurchaseOrder,
+    PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF, Shelf,
+    Supplier, SupplierPayment,
 )
 from .selectors import (
     get_available_purchase_items_for_fifo, get_category_by_id,
-    get_product_by_id, get_purchase_item_by_id, get_purchase_order_by_id,
-    get_purchase_return_by_id, get_shelf_by_id, get_supplier_by_id,
-    get_supplier_payment_by_id,
+    get_lost_inventory_item_by_id, get_product_by_id, get_purchase_item_by_id,
+    get_purchase_order_by_id, get_purchase_return_by_id, get_shelf_by_id,
+    get_supplier_by_id, get_supplier_payment_by_id,
 )
 from .utils import calculate_total_price
 
@@ -929,17 +930,23 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
 # Lost Inventory
 # ---------------------------------------------------------------------------
 
-def _consume_fifo_for_loss(*, product: Product, quantity: int) -> Decimal:
+def _consume_fifo_for_loss(*, product: Product, quantity: int) -> tuple[Decimal, list[dict]]:
     """
     Consumes stock from purchase batches in FIFO order for a lost product.
     Mirrors billing._run_fifo — oldest batch first, tax-inclusive unit cost
     (total_price / quantity), decrements remaining_quantity on each batch.
-    Returns the blended cost per unit for the consumed quantity.
+
+    Returns (blended_unit_cost, consumptions) — consumptions is one dict per
+    batch actually touched: {"purchase_item", "quantity", "unit_cost"}. The
+    caller persists these as LostInventoryFIFOConsumption rows so a later
+    "mark as found" can restore the EXACT original batches instead of an
+    approximation.
     """
     from rest_framework.exceptions import ValidationError
 
     remaining_to_consume = quantity
     total_cost = Decimal("0")
+    consumptions = []
     batches = get_available_purchase_items_for_fifo(product.id)
 
     for batch in batches:
@@ -956,6 +963,12 @@ def _consume_fifo_for_loss(*, product: Product, quantity: int) -> Decimal:
         batch.remaining_quantity -= consume
         batch.save(update_fields=["remaining_quantity"])
 
+        consumptions.append({
+            "purchase_item": batch,
+            "quantity": consume,
+            "unit_cost": tax_inclusive_unit_cost,
+        })
+
         remaining_to_consume -= consume
 
     if remaining_to_consume > 0:
@@ -963,7 +976,7 @@ def _consume_fifo_for_loss(*, product: Product, quantity: int) -> Decimal:
             "quantity": f"Stock ran out mid-processing for '{product.name}'. Please refresh and try again."
         })
 
-    return total_cost / Decimal(str(quantity))
+    return total_cost / Decimal(str(quantity)), consumptions
 
 
 def _validate_lost_stock(*, product: Product, requested_qty: int) -> None:
@@ -1020,10 +1033,10 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
         quantity = item_data["quantity"]
 
         _validate_lost_stock(product=product, requested_qty=quantity)
-        unit_cost = _consume_fifo_for_loss(product=product, quantity=quantity)
+        unit_cost, consumptions = _consume_fifo_for_loss(product=product, quantity=quantity)
         total_cost = unit_cost * Decimal(str(quantity))
 
-        LostInventoryItem.objects.create(
+        lost_item = LostInventoryItem.objects.create(
             record=record,
             product=product,
             quantity=quantity,
@@ -1031,6 +1044,16 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
             unit_cost=unit_cost,
             total_cost=total_cost,
         )
+
+        LostInventoryFIFOConsumption.objects.bulk_create([
+            LostInventoryFIFOConsumption(
+                lost_item=lost_item,
+                purchase_item=c["purchase_item"],
+                quantity=c["quantity"],
+                unit_cost=c["unit_cost"],
+            )
+            for c in consumptions
+        ])
 
         _sync_inventory(product=product, quantity_delta=-quantity, user=user)
 
@@ -1044,3 +1067,77 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
     sync_lost_inventory_created(amount=total_lost_amount, user=user)
 
     return record
+
+
+@transaction.atomic
+def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> LostInventoryItem:
+    """
+    Reverses part or all of a previously lost item: restores stock to the
+    EXACT original purchase batch(es) it was consumed from (via the
+    LostInventoryFIFOConsumption ledger), increases live Inventory, and
+    increases CashFlow.total_lost_inventory_recovered (net figure shown on
+    dashboard = total_lost_inventory_worth - total_lost_inventory_recovered).
+
+    Restoration order: oldest consumption row first (mirrors FIFO intent —
+    the batch it left first is the batch it's credited back to first).
+
+    Legacy fallback: lost items created before this feature has no ledger
+    rows. For those, restored stock is added directly to Inventory without
+    a batch to credit back to (no FIFO consumption to reverse).
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if quantity <= 0:
+        raise ValidationError({"quantity": "Quantity must be greater than zero."})
+
+    lost_item = get_lost_inventory_item_by_id(lost_item_id)
+
+    if quantity > lost_item.returnable_quantity:
+        raise ValidationError({
+            "quantity": (
+                f"Cannot mark {quantity} as found — only "
+                f"{lost_item.returnable_quantity} of this lost item is returnable."
+            )
+        })
+
+    consumptions = list(
+        lost_item.fifo_consumptions.select_related("purchase_item").order_by("id")
+    )
+
+    remaining_to_restore = quantity
+    if consumptions:
+        for consumption in consumptions:
+            if remaining_to_restore <= 0:
+                break
+
+            restorable = consumption.restorable_quantity
+            if restorable <= 0:
+                continue
+
+            restore = min(restorable, remaining_to_restore)
+
+            purchase_item = consumption.purchase_item
+            purchase_item.remaining_quantity += restore
+            purchase_item.save(update_fields=["remaining_quantity"])
+
+            consumption.restored_quantity += restore
+            consumption.save(update_fields=["restored_quantity"])
+
+            remaining_to_restore -= restore
+
+        if remaining_to_restore > 0:
+            raise ValidationError({
+                "quantity": "Ledger inconsistency: not enough restorable quantity recorded for this item."
+            })
+    # else: legacy record with no ledger — restored stock goes straight to Inventory below.
+
+    lost_item.found_quantity += quantity
+    lost_item.save(update_fields=["found_quantity"])
+
+    _sync_inventory(product=lost_item.product, quantity_delta=quantity, user=user)
+
+    recovered_amount = lost_item.unit_cost * Decimal(str(quantity))
+    from cash_flow.services import sync_lost_inventory_found
+    sync_lost_inventory_found(amount=recovered_amount, user=user)
+
+    return lost_item
