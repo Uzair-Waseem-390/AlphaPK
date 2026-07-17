@@ -86,16 +86,20 @@ class ExpenseReportItemSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class LostInventoryReportItemSerializer(serializers.ModelSerializer):
-    reference_number = serializers.CharField(source="record.reference_number", read_only=True)
+    reference_number  = serializers.CharField(source="record.reference_number", read_only=True)
     product_name      = serializers.CharField(source="product.name", read_only=True)
     product_code      = serializers.CharField(source="product.code", read_only=True)
     created_at        = serializers.DateTimeField(source="record.created_at", read_only=True)
+    recovered_amount  = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    net_amount        = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
 
     class Meta:
         model = LostInventoryItem
         fields = [
             "id", "reference_number", "product_name", "product_code",
-            "quantity", "reason", "unit_cost", "total_cost", "created_at",
+            "quantity", "found_quantity", "reason",
+            "unit_cost", "total_cost", "recovered_amount", "net_amount",
+            "created_at",
         ]
         read_only_fields = fields
 

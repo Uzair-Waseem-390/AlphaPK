@@ -183,18 +183,31 @@ def get_lost_inventory_report_queryset(
 
 
 def get_lost_inventory_report_stats(queryset: QuerySet) -> dict:
-    return queryset.aggregate(
-        total_lost_items = Count("id"),
-        total_lost_cash   = Coalesce(Sum("total_cost"), Decimal("0")),
+    agg = queryset.aggregate(
+        total_lost_items      = Count("id"),
+        total_lost_cash       = Coalesce(Sum("total_cost"), Decimal("0")),
     )
+    # recovered_amount is a property (unit_cost * found_quantity) — no DB field,
+    # so we compute it in Python from the queryset which is already fully evaluated
+    # by the aggregate above. We iterate once to sum recovered and net amounts.
+    total_recovered = Decimal("0")
+    for item in queryset:
+        total_recovered += item.unit_cost * item.found_quantity
+    agg["total_recovered_cash"] = total_recovered
+    agg["net_lost_cash"]        = agg["total_lost_cash"] - total_recovered
+    return agg
 
 
 def get_lost_inventory_report_stats_all_time() -> dict:
-    """No-filter case — reads the pre-synced CashFlow total."""
+    """No-filter case — reads the pre-synced CashFlow totals (instant at any scale)."""
     cf = CashFlow.get_instance()
+    total_lost      = cf.total_lost_inventory_worth
+    total_recovered = cf.total_lost_inventory_recovered
     return {
-        "total_lost_items": LostInventoryItem.objects.filter(record__is_deleted=False).count(),
-        "total_lost_cash": cf.total_lost_inventory_worth,
+        "total_lost_items"    : LostInventoryItem.objects.filter(record__is_deleted=False).count(),
+        "total_lost_cash"     : total_lost,
+        "total_recovered_cash": total_recovered,
+        "net_lost_cash"       : total_lost - total_recovered,
     }
 
 

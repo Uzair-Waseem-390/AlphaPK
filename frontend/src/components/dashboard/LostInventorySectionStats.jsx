@@ -7,8 +7,10 @@ const LostInventorySectionStats = ({ stats, loading, onCardClick }) => {
         return (
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-neutral-900">Lost Inventory</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <StatCardSkeleton color="red" />
+                    <StatCardSkeleton color="green" />
+                    <StatCardSkeleton color="orange" />
                 </div>
             </div>
         );
@@ -17,12 +19,26 @@ const LostInventorySectionStats = ({ stats, loading, onCardClick }) => {
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-neutral-900">Lost Inventory</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <StatCard
-                    label="Lost Inventory Worth"
+                    label="Total Lost (Gross)"
                     value={stats?.total_lost_inventory_worth}
                     icon="📉"
                     color="red"
+                    onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
+                />
+                <StatCard
+                    label="Recovered (Found)"
+                    value={stats?.total_lost_inventory_recovered}
+                    icon="🔍"
+                    color="green"
+                    onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
+                />
+                <StatCard
+                    label="Net Lost Worth"
+                    value={stats?.net_lost_inventory_worth}
+                    icon="⚠️"
+                    color="orange"
                     onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
                 />
             </div>
