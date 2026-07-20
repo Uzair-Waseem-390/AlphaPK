@@ -3,9 +3,10 @@ from django.conf.urls.static import static
 from django.contrib import admin
 from django.urls import include, path
 from users.urls import auth_urlpatterns, user_urlpatterns
+from backend.settings import PATH_ADMIN
  
 urlpatterns = [
-    path("admin/", admin.site.urls),
+    path(f"{PATH_ADMIN}/", admin.site.urls),
     path("api/auth/",      include((auth_urlpatterns, "auth"))),
     path("api/users/",     include((user_urlpatterns, "users"))),
     path("api/",           include("purchases.urls")),     # categories, shelves, suppliers, products, orders, inventory

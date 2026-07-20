@@ -18,7 +18,7 @@ CORS_ALLOWED_ORIGINS = env_list("CORS_ALLOWED_ORIGINS")
 CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 BACKEND_URL = os.getenv("BACKEND_URL").rstrip("/")
 
-
+PATH_ADMIN = os.getenv("PATH_ADMIN")
 
 INSTALLED_APPS = [
     'django.contrib.admin',
