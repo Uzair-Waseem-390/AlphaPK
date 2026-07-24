@@ -114,6 +114,20 @@ class Command(BaseCommand):
         cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
         self.stdout.write(f"  total_expenses_amount: {cf.total_expenses_amount}")
 
+        # 5b. Tax payments (GST paid to FBR) — same treatment as expenses:
+        #     real cash leaving the till. Mirrors taxes.services.sync_tax_payment_made.
+        try:
+            from taxes.models import TaxPayment
+            tax_payments = TaxPayment.objects.filter(is_deleted=False)
+            total_tax_paid = Decimal("0")
+            for tp in tax_payments:
+                total_tax_paid  += tp.amount
+                cf.cash_in_hand -= tp.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_tax_paid (deducted from cash_in_hand): {total_tax_paid}")
+        except Exception:
+            pass  # taxes app absent — fine, nothing to deduct
+
         # 6. Advance payments already deducted from cash_in_hand
         advance_payments = SupplierPayment.objects.filter(
             is_deleted=False,

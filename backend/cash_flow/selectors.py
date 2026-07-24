@@ -279,6 +279,30 @@ def get_cash_in_hand_breakdown(
             "method"     : p.method,
         })
 
+    # --- Outflows: tax payments (GST paid to FBR) ---
+    # taxes is a separate app — import defensively so this breakdown keeps
+    # working even if the app were ever removed.
+    try:
+        from taxes.models import TaxPayment
+        tax_qs = TaxPayment.objects.filter(is_deleted=False)
+        if _clean(date_from):
+            tax_qs = tax_qs.filter(payment_date__gte=_clean(date_from))
+        if _clean(date_to):
+            tax_qs = tax_qs.filter(payment_date__lte=_clean(date_to))
+
+        for tp in tax_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "tax_payment",
+                "date"       : str(tp.payment_date),
+                "description": f"Tax payment to FBR{f' — {tp.note}' if tp.note else ''}",
+                "reference"  : f"TAX-{tp.id}",
+                "amount"     : tp.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # Filter by direction if requested
     if _clean(movement_type):
         movements = [m for m in movements if m["direction"] == _clean(movement_type)]
