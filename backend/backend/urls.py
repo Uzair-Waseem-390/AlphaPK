@@ -16,6 +16,7 @@ urlpatterns = [
     path("api/ledger/",    include("ledger.urls")),
     path("api/reports/",   include("reports.urls")),
     path("api/data-entry/", include("data_entry.urls")),
+    path("api/taxes/",     include("taxes.urls")),
 ]
  
 if settings.DEBUG:

@@ -599,6 +599,10 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
     from cash_flow.services import sync_purchase_order_confirmed
     sync_purchase_order_confirmed(net_payable=order.net_payable, advance_amount=advance, user=user)
 
+    # Sync TaxFlow: GST paid to supplier + WHT withheld from supplier
+    from taxes.services import sync_purchase_tax
+    sync_purchase_tax(gst_amount=order.gst_total, wht_amount=order.wht_total, user=user)
+
     # Ledger entry: credit (we owe supplier net_payable)
     from ledger.services import add_purchase_entry
     add_purchase_entry(

@@ -42,6 +42,7 @@ EXTERNAL_APPS = [
     'ledger',
     'reports',
     'data_entry',
+    'taxes',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS

@@ -574,6 +574,10 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         gross_profit=invoice.gross_profit, user=user,
     )
 
+    # Sync TaxFlow: GST charged to customer + WHT withheld by customer
+    from taxes.services import sync_invoice_tax
+    sync_invoice_tax(gst_amount=invoice.gst_total, wht_amount=invoice.wht_total, user=user)
+
     return invoice
 
 

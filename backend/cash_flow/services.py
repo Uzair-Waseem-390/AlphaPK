@@ -457,6 +457,28 @@ def sync_data_entry_opening_cash(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_tax_payment_made(*, amount: Decimal, user) -> None:
+    """
+    Called by taxes.services.create_tax_payment when a GST payment to FBR is
+    recorded. Same mechanism as an Expense — it's real cash leaving the till.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
+def sync_tax_payment_deleted(*, amount: Decimal, user) -> None:
+    """
+    Called by taxes.services.delete_tax_payment when a GST payment record is
+    deleted. Restores the amount to cash_in_hand.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
 def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     Called when a draft purchase order with advance is deleted.
