@@ -448,12 +448,11 @@ def sync_data_entry_customer_opening_balance(*, amount: Decimal, user) -> None:
 
 def sync_data_entry_opening_cash(*, amount: Decimal, user) -> None:
     """
-    Data-entry bootstrap: seeds starting cash on hand. Treated as collected cash,
-    so both cash_in_hand and total_invoices_cash increase.
+    Data-entry bootstrap: seeds starting cash on hand. Not an invoice, so only
+    cash_in_hand increases — total_invoices_cash is deliberately left untouched.
     """
     _adjust_cashflow(
         cash_in_hand_delta        = +amount,
-        total_invoices_cash_delta = +amount,
         user=user,
     )
 

@@ -47,14 +47,12 @@ class Command(BaseCommand):
             cf.customer_outstanding += inv.credit_outstanding or Decimal("0")
         self.stdout.write(f"  customer_outstanding: {cf.customer_outstanding}")
 
-        # 1b. Opening cash (data-entry bootstrap) — sync_data_entry_opening_cash
-        #     treats this as collected cash, incrementing BOTH cash_in_hand and
-        #     total_invoices_cash. Must mirror both, not just cash_in_hand.
+        # 1b. Opening cash (data-entry bootstrap) — seeds starting cash on hand.
+        #     Not an invoice, so it must NOT touch total_invoices_cash.
         try:
             from data_entry.models import OpeningCashEntry
             for oc in OpeningCashEntry.objects.all():
-                cf.cash_in_hand        += oc.amount or Decimal("0")
-                cf.total_invoices_cash += oc.amount or Decimal("0")
+                cf.cash_in_hand += oc.amount or Decimal("0")
         except Exception:
             pass  # data_entry is a removable bootstrap app — fine if absent post-go-live
 

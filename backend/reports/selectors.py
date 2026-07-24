@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Count, Q, QuerySet, Sum
+from django.db.models import Count, DecimalField, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
 from billing.models import Invoice, Payment, Return
@@ -186,15 +186,12 @@ def get_lost_inventory_report_stats(queryset: QuerySet) -> dict:
     agg = queryset.aggregate(
         total_lost_items      = Count("id"),
         total_lost_cash       = Coalesce(Sum("total_cost"), Decimal("0")),
+        total_recovered_cash  = Coalesce(
+            Sum(F("unit_cost") * F("found_quantity")), Decimal("0"),
+            output_field=DecimalField(max_digits=18, decimal_places=4),
+        ),
     )
-    # recovered_amount is a property (unit_cost * found_quantity) — no DB field,
-    # so we compute it in Python from the queryset which is already fully evaluated
-    # by the aggregate above. We iterate once to sum recovered and net amounts.
-    total_recovered = Decimal("0")
-    for item in queryset:
-        total_recovered += item.unit_cost * item.found_quantity
-    agg["total_recovered_cash"] = total_recovered
-    agg["net_lost_cash"]        = agg["total_lost_cash"] - total_recovered
+    agg["net_lost_cash"] = agg["total_lost_cash"] - agg["total_recovered_cash"]
     return agg
 
 

@@ -1,8 +1,8 @@
 from django.contrib import admin
 
 from .models import (
-    Category, Inventory, LostInventoryItem, LostInventoryRecord,
-    Product, PurchaseItem, PurchaseOrder,
+    Category, Inventory, LostInventoryFIFOConsumption, LostInventoryItem,
+    LostInventoryRecord, Product, PurchaseItem, PurchaseOrder,
     PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
     Shelf, Supplier, SupplierPayment,
 )
@@ -121,7 +121,7 @@ class PurchaseReturnAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmi
 class LostInventoryItemInline(admin.TabularInline):
     model         = LostInventoryItem
     extra         = 0
-    readonly_fields = ["unit_cost", "total_cost"]
+    readonly_fields = ["unit_cost", "total_cost", "found_quantity"]
     can_delete = False
 
 
@@ -132,6 +132,22 @@ class LostInventoryRecordAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.Mode
     search_fields = ["reference_number"]
     readonly_fields = AuditAdminMixin.readonly_fields + ("reference_number", "total_lost_amount")
     inlines = [LostInventoryItemInline]
+
+
+@admin.register(LostInventoryFIFOConsumption)
+class LostInventoryFIFOConsumptionAdmin(admin.ModelAdmin):
+    list_display  = [
+        "lost_item", "purchase_item", "quantity",
+        "unit_cost", "restored_quantity",
+    ]
+    search_fields = [
+        "lost_item__product__name", "lost_item__product__code",
+        "purchase_item__product__name",
+    ]
+    readonly_fields = [
+        "lost_item", "purchase_item", "quantity",
+        "unit_cost", "restored_quantity",
+    ]
 
 
 
