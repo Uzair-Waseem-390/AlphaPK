@@ -75,7 +75,27 @@ in v1" below).
 
 ---
 
-## 2. What each field on the Tax Flow record actually means
+## 2. Decisions made for this version, and why
+
+These were discussed and agreed with the store owner before anything was
+built. Listed here so an accountant reviewing this module — or a future
+developer extending it — knows which choices were deliberate trade-offs,
+not gaps someone forgot about.
+
+| Decision | Why |
+|---|---|
+| **GST and WHT are never netted together** | They're legally different tax regimes (Sales Tax Act vs Income Tax Ordinance). A combined number would not correspond to anything FBR recognizes, so keeping them apart is the only version that's actually correct. |
+| **Built as an internal tool, not a live FBR filing system** | The store is not currently registered for Sales Tax. Every figure here is a management estimate for the owner's own visibility, not a submission to FBR. |
+| **v1 shows the raw, uncapped Net Sales Tax Payable** | FBR's Section 8B caps how much input tax can be claimed per period (90% of output tax) with carry-forward for the rest. Implementing that properly requires period-by-period tracking, which is a meaningfully bigger feature. Ship the core numbers first, verify they're correct, then add the cap — rather than adding complexity before the basics are trusted. |
+| **Figures use a flexible date range for reporting, not FBR's fixed monthly cycle** | Matches how every other report in this system already works. Since the store isn't filing monthly returns yet, there was no reason to force a monthly structure on this feature specifically. |
+| **WHT is read-only — no payment tracking, no "amount to pay" for either direction** | WHT withheld by customers is money the store never touches (the customer deposits it with FBR directly) — there is nothing for the store to "pay" on that side. WHT withheld from suppliers is a real liability, but tracking its actual deposit to FBR was deliberately deferred to keep v1's scope to the one tax (GST) that's fully modeled end-to-end (owed → paid → outstanding). |
+| **Running all-time balances, not period-tied payments** | Mirrors how supplier payables already work elsewhere in this system: a gross "total ever paid" figure plus a net "still outstanding" figure, both stored fields kept up to date automatically. Simpler, consistent with the rest of the app, and sufficient since there's no monthly filing deadline driving this yet. |
+| **Backend only — no frontend or dashboard card in v1** | Keeps this round of work scoped to getting the numbers themselves right and verified. The API is fully built and tested, so a frontend can be added whenever it's wanted without touching this layer again. |
+| **Every total is calculated off data the system already had** (`gst_total`/`wht_total` already stored on every purchase order and invoice) | No new tax math was introduced — this module aggregates numbers that were already being calculated and stored for purchase/invoice documents. Lower risk than re-deriving tax figures from scratch. |
+
+---
+
+## 3. What each field on the Tax Flow record actually means
 
 The system keeps one live record (like a running balance sheet) that
 updates itself automatically every time a purchase or sale is confirmed —
@@ -100,7 +120,7 @@ real money leaving the till.
 
 ---
 
-## 3. Current position (as of the last backfill)
+## 4. Current position (as of the last backfill)
 
 ```
 Input Tax Paid (to suppliers)     : Rs 1,002,348.00
@@ -121,7 +141,7 @@ data-entry gap, not a bug in this module.
 
 ---
 
-## 4. What's intentionally missing in v1 (and why)
+## 5. What's intentionally missing in v1 (and why)
 
 This module was built deliberately narrow for a first version. Nothing
 below is an oversight — each is a documented decision, made with the store
@@ -163,7 +183,7 @@ owner, and can be added later without reworking what's already here:
 
 ---
 
-## 5. Future plans (in rough priority order, not committed dates)
+## 6. Future plans (in rough priority order, not committed dates)
 
 1. Add supplier GST-registration status, so Input Tax Paid can split into
    "claimable" vs "not legally creditable."
@@ -180,7 +200,44 @@ owner, and can be added later without reworking what's already here:
 
 ---
 
-## 6. API reference (for developers)
+## 7. Recommendations (things worth discussing with an accountant)
+
+These are practical suggestions, not implemented features — flagging them
+because they affect whether the numbers in this module mean what you think
+they mean:
+
+1. **Get this module's output reviewed by a real accountant or tax
+   consultant before relying on it for anything beyond internal
+   visibility.** It's built on genuine FBR mechanics, but it is not a
+   substitute for professional review, especially before registering or
+   filing anything officially.
+
+2. **Investigate why Output Tax Collected is so much smaller than Input Tax
+   Paid** (see "Current position" above). Either most sales genuinely carry
+   no GST (fine, just confirm it's intentional), or GST is being under-
+   entered on invoices (a data-entry fix, not a code fix). This is the
+   single most important thing to check before trusting these numbers.
+
+3. **Consider whether the store is close to a mandatory Sales Tax
+   registration threshold.** Certain business types (wholesalers, Tier-1
+   retailers, importers) must register with FBR regardless of turnover.
+   Worth confirming current status with an accountant rather than assuming
+   registration is optional indefinitely.
+
+4. **Track which suppliers are GST-registered**, since only tax invoices
+   from registered suppliers produce legally claimable input tax. Right
+   now this module assumes all recorded GST is claimable — worth
+   validating that assumption against your actual supplier list.
+
+5. **Decide, with your accountant, how returns should affect these
+   totals** before this becomes a live filing tool — the "only ever
+   increases" convention used everywhere else in this system may not be
+   the right call specifically for tax figures once returns become
+   material.
+
+---
+
+## 8. API reference (for developers)
 
 All endpoints require an authenticated admin or superuser (`is_staff=True`
 or superuser) — normal users get a 403.
