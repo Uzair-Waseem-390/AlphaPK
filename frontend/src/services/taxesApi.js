@@ -9,6 +9,7 @@ export const taxesApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/taxes/payments/${query ? `?${query}` : ''}`);
         },
+        getById: (id) => api.get(`/taxes/payments/${id}/`),
         create: (data) => api.post('/taxes/payments/', data),
         delete: (id) => api.delete(`/taxes/payments/${id}/`),
     },

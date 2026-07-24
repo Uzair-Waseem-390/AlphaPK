@@ -71,6 +71,8 @@ import SalesTaxReportPage from './pages/reports/SalesTaxReportPage';
 
 // Taxes pages
 import TaxesPage from './pages/taxes/TaxesPage';
+import TaxPaymentsPage from './pages/taxes/TaxPaymentsPage';
+import TaxPaymentDetailPage from './pages/taxes/TaxPaymentDetailPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -524,6 +526,22 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <TaxesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/taxes/payments" element={
+          <ProtectedRoute>
+            <Layout>
+              <TaxPaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/taxes/payments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <TaxPaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />
