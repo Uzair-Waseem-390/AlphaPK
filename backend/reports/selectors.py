@@ -418,3 +418,105 @@ def get_inventory_valuation_report_stats(rows: list) -> dict:
         "total_quantity_on_hand": sum((r["quantity_on_hand"] for r in rows), 0),
         "total_inventory_value":  sum((r["total_value"] for r in rows), Decimal("0")),
     }
+
+
+# ---------------------------------------------------------------------------
+# Sales Tax report — Input Tax (purchases) side
+# ---------------------------------------------------------------------------
+
+def get_input_tax_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    Confirmed, non-data-entry purchase orders, filtered by confirmed_at.
+    gst_total/wht_total are already stored per order (same numbers taxes.
+    services.sync_purchase_tax uses), so no per-item aggregation is needed.
+    """
+    qs = PurchaseOrder.objects.filter(
+        is_deleted=False, is_data_entry=False, status="confirmed",
+    ).select_related("supplier").order_by("-confirmed_at")
+
+    if _clean(date):
+        qs = qs.filter(confirmed_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
+
+    return qs
+
+
+def get_input_tax_report_stats(queryset: QuerySet) -> dict:
+    agg = queryset.aggregate(
+        total_orders          = Count("id"),
+        total_input_tax_paid  = Coalesce(Sum("gst_total"), Decimal("0")),
+        total_wht_withheld    = Coalesce(Sum("wht_total"), Decimal("0")),
+    )
+    return agg
+
+
+def get_input_tax_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced TaxFlow totals."""
+    from taxes.models import TaxFlow
+    tf = TaxFlow.get_instance()
+    return {
+        "total_orders": PurchaseOrder.objects.filter(
+            is_deleted=False, is_data_entry=False, status="confirmed",
+        ).count(),
+        "total_input_tax_paid": tf.total_input_tax_paid,
+        "total_wht_withheld"  : tf.total_wht_withheld_from_suppliers,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Sales Tax report — Output Tax (invoices) side
+# ---------------------------------------------------------------------------
+
+def get_output_tax_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    Confirmed, non-data-entry, non-draft invoices, filtered by confirmed_at.
+    gst_total/wht_total are already stored per invoice (same numbers taxes.
+    services.sync_invoice_tax uses), so no per-item aggregation is needed.
+    """
+    qs = Invoice.objects.filter(is_deleted=False, is_data_entry=False).exclude(
+        status=Invoice.Status.DRAFT,
+    ).select_related("customer").order_by("-confirmed_at")
+
+    if _clean(date):
+        qs = qs.filter(confirmed_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
+
+    return qs
+
+
+def get_output_tax_report_stats(queryset: QuerySet) -> dict:
+    agg = queryset.aggregate(
+        total_invoices              = Count("id"),
+        total_output_tax_collected  = Coalesce(Sum("gst_total"), Decimal("0")),
+        total_wht_withheld          = Coalesce(Sum("wht_total"), Decimal("0")),
+    )
+    return agg
+
+
+def get_output_tax_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced TaxFlow totals."""
+    from taxes.models import TaxFlow
+    tf = TaxFlow.get_instance()
+    return {
+        "total_invoices": Invoice.objects.filter(
+            is_deleted=False, is_data_entry=False,
+        ).exclude(status=Invoice.Status.DRAFT).count(),
+        "total_output_tax_collected": tf.total_output_tax_collected,
+        "total_wht_withheld"        : tf.total_wht_withheld_by_customers,
+    }

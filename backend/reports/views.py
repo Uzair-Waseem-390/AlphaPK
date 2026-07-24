@@ -11,6 +11,9 @@ from .selectors import (
     get_expenses_report_queryset,
     get_expenses_report_stats,
     get_expenses_report_stats_all_time,
+    get_input_tax_report_queryset,
+    get_input_tax_report_stats,
+    get_input_tax_report_stats_all_time,
     get_inventory_valuation_report_data,
     get_inventory_valuation_report_stats,
     get_invoices_report_queryset,
@@ -19,6 +22,9 @@ from .selectors import (
     get_lost_inventory_report_queryset,
     get_lost_inventory_report_stats,
     get_lost_inventory_report_stats_all_time,
+    get_output_tax_report_queryset,
+    get_output_tax_report_stats,
+    get_output_tax_report_stats_all_time,
     get_profit_margin_report_queryset,
     get_profit_margin_report_stats,
     get_profit_margin_report_stats_all_time,
@@ -29,9 +35,11 @@ from .selectors import (
 from .serializers import (
     CustomerReturnReportItemSerializer,
     ExpenseReportItemSerializer,
+    InputTaxReportItemSerializer,
     InventoryValuationReportItemSerializer,
     InvoiceReportItemSerializer,
     LostInventoryReportItemSerializer,
+    OutputTaxReportItemSerializer,
     PaymentReportItemSerializer,
     ProfitMarginReportItemSerializer,
     PurchaseReturnReportItemSerializer,
@@ -339,6 +347,86 @@ class InventoryValuationReportView(generics.ListAPIView):
         stats = get_inventory_valuation_report_stats(rows)
 
         page = self.paginate_queryset(rows)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
+class InputTaxReportView(generics.ListAPIView):
+    """
+    GET /reports/sales-tax/input/
+    Confirmed purchase orders — the "Input Tax" side of the Sales Tax report
+    (GST paid to suppliers, WHT withheld from suppliers). Filtered by
+    confirmed date.
+
+    Query params (mutually exclusive with each other where noted):
+        date      : YYYY-MM-DD — exact day
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_orders": int, "total_input_tax_paid": decimal,
+                    "total_wht_withheld": decimal},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = InputTaxReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        return get_input_tax_report_queryset(**filters.validated_data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            stats = get_input_tax_report_stats(queryset)
+        else:
+            stats = get_input_tax_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
+class OutputTaxReportView(generics.ListAPIView):
+    """
+    GET /reports/sales-tax/output/
+    Confirmed, non-draft invoices — the "Output Tax" side of the Sales Tax
+    report (GST charged to customers, WHT withheld by customers). Filtered
+    by confirmed date.
+
+    Query params (mutually exclusive with each other where noted):
+        date      : YYYY-MM-DD — exact day
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_invoices": int, "total_output_tax_collected": decimal,
+                    "total_wht_withheld": decimal},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = OutputTaxReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        return get_output_tax_report_queryset(**filters.validated_data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            stats = get_output_tax_report_stats(queryset)
+        else:
+            stats = get_output_tax_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)
         response = self.get_paginated_response(serializer.data)
         response.data["stats"] = stats

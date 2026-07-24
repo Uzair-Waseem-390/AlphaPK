@@ -67,6 +67,10 @@ import PurchaseReturnsReportPage from './pages/reports/PurchaseReturnsReportPage
 import CustomerReturnsReportPage from './pages/reports/CustomerReturnsReportPage';
 import ProfitMarginReportPage from './pages/reports/ProfitMarginReportPage';
 import InventoryValuationReportPage from './pages/reports/InventoryValuationReportPage';
+import SalesTaxReportPage from './pages/reports/SalesTaxReportPage';
+
+// Taxes pages
+import TaxesPage from './pages/taxes/TaxesPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -503,6 +507,23 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InventoryValuationReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/sales-tax" element={
+          <ProtectedRoute>
+            <Layout>
+              <SalesTaxReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Taxes Routes */}
+        <Route path="/taxes" element={
+          <ProtectedRoute>
+            <Layout>
+              <TaxesPage />
             </Layout>
           </ProtectedRoute>
         } />

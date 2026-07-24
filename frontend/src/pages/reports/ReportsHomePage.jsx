@@ -51,6 +51,12 @@ const REPORTS = [
         icon: '🏷️',
         path: '/reports/inventory-valuation',
     },
+    {
+        title: 'Sales Tax Report',
+        description: 'Input Tax (paid to suppliers) vs Output Tax (charged to customers) for a selected date range',
+        icon: '🧮',
+        path: '/reports/sales-tax',
+    },
 ];
 
 const ReportsHomePage = () => {

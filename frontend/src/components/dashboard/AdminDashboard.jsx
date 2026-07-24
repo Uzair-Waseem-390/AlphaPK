@@ -2,12 +2,14 @@ import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
+import { useTaxesStats } from '../../hooks/useTaxes';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
 import LostInventorySectionStats from './LostInventorySectionStats';
 import ReturnsSectionStats from './ReturnsSectionStats';
 import ProfitSectionStats from './ProfitSectionStats';
+import TaxesSectionStats from './TaxesSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -16,6 +18,7 @@ import Badge from '../ui/Badge';
 const AdminDashboard = () => {
     const { user } = useAuth();
     const { data: stats, loading: statsLoading, refetch: refetchStats } = useCashFlowStats();
+    const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -85,6 +88,10 @@ const AdminDashboard = () => {
                     stats={stats}
                     loading={statsLoading}
                     onCardClick={handleCardClick}
+                />
+                <TaxesSectionStats
+                    stats={taxStats}
+                    loading={taxStatsLoading}
                 />
             </div>
 

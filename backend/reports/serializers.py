@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from billing.models import Invoice, Payment, Return
 from cash_flow.models import Expense
-from purchases.models import LostInventoryItem, PurchaseReturn
+from purchases.models import LostInventoryItem, PurchaseOrder, PurchaseReturn
 
 
 # ---------------------------------------------------------------------------
@@ -174,3 +174,37 @@ class InventoryValuationReportItemSerializer(serializers.Serializer):
     quantity_on_hand = serializers.IntegerField()
     avg_unit_cost    = serializers.DecimalField(max_digits=14, decimal_places=4)
     total_value      = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+
+# ---------------------------------------------------------------------------
+# Sales Tax report — Input Tax (purchases) side, lightweight list item
+# ---------------------------------------------------------------------------
+
+class InputTaxReportItemSerializer(serializers.ModelSerializer):
+    supplier_name = serializers.CharField(source="supplier.name", read_only=True)
+    supplier_code = serializers.CharField(source="supplier.code", read_only=True)
+
+    class Meta:
+        model = PurchaseOrder
+        fields = [
+            "id", "order_number", "supplier_name", "supplier_code",
+            "gst_total", "wht_total", "net_payable", "confirmed_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Sales Tax report — Output Tax (invoices) side, lightweight list item
+# ---------------------------------------------------------------------------
+
+class OutputTaxReportItemSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(source="customer.name", read_only=True)
+    customer_code = serializers.CharField(source="customer.code", read_only=True)
+
+    class Meta:
+        model = Invoice
+        fields = [
+            "id", "bill_number", "customer_name", "customer_code",
+            "gst_total", "wht_total", "grand_total", "confirmed_at",
+        ]
+        read_only_fields = fields

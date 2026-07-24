@@ -49,4 +49,16 @@ export const reportsApi = {
             return api.get(`/reports/inventory-valuation/${query ? `?${query}` : ''}`);
         },
     },
+    salesTaxInput: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/sales-tax/input/${query ? `?${query}` : ''}`);
+        },
+    },
+    salesTaxOutput: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/sales-tax/output/${query ? `?${query}` : ''}`);
+        },
+    },
 };
