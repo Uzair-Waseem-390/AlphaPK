@@ -143,6 +143,7 @@ const Layout = ({ children }) => {
         { name: 'Overview', path: '/cash-management', icon: '💵' },
         { name: 'Cash Adjustments', path: '/cash-management/adjustments', icon: '💸' },
         { name: 'Investors', path: '/cash-management/investors', icon: '🤝' },
+        { name: 'Owner Transactions', path: '/cash-management/owner-transactions', icon: '👤' },
     ];
 
     const isActive = (path) => location.pathname === path;

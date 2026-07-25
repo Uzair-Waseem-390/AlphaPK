@@ -85,7 +85,7 @@ const CashManagementPage = () => {
                 </>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card className="p-6">
                     <h3 className="font-semibold text-neutral-900 mb-2">Cash Adjustments</h3>
                     <p className="text-sm text-neutral-500 mb-4">
@@ -102,6 +102,15 @@ const CashManagementPage = () => {
                     </p>
                     <Link to="/cash-management/investors">
                         <Button variant="secondary">View Investors →</Button>
+                    </Link>
+                </Card>
+                <Card className="p-6">
+                    <h3 className="font-semibold text-neutral-900 mb-2">Owner Transactions</h3>
+                    <p className="text-sm text-neutral-500 mb-4">
+                        Record money the owner puts in or draws out of the business.
+                    </p>
+                    <Link to="/cash-management/owner-transactions">
+                        <Button variant="secondary">View Owner Transactions →</Button>
                     </Link>
                 </Card>
             </div>

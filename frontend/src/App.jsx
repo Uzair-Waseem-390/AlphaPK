@@ -80,6 +80,8 @@ import CashAdjustmentsPage from './pages/cashManagement/CashAdjustmentsPage';
 import CashAdjustmentDetailPage from './pages/cashManagement/CashAdjustmentDetailPage';
 import InvestorsPage from './pages/cashManagement/InvestorsPage';
 import InvestorDetailPage from './pages/cashManagement/InvestorDetailPage';
+import OwnerTransactionsPage from './pages/cashManagement/OwnerTransactionsPage';
+import OwnerTransactionDetailPage from './pages/cashManagement/OwnerTransactionDetailPage';
 
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
@@ -590,6 +592,22 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InvestorDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/owner-transactions" element={
+          <ProtectedRoute>
+            <Layout>
+              <OwnerTransactionsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/owner-transactions/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <OwnerTransactionDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

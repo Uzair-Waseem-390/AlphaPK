@@ -192,3 +192,53 @@ export const useInvestorTransactions = (initialFilters = {}) => {
         create, delete: deleteItem,
     };
 };
+
+// Hook for owner transaction management (create + delete only — no update endpoint).
+export const useOwnerTransactions = (initialFilters = {}) => {
+    const {
+        data, meta, loading: listLoading, error: listError,
+        filters, setFilters, page, setPage, refetch,
+    } = usePaginatedList((params) => cashManagementApi.ownerTransactions.getAll(params), initialFilters);
+
+    const [mutating, setMutating] = useState(false);
+    const [mutationError, setMutationError] = useState(null);
+
+    const create = async (payload) => {
+        setMutating(true);
+        try {
+            const result = await cashManagementApi.ownerTransactions.create(payload);
+            await refetch();
+            return result;
+        } catch (err) {
+            setMutationError(err.message);
+            throw err;
+        } finally {
+            setMutating(false);
+        }
+    };
+
+    const deleteItem = async (id) => {
+        setMutating(true);
+        try {
+            await cashManagementApi.ownerTransactions.delete(id);
+            if (data.length === 1 && page > 1) {
+                setPage(page - 1);
+            } else {
+                await refetch();
+            }
+        } catch (err) {
+            setMutationError(err.message);
+            throw err;
+        } finally {
+            setMutating(false);
+        }
+    };
+
+    return {
+        data, meta, page, setPage,
+        loading: listLoading || mutating,
+        error: listError || mutationError,
+        filters, setFilters, refetch,
+        create, delete: deleteItem,
+    };
+};

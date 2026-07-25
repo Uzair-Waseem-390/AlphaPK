@@ -32,4 +32,13 @@ export const cashManagementApi = {
         create: (data) => api.post('/cash-management/investor-transactions/', data),
         delete: (id) => api.delete(`/cash-management/investor-transactions/${id}/`),
     },
+    ownerTransactions: {
+        getAll: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-management/owner-transactions/${query ? `?${query}` : ''}`);
+        },
+        getById: (id) => api.get(`/cash-management/owner-transactions/${id}/`),
+        create: (data) => api.post('/cash-management/owner-transactions/', data),
+        delete: (id) => api.delete(`/cash-management/owner-transactions/${id}/`),
+    },
 };
