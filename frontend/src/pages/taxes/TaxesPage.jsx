@@ -46,6 +46,23 @@ const TaxesPage = () => {
 
     return (
         <div className="space-y-6">
+            {/* Compliance disclaimer — always visible at the top, this is not
+                legal/tax advice and figures must be independently verified. */}
+            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
+                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+                <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                        These figures are an internal estimate, not a certified filing.
+                    </p>
+                    <p className="text-sm text-amber-700 mt-0.5">
+                        This page is a development tool and its calculations are not guaranteed to be
+                        perfect. Always double-check these numbers and consult a qualified accountant
+                        or tax professional before filing or paying anything to FBR. The developer is
+                        not responsible for tax decisions made from this page.
+                    </p>
+                </div>
+            </div>
+
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-neutral-900">Taxes</h1>
