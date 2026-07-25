@@ -1,9 +1,20 @@
-from decimal import Decimal
+from datetime import date
+from decimal import ROUND_HALF_UP, Decimal
 
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction
+from .models import (
+    CashAdjustment, CashManagementFlow, Investor, InvestorTransaction,
+    InvestorValuationEntry, OwnerTransaction,
+)
+
+
+def _add_months(year: int, month: int, delta: int) -> tuple:
+    """Month-only arithmetic, no external date libraries needed. Mirrors
+    assets.services._add_months / cash_flow.selectors._add_months exactly."""
+    total = (year * 12 + (month - 1)) + delta
+    return total // 12, (total % 12) + 1
 
 
 # ---------------------------------------------------------------------------
@@ -16,6 +27,7 @@ def _adjust_cash_management_flow(
     total_cash_recovered_delta          : Decimal = Decimal("0"),
     total_investor_capital_delta        : Decimal = Decimal("0"),
     total_investor_withdrawn_delta      : Decimal = Decimal("0"),
+    total_investor_net_worth_delta      : Decimal = Decimal("0"),
     total_owner_contributions_delta       : Decimal = Decimal("0"),
     total_owner_drawings_delta            : Decimal = Decimal("0"),
     total_owner_contributions_count_delta : int = 0,
@@ -44,6 +56,9 @@ def _adjust_cash_management_flow(
         cmf.total_investor_withdrawn = max(
             Decimal("0"), cmf.total_investor_withdrawn + total_investor_withdrawn_delta
         )
+        cmf.total_investor_net_worth = max(
+            Decimal("0"), cmf.total_investor_net_worth + total_investor_net_worth_delta
+        )
         cmf.total_owner_contributions = max(
             Decimal("0"), cmf.total_owner_contributions + total_owner_contributions_delta
         )
@@ -68,6 +83,75 @@ def _adjust_cash_management_flow(
         cmf.last_updated_by = user
         cmf.save()
         return cmf
+
+
+# ---------------------------------------------------------------------------
+# Catch-up investor growth — the core "no cron" mechanism, mirrors
+# assets.services._catch_up_asset_depreciation but growing instead of
+# shrinking, and compounding on current_worth directly (no fixed-cost-year
+# blocks needed since investor principal can change any time).
+# ---------------------------------------------------------------------------
+
+def _catch_up_investor_growth(investor: Investor, user=None) -> None:
+    """
+    Posts any InvestorValuationEntry rows that should already exist for this
+    investor, up to and including the current month — compound monthly
+    growth: current_worth += current_worth * (growth_rate / 12) each
+    elapsed month, using whatever growth_rate is active at the moment each
+    month gets posted (rate changes only affect entries posted after the
+    change; already-posted history is immune). No-op if growth_rate is 0.
+    """
+    rate = investor.growth_rate
+    if rate <= 0:
+        return
+
+    today = timezone.localdate()
+    current_month_start = date(today.year, today.month, 1)
+
+    last_entry = InvestorValuationEntry.objects.filter(
+        investor=investor,
+    ).order_by("-period").first()
+
+    if last_entry:
+        ly, lm = (int(p) for p in last_entry.period.split("-"))
+        ny, nm = _add_months(ly, lm, 1)
+    else:
+        created_date = timezone.localtime(investor.created_at).date()
+        ny, nm = _add_months(created_date.year, created_date.month, 1)
+
+    next_date = date(ny, nm, 1)
+    precision = Decimal("0.0001")
+
+    while next_date <= current_month_start:
+        monthly_growth = (investor.current_worth * rate / Decimal("12")).quantize(
+            precision, rounding=ROUND_HALF_UP
+        )
+
+        worth_before = investor.current_worth
+        worth_after = worth_before + monthly_growth
+        period_str = f"{next_date.year:04d}-{next_date.month:02d}"
+
+        InvestorValuationEntry.objects.create(
+            investor=investor,
+            period=period_str,
+            rate_applied=rate,
+            worth_before=worth_before,
+            worth_after=worth_after,
+            amount=monthly_growth,
+            note="Auto-posted monthly growth (catch-up)",
+            created_by=user,
+        )
+
+        investor.current_worth = worth_after
+        investor.save(update_fields=["current_worth"])
+
+        _adjust_cash_management_flow(
+            total_investor_net_worth_delta=+monthly_growth,
+            user=user,
+        )
+
+        ny2, nm2 = _add_months(next_date.year, next_date.month, 1)
+        next_date = date(ny2, nm2, 1)
 
 
 # ---------------------------------------------------------------------------
@@ -139,18 +223,22 @@ def delete_cash_adjustment(*, pk: int, user) -> None:
 # ---------------------------------------------------------------------------
 
 def create_investor(
-    *, name: str, contact_number: str = "", email: str = "", note: str = "", user,
+    *, name: str, contact_number: str = "", email: str = "", note: str = "",
+    growth_rate: Decimal = Decimal("0"), user,
 ) -> Investor:
     from rest_framework.exceptions import ValidationError
 
     if not name.strip():
         raise ValidationError({"name": "Investor name cannot be blank."})
+    if growth_rate < 0:
+        raise ValidationError({"growth_rate": "Growth rate cannot be negative."})
 
     return Investor.objects.create(
         name=name.strip(),
         contact_number=contact_number,
         email=email,
         note=note,
+        growth_rate=growth_rate,
         created_by=user,
         updated_by=user,
     )
@@ -158,7 +246,7 @@ def create_investor(
 
 def update_investor(
     *, pk: int, name: str = None, contact_number: str = None,
-    email: str = None, note: str = None, user,
+    email: str = None, note: str = None, growth_rate: Decimal = None, user,
 ) -> Investor:
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -175,9 +263,13 @@ def update_investor(
         investor.email = email
     if note is not None:
         investor.note = note
+    if growth_rate is not None:
+        if growth_rate < 0:
+            raise ValidationError({"growth_rate": "Growth rate cannot be negative."})
+        investor.growth_rate = growth_rate
 
     investor.updated_by = user
-    investor.save(update_fields=["name", "contact_number", "email", "note", "updated_by", "updated_at"])
+    investor.save(update_fields=["name", "contact_number", "email", "note", "growth_rate", "updated_by", "updated_at"])
     return investor
 
 
@@ -216,7 +308,14 @@ def create_investor_transaction(
     Records an investment or withdrawal for an investor. Investment adds to
     CashFlow.cash_in_hand and the investor's net_stake; withdrawal deducts
     from both. A withdrawal is rejected if it would exceed the investor's
-    current net_stake.
+    current net_stake — NEVER current_worth (see Investor docstring).
+
+    current_worth moves alongside net_stake: +amount on investment, -amount
+    on a normal withdrawal. If a withdrawal brings net_stake to exactly 0
+    (full exit), current_worth is forced to exactly 0 too — wiping any
+    residual theoretical growth, not just the withdrawn amount. The exact
+    change is stored on the transaction as worth_delta so deletion can
+    reverse it precisely either way.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -236,30 +335,55 @@ def create_investor_transaction(
             )
         })
 
+    # Bring current_worth up to date BEFORE applying this transaction.
+    _catch_up_investor_growth(investor, user=user)
+
+    from cash_flow.services import sync_investor_investment, sync_investor_withdrawal
+
+    if transaction_type == InvestorTransaction.TransactionType.INVESTMENT:
+        worth_delta = amount
+        investor.total_invested += amount
+        investor.net_stake      += amount
+        investor.current_worth  += worth_delta
+        investor.save(update_fields=["total_invested", "net_stake", "current_worth"])
+
+        _adjust_cash_management_flow(
+            total_investor_capital_delta=+amount,
+            total_investor_net_worth_delta=+worth_delta,
+            user=user,
+        )
+        sync_investor_investment(amount=amount, user=user)
+    else:
+        investor.total_withdrawn += amount
+        investor.net_stake       -= amount
+
+        if investor.net_stake == 0:
+            # Full exit — wipe any residual theoretical growth, not just the withdrawn amount.
+            worth_delta = -investor.current_worth
+            investor.current_worth = Decimal("0")
+        else:
+            worth_delta = -amount
+            investor.current_worth += worth_delta
+
+        investor.save(update_fields=["total_withdrawn", "net_stake", "current_worth"])
+
+        _adjust_cash_management_flow(
+            total_investor_withdrawn_delta=+amount,
+            total_investor_net_worth_delta=+worth_delta,
+            user=user,
+        )
+        sync_investor_withdrawal(amount=amount, user=user)
+
     txn = InvestorTransaction.objects.create(
         investor=investor,
         transaction_type=transaction_type,
         amount=amount,
+        worth_delta=worth_delta,
         transaction_date=transaction_date,
         note=note,
         created_by=user,
         updated_by=user,
     )
-
-    from cash_flow.services import sync_investor_investment, sync_investor_withdrawal
-
-    if transaction_type == InvestorTransaction.TransactionType.INVESTMENT:
-        investor.total_invested += amount
-        investor.net_stake      += amount
-        investor.save(update_fields=["total_invested", "net_stake"])
-        _adjust_cash_management_flow(total_investor_capital_delta=+amount, user=user)
-        sync_investor_investment(amount=amount, user=user)
-    else:
-        investor.total_withdrawn += amount
-        investor.net_stake       -= amount
-        investor.save(update_fields=["total_withdrawn", "net_stake"])
-        _adjust_cash_management_flow(total_investor_withdrawn_delta=+amount, user=user)
-        sync_investor_withdrawal(amount=amount, user=user)
 
     return txn
 
@@ -268,9 +392,12 @@ def create_investor_transaction(
 def delete_investor_transaction(*, pk: int, user) -> None:
     """
     Soft-deletes an investor transaction and reverses its effects on the
-    investor's balance, CashManagementFlow, and cash_in_hand. Deleting an
-    investment is rejected if it would push the investor's net_stake
-    negative (i.e. a later withdrawal already relied on this investment).
+    investor's balance, current_worth, CashManagementFlow, and cash_in_hand.
+    Deleting an investment is rejected if it would push the investor's
+    net_stake negative (i.e. a later withdrawal already relied on this
+    investment). current_worth is reversed using the transaction's own
+    stored worth_delta — exact in every case, including a full-exit
+    withdrawal that had wiped residual growth.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -291,14 +418,24 @@ def delete_investor_transaction(*, pk: int, user) -> None:
             })
         investor.total_invested -= amount
         investor.net_stake      -= amount
-        investor.save(update_fields=["total_invested", "net_stake"])
-        _adjust_cash_management_flow(total_investor_capital_delta=-amount, user=user)
+        investor.current_worth  -= txn.worth_delta
+        investor.save(update_fields=["total_invested", "net_stake", "current_worth"])
+        _adjust_cash_management_flow(
+            total_investor_capital_delta=-amount,
+            total_investor_net_worth_delta=-txn.worth_delta,
+            user=user,
+        )
         sync_investor_withdrawal(amount=amount, user=user)  # reverse: remove cash_in_hand again
     else:
         investor.total_withdrawn -= amount
         investor.net_stake       += amount
-        investor.save(update_fields=["total_withdrawn", "net_stake"])
-        _adjust_cash_management_flow(total_investor_withdrawn_delta=-amount, user=user)
+        investor.current_worth   -= txn.worth_delta
+        investor.save(update_fields=["total_withdrawn", "net_stake", "current_worth"])
+        _adjust_cash_management_flow(
+            total_investor_withdrawn_delta=-amount,
+            total_investor_net_worth_delta=-txn.worth_delta,
+            user=user,
+        )
         sync_investor_investment(amount=amount, user=user)  # reverse: restore cash_in_hand
 
     txn.is_deleted = True

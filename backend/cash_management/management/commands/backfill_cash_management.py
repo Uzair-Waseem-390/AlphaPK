@@ -3,8 +3,10 @@ from decimal import Decimal
 from django.core.management.base import BaseCommand
 
 from cash_management.models import (
-    CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction,
+    CashAdjustment, CashManagementFlow, Investor, InvestorTransaction,
+    InvestorValuationEntry, OwnerTransaction,
 )
+from cash_management.services import _catch_up_investor_growth
 
 
 class Command(BaseCommand):
@@ -22,6 +24,7 @@ class Command(BaseCommand):
         cmf.total_cash_recovered         = Decimal("0")
         cmf.total_investor_capital       = Decimal("0")
         cmf.total_investor_withdrawn     = Decimal("0")
+        cmf.total_investor_net_worth     = Decimal("0")
         cmf.total_owner_contributions       = Decimal("0")
         cmf.total_owner_drawings            = Decimal("0")
         cmf.total_owner_contributions_count = 0
@@ -50,11 +53,33 @@ class Command(BaseCommand):
             investor.net_stake = investor.total_invested - investor.total_withdrawn
             investor.save(update_fields=["total_invested", "total_withdrawn", "net_stake"])
 
+            # Catch up any missing growth months, then recompute current_worth
+            # from scratch as the sum of every InvestorTransaction.worth_delta
+            # (non-deleted) plus every InvestorValuationEntry.amount. This is
+            # NOT the same as net_stake + growth_sum — a full-exit withdrawal's
+            # worth_delta wipes out prior growth too (see services.py), so
+            # worth_delta already captures that wipe exactly. Since current_worth
+            # only ever moves by +=worth_delta or +=entry.amount on the live
+            # path, summing both is the exact, order-independent replay.
+            _catch_up_investor_growth(investor)
+            txn_sum = sum(
+                (t.worth_delta for t in InvestorTransaction.objects.filter(is_deleted=False, investor=investor)),
+                Decimal("0"),
+            )
+            growth_sum = sum(
+                (e.amount for e in InvestorValuationEntry.objects.filter(investor=investor)),
+                Decimal("0"),
+            )
+            investor.current_worth = txn_sum + growth_sum
+            investor.save(update_fields=["current_worth"])
+
             cmf.total_investor_capital   += investor.total_invested
             cmf.total_investor_withdrawn += investor.total_withdrawn
+            cmf.total_investor_net_worth += investor.current_worth
 
         self.stdout.write(f"  total_investor_capital: {cmf.total_investor_capital}")
         self.stdout.write(f"  total_investor_withdrawn: {cmf.total_investor_withdrawn}")
+        self.stdout.write(f"  total_investor_net_worth: {cmf.total_investor_net_worth}")
 
         # 3. Owner totals = sum over non-deleted OwnerTransaction rows
         for t in OwnerTransaction.objects.filter(is_deleted=False):
@@ -83,6 +108,7 @@ Final CashManagementFlow state:
   total_investor_capital        : {cmf.total_investor_capital}
   total_investor_withdrawn      : {cmf.total_investor_withdrawn}
   net_investor_capital           : {cmf.net_investor_capital}
+  total_investor_net_worth       : {cmf.total_investor_net_worth}
   total_owner_contributions       : {cmf.total_owner_contributions}
   total_owner_drawings            : {cmf.total_owner_drawings}
   total_owner_contributions_count : {cmf.total_owner_contributions_count}

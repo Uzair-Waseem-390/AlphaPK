@@ -12,6 +12,7 @@ from .selectors import (
     get_cash_management_stats,
     get_investor_by_id,
     get_investor_transaction_by_id,
+    get_investor_valuation_entries,
     get_owner_transaction_by_id,
 )
 from .serializers import (
@@ -21,6 +22,7 @@ from .serializers import (
     InvestorReadSerializer,
     InvestorTransactionReadSerializer,
     InvestorTransactionWriteSerializer,
+    InvestorValuationEntryReadSerializer,
     InvestorWriteSerializer,
     OwnerTransactionReadSerializer,
     OwnerTransactionWriteSerializer,
@@ -166,6 +168,18 @@ class InvestorRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         delete_investor(pk=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Investor deleted."}, status=status.HTTP_200_OK)
+
+
+class InvestorValuationEntryListView(generics.ListAPIView):
+    """
+    GET /cash-management/investors/valuation-entries/?investor_id=<id>
+    Read-only growth history — every monthly compounding entry ever posted.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = InvestorValuationEntryReadSerializer
+
+    def get_queryset(self):
+        return get_investor_valuation_entries(investor_id=self.request.query_params.get("investor_id"))
 
 
 # ---------------------------------------------------------------------------

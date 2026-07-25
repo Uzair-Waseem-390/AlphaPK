@@ -1,16 +1,20 @@
 from rest_framework import serializers
 
-from .models import CashAdjustment, Investor, InvestorTransaction, OwnerTransaction
+from .models import (
+    CashAdjustment, Investor, InvestorTransaction, InvestorValuationEntry,
+    OwnerTransaction,
+)
 
 
 class CashManagementStatsSerializer(serializers.Serializer):
-    """Read-only serializer for the 11 cash-management stats."""
+    """Read-only serializer for the 12 cash-management stats."""
     total_cash_lost                 = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_cash_recovered            = serializers.DecimalField(max_digits=20, decimal_places=4)
     net_cash_lost                   = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_investor_capital          = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_investor_withdrawn        = serializers.DecimalField(max_digits=20, decimal_places=4)
     net_investor_capital            = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_investor_net_worth        = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_owner_contributions       = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_owner_drawings            = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_owner_contributions_count = serializers.IntegerField()
@@ -59,6 +63,7 @@ class InvestorReadSerializer(serializers.ModelSerializer):
         fields = [
             "id", "name", "contact_number", "email", "note",
             "total_invested", "total_withdrawn", "net_stake",
+            "growth_rate", "current_worth",
             "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
@@ -67,12 +72,36 @@ class InvestorReadSerializer(serializers.ModelSerializer):
 class InvestorWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Investor
-        fields = ["name", "contact_number", "email", "note"]
+        fields = ["name", "contact_number", "email", "note", "growth_rate"]
+        extra_kwargs = {"growth_rate": {"required": False}}
 
     def validate_name(self, value):
         if not value.strip():
             raise serializers.ValidationError("Investor name cannot be blank.")
         return value.strip()
+
+    def validate_growth_rate(self, value):
+        if value < 0:
+            raise serializers.ValidationError("Growth rate cannot be negative.")
+        return value
+
+
+# ---------------------------------------------------------------------------
+# InvestorValuationEntry
+# ---------------------------------------------------------------------------
+
+class InvestorValuationEntryReadSerializer(serializers.ModelSerializer):
+    investor_name = serializers.CharField(source="investor.name", read_only=True)
+    created_by    = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = InvestorValuationEntry
+        fields = [
+            "id", "investor", "investor_name", "period", "rate_applied",
+            "worth_before", "worth_after", "amount", "note",
+            "created_by", "created_at",
+        ]
+        read_only_fields = fields
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +117,7 @@ class InvestorTransactionReadSerializer(serializers.ModelSerializer):
         model  = InvestorTransaction
         fields = [
             "id", "investor", "investor_name", "transaction_type", "amount",
-            "transaction_date", "note",
+            "worth_delta", "transaction_date", "note",
             "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields

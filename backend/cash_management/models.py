@@ -67,9 +67,15 @@ class Investor(models.Model):
     every investment/withdrawal — never computed at read time.
 
     net_stake is what this investor currently has invested in the business
-    (total_invested - total_withdrawn). Reserved for future profit-sharing
-    calculations once "actual" (net, not just gross) profit is tracked — see
-    cash_management/README.md.
+    (total_invested - total_withdrawn) — REAL cash principal. This is the
+    ONLY figure withdrawals are ever validated against.
+
+    growth_rate / current_worth are a separate, purely informational track:
+    current_worth is net_stake compounded monthly by growth_rate (see
+    cash_management.services._catch_up_investor_growth) — a THEORETICAL
+    value, reserved for future profit-sharing calculations once "actual"
+    (net, not just gross) profit is tracked. It never gates what an investor
+    can withdraw; net_stake alone does that.
     """
 
     name           = models.CharField(max_length=255)
@@ -82,7 +88,12 @@ class Investor(models.Model):
     total_withdrawn = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                            help_text="Total ever withdrawn by this investor (gross, only ever increases).")
     net_stake       = models.DecimalField(max_digits=20, decimal_places=4, default=0,
-                           help_text="total_invested - total_withdrawn. What this investor currently has in the business.")
+                           help_text="total_invested - total_withdrawn. What this investor currently has in the business. The ONLY figure withdrawals are validated against.")
+
+    growth_rate    = models.DecimalField(max_digits=5, decimal_places=4, default=0,
+                           help_text="Annual compound growth rate (e.g. 0.02 for 2%), zero or positive only. Editable any time — only affects entries posted after the change.")
+    current_worth  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                           help_text="net_stake compounded monthly by growth_rate — a theoretical value, informational only, never used for withdrawal validation. Forced to exactly 0 when net_stake reaches 0 (full exit).")
 
     created_by  = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
@@ -121,7 +132,16 @@ class InvestorTransaction(models.Model):
     One investment or withdrawal event for an investor. Confirmed
     immediately on creation — no draft state. Investment adds to
     CashFlow.cash_in_hand, withdrawal deducts from it. A withdrawal is
-    rejected if it would exceed the investor's current net_stake.
+    rejected if it would exceed the investor's current net_stake (never
+    current_worth — see Investor docstring).
+
+    worth_delta is the EXACT change this transaction caused to the
+    investor's current_worth: +amount for an investment, -amount for a
+    normal withdrawal, or -(current_worth at that moment) for a withdrawal
+    that fully exits the investor (net_stake reaches 0) — which wipes any
+    residual theoretical growth, not just the withdrawn amount. Storing the
+    exact figure here means deleting a transaction can always reverse
+    current_worth precisely, including the full-exit case.
     """
 
     class TransactionType(models.TextChoices):
@@ -131,6 +151,8 @@ class InvestorTransaction(models.Model):
     investor         = models.ForeignKey(Investor, on_delete=models.PROTECT, related_name="transactions")
     transaction_type = models.CharField(max_length=12, choices=TransactionType.choices)
     amount           = models.DecimalField(max_digits=18, decimal_places=4)
+    worth_delta      = models.DecimalField(max_digits=18, decimal_places=4, default=0,
+                            help_text="Exact change applied to current_worth by this transaction — stored so deletion can reverse it precisely.")
     transaction_date = models.DateField(db_index=True)
     note             = models.TextField(blank=True, default="")
 
@@ -160,6 +182,46 @@ class InvestorTransaction(models.Model):
 
     def __str__(self):
         return f"{self.get_transaction_type_display()} — {self.amount} ({self.investor.name})"
+
+
+# ---------------------------------------------------------------------------
+# InvestorValuationEntry  (history ledger — mirrors assets.AssetValuationEntry)
+# ---------------------------------------------------------------------------
+
+class InvestorValuationEntry(models.Model):
+    """
+    One row per monthly growth posting for an investor's current_worth.
+    Auto-posted by cash_management.services._catch_up_investor_growth —
+    never edited or deleted, pure append-only audit trail. rate_applied is
+    snapshotted at post time so later growth_rate edits can never rewrite
+    history — only entries posted after a rate change use the new rate.
+    """
+
+    investor      = models.ForeignKey(Investor, on_delete=models.CASCADE, related_name="valuation_entries")
+    period        = models.CharField(max_length=7, db_index=True, help_text="YYYY-MM this entry applies to.")
+    rate_applied  = models.DecimalField(max_digits=5, decimal_places=4, help_text="Annual growth rate used for this entry.")
+    worth_before  = models.DecimalField(max_digits=20, decimal_places=4)
+    worth_after   = models.DecimalField(max_digits=20, decimal_places=4)
+    amount        = models.DecimalField(max_digits=20, decimal_places=4,
+                                          help_text="worth_after - worth_before. Zero or positive — growth only, per the confirmed design.")
+    note          = models.TextField(blank=True, default="")
+
+    created_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="investor_valuation_entries_created",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Investor Valuation Entry"
+        verbose_name_plural  = "Investor Valuation Entries"
+        ordering             = ["-period", "-created_at"]
+        indexes = [
+            models.Index(fields=["investor", "-period"], name="idx_investor_valuation_lookup"),
+        ]
+
+    def __str__(self):
+        return f"{self.investor.name} — growth {self.period}: {self.amount}"
 
 
 # ---------------------------------------------------------------------------
@@ -251,6 +313,8 @@ class CashManagementFlow(models.Model):
                                    help_text="Total ever withdrawn by all investors, all-time (gross, only ever increases).")
     net_investor_capital     = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                    help_text="total_investor_capital - total_investor_withdrawn. Current total equity capital in the business. Stored, recalculated on every sync.")
+    total_investor_net_worth = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                   help_text="Sum of every investor's current_worth (theoretical, growth-compounded value). Informational only — never used for withdrawal validation.")
 
     total_owner_contributions   = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                        help_text="Total cash the owner has deposited into the business, all-time (gross, only ever increases).")

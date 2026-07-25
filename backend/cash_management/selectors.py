@@ -1,7 +1,11 @@
 from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 
-from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction
+from .models import (
+    CashAdjustment, CashManagementFlow, Investor, InvestorTransaction,
+    InvestorValuationEntry, OwnerTransaction,
+)
+from .services import _catch_up_investor_growth
 
 
 def _clean(value):
@@ -17,10 +21,14 @@ def _clean(value):
 
 def get_cash_management_stats() -> dict:
     """
-    Returns the store's current cash-reconciliation and investor-capital
-    position, straight off the CashManagementFlow singleton — zero
-    aggregation queries, same O(1) pattern as cash_flow.get_cashflow_stats().
+    Runs growth catch-up for every active investor (cheap at real-world
+    scale), then returns the store's current cash-reconciliation and
+    investor-capital position off the CashManagementFlow singleton —
+    O(1) after catch-up, same pattern as cash_flow.get_cashflow_stats().
     """
+    for investor in Investor.objects.filter(is_deleted=False):
+        _catch_up_investor_growth(investor)
+
     cmf = CashManagementFlow.get_instance()
     return {
         "total_cash_lost"               : cmf.total_cash_lost,
@@ -29,6 +37,7 @@ def get_cash_management_stats() -> dict:
         "total_investor_capital"        : cmf.total_investor_capital,
         "total_investor_withdrawn"      : cmf.total_investor_withdrawn,
         "net_investor_capital"          : cmf.net_investor_capital,
+        "total_investor_net_worth"      : cmf.total_investor_net_worth,
         "total_owner_contributions"       : cmf.total_owner_contributions,
         "total_owner_drawings"            : cmf.total_owner_drawings,
         "total_owner_contributions_count" : cmf.total_owner_contributions_count,
@@ -80,7 +89,10 @@ def get_cash_adjustment_by_id(pk: int) -> CashAdjustment:
 # ---------------------------------------------------------------------------
 
 def get_all_investors(*, search: str = None) -> QuerySet:
-    """Returns all non-deleted investors, optionally filtered by name/email/phone."""
+    """
+    Returns all non-deleted investors, optionally filtered by name/email/phone.
+    Runs growth catch-up per investor first — always current, no cron.
+    """
     qs = Investor.objects.filter(is_deleted=False)
 
     if _clean(search):
@@ -89,11 +101,30 @@ def get_all_investors(*, search: str = None) -> QuerySet:
             Q(name__icontains=s) | Q(email__icontains=s) | Q(contact_number__icontains=s)
         )
 
-    return qs.order_by("name")
+    qs = qs.order_by("name")
+
+    for investor in qs:
+        _catch_up_investor_growth(investor)
+
+    return qs
 
 
 def get_investor_by_id(pk: int) -> Investor:
-    return get_object_or_404(Investor, pk=pk, is_deleted=False)
+    investor = get_object_or_404(Investor, pk=pk, is_deleted=False)
+    _catch_up_investor_growth(investor)
+    investor.refresh_from_db()
+    return investor
+
+
+# ---------------------------------------------------------------------------
+# InvestorValuationEntry — read-only growth history
+# ---------------------------------------------------------------------------
+
+def get_investor_valuation_entries(*, investor_id: str = None) -> QuerySet:
+    qs = InvestorValuationEntry.objects.select_related("investor", "created_by")
+    if _clean(investor_id):
+        qs = qs.filter(investor_id=_clean(investor_id))
+    return qs.order_by("-period", "-created_at")
 
 
 # ---------------------------------------------------------------------------

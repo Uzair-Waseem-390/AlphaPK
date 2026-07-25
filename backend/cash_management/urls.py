@@ -8,6 +8,7 @@ from .views import (
     InvestorRetrieveUpdateDestroyView,
     InvestorTransactionListCreateView,
     InvestorTransactionRetrieveDestroyView,
+    InvestorValuationEntryListView,
     OwnerTransactionListCreateView,
     OwnerTransactionRetrieveDestroyView,
 )
@@ -17,6 +18,9 @@ urlpatterns = [
 
     path("adjustments/",      CashAdjustmentListCreateView.as_view(),     name="cash-adjustment-list-create"),
     path("adjustments/<int:pk>/", CashAdjustmentRetrieveDestroyView.as_view(), name="cash-adjustment-detail"),
+
+    # IMPORTANT: static paths (valuation-entries/) before dynamic <int:pk>/ paths
+    path("investors/valuation-entries/", InvestorValuationEntryListView.as_view(), name="investor-valuation-entry-list"),
 
     path("investors/",      InvestorListCreateView.as_view(),           name="investor-list-create"),
     path("investors/<int:pk>/", InvestorRetrieveUpdateDestroyView.as_view(), name="investor-detail"),
