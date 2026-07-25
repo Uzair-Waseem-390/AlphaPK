@@ -365,6 +365,48 @@ def get_cash_in_hand_breakdown(
     except Exception:
         pass
 
+    # --- Fixed asset purchases (outflow) + sold disposals (inflow) ---
+    # assets is a separate app — import defensively so this breakdown keeps
+    # working even if the app were ever removed.
+    try:
+        from assets.models import Asset, AssetDisposal
+
+        asset_qs = Asset.objects.filter(is_deleted=False, acquisition_type=Asset.AcquisitionType.NEW)
+        if _clean(date_from):
+            asset_qs = asset_qs.filter(acquisition_date__gte=_clean(date_from))
+        if _clean(date_to):
+            asset_qs = asset_qs.filter(acquisition_date__lte=_clean(date_to))
+
+        for a in asset_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "asset_purchase",
+                "date"       : str(a.acquisition_date),
+                "description": f"Fixed asset purchased — {a.name}",
+                "reference"  : f"AST-{a.id}",
+                "amount"     : a.cost,
+                "method"     : None,
+            })
+
+        sold_qs = AssetDisposal.objects.filter(disposal_type=AssetDisposal.DisposalType.SOLD).select_related("asset")
+        if _clean(date_from):
+            sold_qs = sold_qs.filter(disposal_date__gte=_clean(date_from))
+        if _clean(date_to):
+            sold_qs = sold_qs.filter(disposal_date__lte=_clean(date_to))
+
+        for d in sold_qs:
+            movements.append({
+                "direction"  : "inflow",
+                "type"       : "asset_sold",
+                "date"       : str(d.disposal_date),
+                "description": f"Fixed asset sold — {d.asset.name}",
+                "reference"  : f"DIS-{d.id}",
+                "amount"     : d.sale_amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # Filter by direction if requested
     if _clean(movement_type):
         movements = [m for m in movements if m["direction"] == _clean(movement_type)]

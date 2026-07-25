@@ -172,6 +172,27 @@ class Command(BaseCommand):
         except Exception:
             pass  # cash_management app absent — fine, nothing to adjust
 
+        # 5d. Fixed asset purchases (outflow) + sold disposals (inflow) —
+        #     mirrors cash_flow.services.sync_asset_purchased/sync_asset_sold.
+        try:
+            from assets.models import Asset, AssetDisposal
+
+            total_asset_purchases = Decimal("0")
+            for a in Asset.objects.filter(is_deleted=False, acquisition_type=Asset.AcquisitionType.NEW):
+                total_asset_purchases += a.cost
+                cf.cash_in_hand       -= a.cost
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_asset_purchases (deducted): {total_asset_purchases}")
+
+            total_asset_sales = Decimal("0")
+            for d in AssetDisposal.objects.filter(disposal_type=AssetDisposal.DisposalType.SOLD):
+                total_asset_sales += d.sale_amount or Decimal("0")
+                cf.cash_in_hand   += d.sale_amount or Decimal("0")
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_asset_sales (added): {total_asset_sales}")
+        except Exception:
+            pass  # assets app absent — fine, nothing to adjust
+
         # 6. Advance payments already deducted from cash_in_hand
         advance_payments = SupplierPayment.objects.filter(
             is_deleted=False,

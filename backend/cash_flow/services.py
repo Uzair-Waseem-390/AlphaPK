@@ -548,6 +548,30 @@ def sync_owner_drawing(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_asset_purchased(*, amount: Decimal, user) -> None:
+    """
+    Called by assets.services.create_asset when a NEW fixed asset is
+    purchased (not 'existing'). Real cash leaving the till — the asset
+    itself is capitalized, not expensed, so this only touches cash_in_hand.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
+def sync_asset_sold(*, amount: Decimal, user) -> None:
+    """
+    Called by assets.services.dispose_asset when a fixed asset is sold.
+    Real cash coming in — gain/loss vs book value is tracked separately in
+    assets.AssetFlow, not here.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
 def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     Called when a draft purchase order with advance is deleted.

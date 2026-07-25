@@ -18,6 +18,7 @@ urlpatterns = [
     path("api/data-entry/", include("data_entry.urls")),
     path("api/taxes/",     include("taxes.urls")),
     path("api/cash-management/", include("cash_management.urls")),
+    path("api/assets/", include("assets.urls")),
 ]
  
 if settings.DEBUG:
