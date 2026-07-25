@@ -11,11 +11,12 @@ const CashManagementSectionStats = ({ stats, loading }) => {
         return (
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-neutral-900">Cash Management</h2>
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <StatCardSkeleton color="red" />
                     <StatCardSkeleton color="green" />
                     <StatCardSkeleton color="blue" />
                     <StatCardSkeleton color="purple" />
+                    <StatCardSkeleton color="green" />
                 </div>
             </div>
         );
@@ -24,7 +25,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
     return (
         <div className="space-y-4">
             <h2 className="text-lg font-semibold text-neutral-900">Cash Management</h2>
-            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                 <StatCard
                     label="Net Cash Lost"
                     value={stats?.net_cash_lost}
@@ -55,6 +56,14 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                     icon="📈"
                     color="blue"
                     subtitle="All-time, gross"
+                    onClick={goToCashManagement}
+                />
+                <StatCard
+                    label="Investor Net Worth"
+                    value={stats?.total_investor_net_worth}
+                    icon="💹"
+                    color="green"
+                    subtitle="Theoretical, growth-compounded"
                     onClick={goToCashManagement}
                 />
             </div>

@@ -175,6 +175,8 @@ const InvestorDetailPage = () => {
         );
     }
 
+    const growthIncrease = parseFloat(investor.current_worth) - parseFloat(investor.net_stake);
+
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
@@ -221,6 +223,9 @@ const InvestorDetailPage = () => {
                 <Card className="p-4">
                     <p className="text-xs text-neutral-500 mb-1">Current Worth</p>
                     <p className="text-xl font-bold text-teal-600">Rs. {fmt(investor.current_worth)}</p>
+                    {growthIncrease > 0 && (
+                        <p className="text-xs text-success-600 mt-1">+Rs. {fmt(growthIncrease)} from growth</p>
+                    )}
                 </Card>
             </div>
 
@@ -260,29 +265,31 @@ const InvestorDetailPage = () => {
                 )}
             </div>
 
-            {parseFloat(investor.growth_rate) > 0 && (
-                <div className="space-y-4">
-                    <h2 className="text-lg font-semibold text-neutral-900">Growth History</h2>
-                    {growthLoading ? (
-                        <div className="flex items-center justify-center py-8">
-                            <LoadingSpinner size="lg" />
-                        </div>
-                    ) : growthEntries.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="text-6xl mb-4">📈</div>
-                            <h3 className="text-lg font-semibold text-neutral-900">No Growth Yet</h3>
-                            <p className="text-sm text-neutral-500 mt-1">Monthly growth entries appear automatically as months pass.</p>
-                        </div>
-                    ) : (
-                        <>
-                            <Table columns={growthColumns} data={growthEntries} />
-                            {growthMeta.totalPages > 1 && (
-                                <Pagination currentPage={growthMeta.currentPage} totalPages={growthMeta.totalPages} onPageChange={setGrowthPage} />
-                            )}
-                        </>
-                    )}
-                </div>
-            )}
+            <div className="space-y-4">
+                <h2 className="text-lg font-semibold text-neutral-900">Growth History</h2>
+                {growthLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size="lg" />
+                    </div>
+                ) : growthEntries.length === 0 ? (
+                    <div className="text-center py-12">
+                        <div className="text-6xl mb-4">📈</div>
+                        <h3 className="text-lg font-semibold text-neutral-900">No Growth Yet</h3>
+                        <p className="text-sm text-neutral-500 mt-1">
+                            {parseFloat(investor.growth_rate) > 0
+                                ? 'Monthly growth entries appear automatically as months pass.'
+                                : 'This investor has no growth rate set — set one on the Investors page to start compounding.'}
+                        </p>
+                    </div>
+                ) : (
+                    <>
+                        <Table columns={growthColumns} data={growthEntries} />
+                        {growthMeta.totalPages > 1 && (
+                            <Pagination currentPage={growthMeta.currentPage} totalPages={growthMeta.totalPages} onPageChange={setGrowthPage} />
+                        )}
+                    </>
+                )}
+            </div>
 
             {/* Record Transaction Modal */}
             <Modal

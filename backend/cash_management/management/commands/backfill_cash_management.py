@@ -45,13 +45,43 @@ class Command(BaseCommand):
         for investor in Investor.objects.filter(is_deleted=False):
             investor.total_invested = Decimal("0")
             investor.total_withdrawn = Decimal("0")
-            for t in InvestorTransaction.objects.filter(is_deleted=False, investor=investor):
+
+            # worth_delta is only ever set correctly at live transaction-creation
+            # time. Rows created before that logic existed (or restored from an
+            # older backup) still carry the field's default of 0, which would
+            # silently zero out current_worth and starve growth catch-up (growth
+            # is computed FROM current_worth, so a stuck-at-0 worth compounds
+            # nothing). Reconstruct worth_delta for every transaction here by
+            # replaying them in real chronological order (created_at — the
+            # actual order events happened in, not the user-editable
+            # transaction_date) and reapplying the exact same rule used live.
+            running_worth = Decimal("0")
+            running_stake = Decimal("0")
+            for t in InvestorTransaction.objects.filter(is_deleted=False, investor=investor).order_by("created_at", "id"):
                 if t.transaction_type == InvestorTransaction.TransactionType.INVESTMENT:
                     investor.total_invested += t.amount
+                    running_stake += t.amount
+                    worth_delta = t.amount
                 else:
                     investor.total_withdrawn += t.amount
+                    running_stake -= t.amount
+                    worth_delta = -running_worth if running_stake == 0 else -t.amount
+                running_worth += worth_delta
+                if t.worth_delta != worth_delta:
+                    t.worth_delta = worth_delta
+                    t.save(update_fields=["worth_delta"])
             investor.net_stake = investor.total_invested - investor.total_withdrawn
             investor.save(update_fields=["total_invested", "total_withdrawn", "net_stake"])
+
+            # Growth entries were auto-posted against whatever current_worth was
+            # at catch-up time — if that baseline was corrupted by the worth_delta
+            # bug above, the posted growth amounts are wrong too. Wipe and let
+            # catch-up regenerate them from the now-corrected baseline, at
+            # whatever rate is active now — consistent with this app's documented
+            # design (backlog months post at the currently active rate).
+            InvestorValuationEntry.objects.filter(investor=investor).delete()
+            investor.current_worth = running_worth
+            investor.save(update_fields=["current_worth"])
 
             # Catch up any missing growth months, then recompute current_worth
             # from scratch as the sum of every InvestorTransaction.worth_delta

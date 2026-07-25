@@ -116,6 +116,16 @@ const InvestorsPage = () => {
             render: (value) => parseFloat(value) > 0 ? `${(parseFloat(value) * 100).toFixed(2)}% / yr` : <span className="text-neutral-300">—</span>,
         },
         {
+            key: 'growth_increased',
+            label: 'Growth Increased (PKR)',
+            render: (_value, row) => {
+                const increase = parseFloat(row.current_worth) - parseFloat(row.net_stake);
+                return increase > 0
+                    ? <span className="font-semibold text-success-600">+Rs. {fmt(increase)}</span>
+                    : <span className="text-neutral-300">Rs. 0.00</span>;
+            },
+        },
+        {
             key: 'current_worth',
             label: 'Current Worth (PKR)',
             render: (value) => <span className="font-semibold text-teal-600">Rs. {fmt(value)}</span>,
