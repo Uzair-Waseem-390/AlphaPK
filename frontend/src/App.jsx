@@ -83,6 +83,13 @@ import InvestorDetailPage from './pages/cashManagement/InvestorDetailPage';
 import OwnerTransactionsPage from './pages/cashManagement/OwnerTransactionsPage';
 import OwnerTransactionDetailPage from './pages/cashManagement/OwnerTransactionDetailPage';
 
+// Assets pages
+import AssetsPage from './pages/assets/AssetsPage';
+import AssetCategoriesPage from './pages/assets/AssetCategoriesPage';
+import AssetItemsPage from './pages/assets/AssetItemsPage';
+import AssetDetailPage from './pages/assets/AssetDetailPage';
+import AssetDisposalsPage from './pages/assets/AssetDisposalsPage';
+
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
 
@@ -608,6 +615,47 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <OwnerTransactionDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Assets Routes */}
+        <Route path="/assets" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/categories" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetCategoriesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/items" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetItemsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/items/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/disposals" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetDisposalsPage />
             </Layout>
           </ProtectedRoute>
         } />

@@ -4,6 +4,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
 import { useTaxesStats } from '../../hooks/useTaxes';
 import { useCashManagementStats } from '../../hooks/useCashManagement';
+import { useAssetStats } from '../../hooks/useAssets';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
@@ -12,6 +13,7 @@ import ReturnsSectionStats from './ReturnsSectionStats';
 import ProfitSectionStats from './ProfitSectionStats';
 import TaxesSectionStats from './TaxesSectionStats';
 import CashManagementSectionStats from './CashManagementSectionStats';
+import AssetsSectionStats from './AssetsSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -22,6 +24,7 @@ const AdminDashboard = () => {
     const { data: stats, loading: statsLoading, refetch: refetchStats } = useCashFlowStats();
     const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
     const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
+    const { data: assetStats, loading: assetStatsLoading } = useAssetStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -99,6 +102,10 @@ const AdminDashboard = () => {
                 <CashManagementSectionStats
                     stats={cashMgmtStats}
                     loading={cashMgmtStatsLoading}
+                />
+                <AssetsSectionStats
+                    stats={assetStats}
+                    loading={assetStatsLoading}
                 />
             </div>
 
