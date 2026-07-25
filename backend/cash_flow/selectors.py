@@ -303,6 +303,50 @@ def get_cash_in_hand_breakdown(
     except Exception:
         pass
 
+    # --- Lost/found cash + investor investments/withdrawals ---
+    # cash_management is a separate app — import defensively so this
+    # breakdown keeps working even if the app were ever removed.
+    try:
+        from cash_management.models import CashAdjustment, InvestorTransaction
+
+        adj_qs = CashAdjustment.objects.filter(is_deleted=False)
+        if _clean(date_from):
+            adj_qs = adj_qs.filter(adjustment_date__gte=_clean(date_from))
+        if _clean(date_to):
+            adj_qs = adj_qs.filter(adjustment_date__lte=_clean(date_to))
+
+        for a in adj_qs:
+            is_lost = a.adjustment_type == CashAdjustment.AdjustmentType.LOST
+            movements.append({
+                "direction"  : "outflow" if is_lost else "inflow",
+                "type"       : "cash_lost" if is_lost else "cash_found",
+                "date"       : str(a.adjustment_date),
+                "description": f"Cash {'lost' if is_lost else 'found'}{f' — {a.reason}' if a.reason else ''}",
+                "reference"  : f"ADJ-{a.id}",
+                "amount"     : a.amount,
+                "method"     : None,
+            })
+
+        inv_txn_qs = InvestorTransaction.objects.filter(is_deleted=False).select_related("investor")
+        if _clean(date_from):
+            inv_txn_qs = inv_txn_qs.filter(transaction_date__gte=_clean(date_from))
+        if _clean(date_to):
+            inv_txn_qs = inv_txn_qs.filter(transaction_date__lte=_clean(date_to))
+
+        for t in inv_txn_qs:
+            is_investment = t.transaction_type == InvestorTransaction.TransactionType.INVESTMENT
+            movements.append({
+                "direction"  : "inflow" if is_investment else "outflow",
+                "type"       : "investor_investment" if is_investment else "investor_withdrawal",
+                "date"       : str(t.transaction_date),
+                "description": f"{'Investment from' if is_investment else 'Withdrawal by'} {t.investor.name}",
+                "reference"  : f"INV-{t.id}",
+                "amount"     : t.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # Filter by direction if requested
     if _clean(movement_type):
         movements = [m for m in movements if m["direction"] == _clean(movement_type)]

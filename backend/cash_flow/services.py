@@ -479,6 +479,51 @@ def sync_tax_payment_deleted(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_cash_lost(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when cash is recorded as lost
+    (theft, miscount, misplaced). Real cash leaving the till.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
+def sync_cash_found(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when cash is recorded as found/
+    recovered (or when reversing a deleted lost entry).
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
+def sync_investor_investment(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when an investor puts money into the
+    business. Equity financing — increases cash_in_hand only, never
+    total_invoice_revenue/total_gross_profit (this is not a sale).
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
+def sync_investor_withdrawal(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when an investor withdraws money
+    from the business (return of capital).
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
 def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     Called when a draft purchase order with advance is deleted.

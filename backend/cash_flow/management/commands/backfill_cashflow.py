@@ -128,6 +128,38 @@ class Command(BaseCommand):
         except Exception:
             pass  # taxes app absent — fine, nothing to deduct
 
+        # 5c. Lost/found cash + investor investments/withdrawals — mirrors
+        #     cash_flow.services.sync_cash_lost/sync_cash_found/
+        #     sync_investor_investment/sync_investor_withdrawal exactly.
+        try:
+            from cash_management.models import CashAdjustment, InvestorTransaction
+
+            total_lost = Decimal("0")
+            total_found = Decimal("0")
+            for a in CashAdjustment.objects.filter(is_deleted=False):
+                if a.adjustment_type == CashAdjustment.AdjustmentType.LOST:
+                    total_lost      += a.amount
+                    cf.cash_in_hand -= a.amount
+                else:
+                    total_found     += a.amount
+                    cf.cash_in_hand += a.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_cash_lost (deducted): {total_lost}, total_cash_found (added): {total_found}")
+
+            total_invested = Decimal("0")
+            total_withdrawn = Decimal("0")
+            for t in InvestorTransaction.objects.filter(is_deleted=False):
+                if t.transaction_type == InvestorTransaction.TransactionType.INVESTMENT:
+                    total_invested   += t.amount
+                    cf.cash_in_hand  += t.amount
+                else:
+                    total_withdrawn  += t.amount
+                    cf.cash_in_hand  -= t.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_investor_capital (added): {total_invested}, total_investor_withdrawn (deducted): {total_withdrawn}")
+        except Exception:
+            pass  # cash_management app absent — fine, nothing to adjust
+
         # 6. Advance payments already deducted from cash_in_hand
         advance_payments = SupplierPayment.objects.filter(
             is_deleted=False,
