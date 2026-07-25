@@ -97,13 +97,14 @@ class AssetRevalueSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class AssetDisposalReadSerializer(serializers.ModelSerializer):
-    asset_name = serializers.CharField(source="asset.name", read_only=True)
-    created_by = serializers.StringRelatedField(read_only=True)
+    asset_name    = serializers.CharField(source="asset.name", read_only=True)
+    category_name = serializers.CharField(source="asset.category.name", read_only=True)
+    created_by    = serializers.StringRelatedField(read_only=True)
 
     class Meta:
         model  = AssetDisposal
         fields = [
-            "id", "asset", "asset_name", "disposal_type", "disposal_date",
+            "id", "asset", "asset_name", "category_name", "disposal_type", "disposal_date",
             "sale_amount", "worth_at_disposal", "gain_loss", "reason",
             "created_by", "created_at",
         ]

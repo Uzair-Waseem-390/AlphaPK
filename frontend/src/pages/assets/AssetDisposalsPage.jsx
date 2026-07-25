@@ -1,7 +1,8 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useAssetDisposals } from '../../hooks/useAssets';
+import { assetsApi } from '../../services/assetsApi';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -24,6 +25,13 @@ const AssetDisposalsPage = () => {
     } = useAssetDisposals();
 
     const [showFilters, setShowFilters] = useState(false);
+    const [categories, setCategories] = useState([]);
+
+    useEffect(() => {
+        assetsApi.categories.getAll({ page_size: 500 }).then((res) => {
+            setCategories(res?.results ?? res ?? []);
+        });
+    }, []);
 
     const handleApplyFilters = (values) => setFilters(values);
     const handleResetFilters = () => setFilters({});
@@ -35,11 +43,16 @@ const AssetDisposalsPage = () => {
             { value: 'scrapped', label: 'Scrapped' },
             { value: 'sold', label: 'Sold' },
         ] },
+        { name: 'category_id', label: 'Category', type: 'select', options: [
+            { value: '', label: 'All' },
+            ...categories.map((c) => ({ value: c.id, label: c.name })),
+        ] },
     ];
 
     const columns = [
         { key: 'disposal_date', label: 'Date', render: (v) => new Date(v).toLocaleDateString() },
         { key: 'asset_name', label: 'Asset' },
+        { key: 'category_name', label: 'Category' },
         {
             key: 'disposal_type',
             label: 'Type',

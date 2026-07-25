@@ -203,9 +203,17 @@ class AssetDisposeView(APIView):
 
 
 class AssetDisposalListView(generics.ListAPIView):
-    """GET /assets/disposals/ — every disposal record, newest first."""
+    """
+    GET /assets/disposals/ — every disposal record, newest first.
+
+    Filter params: disposal_type (scrapped|sold), category_id
+    """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = AssetDisposalReadSerializer
 
     def get_queryset(self):
-        return get_all_asset_disposals(disposal_type=self.request.query_params.get("disposal_type"))
+        p = self.request.query_params
+        return get_all_asset_disposals(
+            disposal_type = p.get("disposal_type"),
+            category_id   = p.get("category_id"),
+        )

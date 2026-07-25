@@ -23,10 +23,13 @@ const AssetItemsPage = () => {
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
+    // Disposed assets never appear on this page, under any filter — they
+    // have their own dedicated Disposals page. is_disposed is force-merged
+    // into every filter change below so it can never be overridden.
     const {
         data: assets, meta, page, setPage, loading,
         filters, setFilters, refetch, create,
-    } = useAssets();
+    } = useAssets({ is_disposed: 'false' });
     const { refetch: refetchStats } = useAssetStats();
 
     const [categories, setCategories] = useState([]);
@@ -70,9 +73,14 @@ const AssetItemsPage = () => {
         }
     };
 
-    const handleApplyFilters = (values) => setFilters(values);
-    const handleResetFilters = () => setFilters({});
+    // is_disposed is force-merged on every apply/reset — never overridable.
+    const handleApplyFilters = (values) => setFilters({ ...values, is_disposed: 'false' });
+    const handleResetFilters = () => setFilters({ is_disposed: 'false' });
     const handleRowClick = (row) => navigate(`/assets/items/${row.id}`);
+
+    // "Clear Filters" only shows once the admin has actually diverged from
+    // the default — not on first load.
+    const isDefaultFilters = Object.keys(filters).length === 1 && filters.is_disposed === 'false';
 
     const filterConfig = [
         { name: 'category_id', label: 'Category', type: 'select', options: [
@@ -83,11 +91,6 @@ const AssetItemsPage = () => {
             { value: '', label: 'All' },
             { value: 'existing', label: 'Existing' },
             { value: 'new', label: 'New' },
-        ] },
-        { name: 'is_disposed', label: 'Status', type: 'select', options: [
-            { value: '', label: 'All' },
-            { value: 'false', label: 'Active' },
-            { value: 'true', label: 'Disposed' },
         ] },
     ];
 
@@ -108,13 +111,6 @@ const AssetItemsPage = () => {
             render: (v) => <span className="font-semibold text-purple-600">Rs. {fmt(v)}</span>,
         },
         { key: 'acquisition_date', label: 'Date', render: (v) => new Date(v).toLocaleDateString() },
-        {
-            key: 'is_disposed',
-            label: 'Status',
-            render: (v) => v
-                ? <Badge variant="error" size="sm">Disposed</Badge>
-                : <Badge variant="success" size="sm">Active</Badge>,
-        },
     ];
 
     if (!isAdmin) {
@@ -155,7 +151,7 @@ const AssetItemsPage = () => {
                     <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
-                    {Object.keys(filters).length > 0 && (
+                    {!isDefaultFilters && (
                         <Button variant="secondary" onClick={handleResetFilters}>Clear Filters</Button>
                     )}
                 </div>

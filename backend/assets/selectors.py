@@ -86,10 +86,12 @@ def get_asset_valuation_entries(
 # AssetDisposal
 # ---------------------------------------------------------------------------
 
-def get_all_asset_disposals(*, disposal_type: str = None) -> QuerySet:
-    qs = AssetDisposal.objects.select_related("asset", "created_by")
+def get_all_asset_disposals(*, disposal_type: str = None, category_id: str = None) -> QuerySet:
+    qs = AssetDisposal.objects.select_related("asset", "asset__category", "created_by")
     if _clean(disposal_type):
         qs = qs.filter(disposal_type=_clean(disposal_type))
+    if _clean(category_id):
+        qs = qs.filter(asset__category_id=_clean(category_id))
     return qs.order_by("-disposal_date", "-created_at")
 
 
