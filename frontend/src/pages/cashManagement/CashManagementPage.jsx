@@ -82,6 +82,35 @@ const CashManagementPage = () => {
                         revenue or profit. It's tracked separately so it can be used later to calculate each
                         investor's share once net (actual) profit is tracked, not just gross profit.
                     </div>
+
+                    <div>
+                        <h2 className="text-lg font-semibold text-neutral-900 mb-3">Owner Capital</h2>
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+                            <StatBox label="Total Contributions" value={stats?.total_owner_contributions} tone="blue" subtitle="All-time, gross" />
+                            <Card className="p-4">
+                                <p className="text-xs text-neutral-500 mb-1">Number of Contributions</p>
+                                <p className="text-xl font-bold text-neutral-900">{stats?.total_owner_contributions_count ?? 0}</p>
+                                <p className="text-xs text-neutral-400 mt-1">All-time count</p>
+                            </Card>
+                            <StatBox label="Total Drawings" value={stats?.total_owner_drawings} tone="orange" subtitle="All-time, gross" />
+                            <Card className="p-4">
+                                <p className="text-xs text-neutral-500 mb-1">Number of Drawings</p>
+                                <p className="text-xl font-bold text-neutral-900">{stats?.total_owner_withdrawals_count ?? 0}</p>
+                                <p className="text-xs text-neutral-400 mt-1">All-time count</p>
+                            </Card>
+                            <StatBox
+                                label="Net Owner Capital"
+                                value={stats?.net_owner_capital}
+                                tone={parseFloat(stats?.net_owner_capital) < 0 ? 'red' : 'purple'}
+                                subtitle="Contributions minus drawings"
+                            />
+                        </div>
+                    </div>
+
+                    <div className="p-3 bg-amber-50 border border-amber-200 rounded-lg text-sm text-amber-700">
+                        Owner drawings are not capped by contributions — the owner can draw out more than they've
+                        deposited, financed by the business's profits. A negative net owner capital is normal.
+                    </div>
                 </>
             )}
 

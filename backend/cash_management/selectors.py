@@ -29,10 +29,11 @@ def get_cash_management_stats() -> dict:
         "total_investor_capital"        : cmf.total_investor_capital,
         "total_investor_withdrawn"      : cmf.total_investor_withdrawn,
         "net_investor_capital"          : cmf.net_investor_capital,
-        "total_owner_contributions"     : cmf.total_owner_contributions,
-        "total_owner_drawings"          : cmf.total_owner_drawings,
-        "total_owner_withdrawals_count" : cmf.total_owner_withdrawals_count,
-        "net_owner_capital"             : cmf.net_owner_capital,
+        "total_owner_contributions"       : cmf.total_owner_contributions,
+        "total_owner_drawings"            : cmf.total_owner_drawings,
+        "total_owner_contributions_count" : cmf.total_owner_contributions_count,
+        "total_owner_withdrawals_count"   : cmf.total_owner_withdrawals_count,
+        "net_owner_capital"               : cmf.net_owner_capital,
     }
 
 

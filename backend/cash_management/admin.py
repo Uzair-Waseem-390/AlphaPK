@@ -8,7 +8,8 @@ class CashManagementFlowAdmin(admin.ModelAdmin):
     list_display = [
         "total_cash_lost", "total_cash_recovered", "net_cash_lost",
         "total_investor_capital", "total_investor_withdrawn", "net_investor_capital",
-        "total_owner_contributions", "total_owner_drawings", "total_owner_withdrawals_count", "net_owner_capital",
+        "total_owner_contributions", "total_owner_drawings",
+        "total_owner_contributions_count", "total_owner_withdrawals_count", "net_owner_capital",
         "last_updated_at",
     ]
     readonly_fields = [f.name for f in CashManagementFlow._meta.fields]

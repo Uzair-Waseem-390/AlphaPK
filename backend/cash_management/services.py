@@ -16,9 +16,10 @@ def _adjust_cash_management_flow(
     total_cash_recovered_delta          : Decimal = Decimal("0"),
     total_investor_capital_delta        : Decimal = Decimal("0"),
     total_investor_withdrawn_delta      : Decimal = Decimal("0"),
-    total_owner_contributions_delta     : Decimal = Decimal("0"),
-    total_owner_drawings_delta          : Decimal = Decimal("0"),
-    total_owner_withdrawals_count_delta : int = 0,
+    total_owner_contributions_delta       : Decimal = Decimal("0"),
+    total_owner_drawings_delta            : Decimal = Decimal("0"),
+    total_owner_contributions_count_delta : int = 0,
+    total_owner_withdrawals_count_delta   : int = 0,
     user,
 ) -> CashManagementFlow:
     """
@@ -48,6 +49,9 @@ def _adjust_cash_management_flow(
         )
         cmf.total_owner_drawings = max(
             Decimal("0"), cmf.total_owner_drawings + total_owner_drawings_delta
+        )
+        cmf.total_owner_contributions_count = max(
+            0, cmf.total_owner_contributions_count + total_owner_contributions_count_delta
         )
         cmf.total_owner_withdrawals_count = max(
             0, cmf.total_owner_withdrawals_count + total_owner_withdrawals_count_delta
@@ -336,7 +340,11 @@ def create_owner_transaction(
     from cash_flow.services import sync_owner_contribution, sync_owner_drawing
 
     if transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
-        _adjust_cash_management_flow(total_owner_contributions_delta=+amount, user=user)
+        _adjust_cash_management_flow(
+            total_owner_contributions_delta=+amount,
+            total_owner_contributions_count_delta=+1,
+            user=user,
+        )
         sync_owner_contribution(amount=amount, user=user)
     else:
         _adjust_cash_management_flow(
@@ -360,7 +368,11 @@ def delete_owner_transaction(*, pk: int, user) -> None:
     from cash_flow.services import sync_owner_contribution, sync_owner_drawing
 
     if txn.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
-        _adjust_cash_management_flow(total_owner_contributions_delta=-amount, user=user)
+        _adjust_cash_management_flow(
+            total_owner_contributions_delta=-amount,
+            total_owner_contributions_count_delta=-1,
+            user=user,
+        )
         sync_owner_drawing(amount=amount, user=user)  # reverse: remove cash_in_hand again
     else:
         _adjust_cash_management_flow(

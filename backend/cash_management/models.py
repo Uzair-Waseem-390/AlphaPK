@@ -256,6 +256,8 @@ class CashManagementFlow(models.Model):
                                        help_text="Total cash the owner has deposited into the business, all-time (gross, only ever increases).")
     total_owner_drawings        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                        help_text="Total cash the owner has withdrawn for personal use, all-time (gross, only ever increases).")
+    total_owner_contributions_count = models.PositiveIntegerField(default=0,
+                                       help_text="Count of owner contribution transactions, all-time (only ever increases).")
     total_owner_withdrawals_count = models.PositiveIntegerField(default=0,
                                        help_text="Count of owner drawing transactions, all-time (only ever increases).")
     net_owner_capital            = models.DecimalField(max_digits=20, decimal_places=4, default=0,

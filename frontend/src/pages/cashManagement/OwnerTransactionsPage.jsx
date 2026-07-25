@@ -160,10 +160,14 @@ const OwnerTransactionsPage = () => {
             </div>
 
             {!statsLoading && (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
                     <Card className="p-4">
                         <p className="text-xs text-neutral-500 mb-1">Total Contributions</p>
                         <p className="text-xl font-bold text-info-600">Rs. {fmt(stats?.total_owner_contributions)}</p>
+                    </Card>
+                    <Card className="p-4">
+                        <p className="text-xs text-neutral-500 mb-1">Number of Contributions</p>
+                        <p className="text-xl font-bold text-neutral-900">{stats?.total_owner_contributions_count ?? 0}</p>
                     </Card>
                     <Card className="p-4">
                         <p className="text-xs text-neutral-500 mb-1">Total Drawings</p>

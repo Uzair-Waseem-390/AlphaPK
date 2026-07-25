@@ -4,17 +4,18 @@ from .models import CashAdjustment, Investor, InvestorTransaction, OwnerTransact
 
 
 class CashManagementStatsSerializer(serializers.Serializer):
-    """Read-only serializer for the 10 cash-management stats."""
-    total_cash_lost               = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_cash_recovered          = serializers.DecimalField(max_digits=20, decimal_places=4)
-    net_cash_lost                 = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_investor_capital        = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_investor_withdrawn      = serializers.DecimalField(max_digits=20, decimal_places=4)
-    net_investor_capital          = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_owner_contributions     = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_owner_drawings          = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_owner_withdrawals_count = serializers.IntegerField()
-    net_owner_capital             = serializers.DecimalField(max_digits=20, decimal_places=4)
+    """Read-only serializer for the 11 cash-management stats."""
+    total_cash_lost                 = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_cash_recovered            = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_cash_lost                   = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_investor_capital          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_investor_withdrawn        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_investor_capital            = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_contributions       = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_drawings            = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_contributions_count = serializers.IntegerField()
+    total_owner_withdrawals_count   = serializers.IntegerField()
+    net_owner_capital               = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 # ---------------------------------------------------------------------------

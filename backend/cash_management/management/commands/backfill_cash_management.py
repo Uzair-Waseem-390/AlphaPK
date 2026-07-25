@@ -22,9 +22,10 @@ class Command(BaseCommand):
         cmf.total_cash_recovered         = Decimal("0")
         cmf.total_investor_capital       = Decimal("0")
         cmf.total_investor_withdrawn     = Decimal("0")
-        cmf.total_owner_contributions    = Decimal("0")
-        cmf.total_owner_drawings         = Decimal("0")
-        cmf.total_owner_withdrawals_count = 0
+        cmf.total_owner_contributions       = Decimal("0")
+        cmf.total_owner_drawings            = Decimal("0")
+        cmf.total_owner_contributions_count = 0
+        cmf.total_owner_withdrawals_count   = 0
         cmf.save()
 
         # 1. Cash lost/recovered = sum over non-deleted CashAdjustment rows
@@ -59,12 +60,12 @@ class Command(BaseCommand):
         for t in OwnerTransaction.objects.filter(is_deleted=False):
             if t.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
                 cmf.total_owner_contributions += t.amount
+                cmf.total_owner_contributions_count += 1
             else:
                 cmf.total_owner_drawings += t.amount
                 cmf.total_owner_withdrawals_count += 1
-        self.stdout.write(f"  total_owner_contributions: {cmf.total_owner_contributions}")
-        self.stdout.write(f"  total_owner_drawings: {cmf.total_owner_drawings}")
-        self.stdout.write(f"  total_owner_withdrawals_count: {cmf.total_owner_withdrawals_count}")
+        self.stdout.write(f"  total_owner_contributions: {cmf.total_owner_contributions} ({cmf.total_owner_contributions_count} transactions)")
+        self.stdout.write(f"  total_owner_drawings: {cmf.total_owner_drawings} ({cmf.total_owner_withdrawals_count} transactions)")
 
         # Derived fields — same recompute-and-store discipline as the live sync path.
         cmf.net_cash_lost = max(Decimal("0"), cmf.total_cash_lost - cmf.total_cash_recovered)
@@ -82,8 +83,9 @@ Final CashManagementFlow state:
   total_investor_capital        : {cmf.total_investor_capital}
   total_investor_withdrawn      : {cmf.total_investor_withdrawn}
   net_investor_capital           : {cmf.net_investor_capital}
-  total_owner_contributions     : {cmf.total_owner_contributions}
-  total_owner_drawings          : {cmf.total_owner_drawings}
-  total_owner_withdrawals_count : {cmf.total_owner_withdrawals_count}
-  net_owner_capital              : {cmf.net_owner_capital}
+  total_owner_contributions       : {cmf.total_owner_contributions}
+  total_owner_drawings            : {cmf.total_owner_drawings}
+  total_owner_contributions_count : {cmf.total_owner_contributions_count}
+  total_owner_withdrawals_count   : {cmf.total_owner_withdrawals_count}
+  net_owner_capital                : {cmf.net_owner_capital}
 """)
