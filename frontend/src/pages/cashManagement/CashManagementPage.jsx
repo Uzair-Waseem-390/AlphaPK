@@ -117,7 +117,7 @@ const CashManagementPage = () => {
                 </>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <Card className="p-6">
                     <h3 className="font-semibold text-neutral-900 mb-2">Cash Adjustments</h3>
                     <p className="text-sm text-neutral-500 mb-4">
@@ -134,6 +134,15 @@ const CashManagementPage = () => {
                     </p>
                     <Link to="/cash-management/investors">
                         <Button variant="secondary">View Investors →</Button>
+                    </Link>
+                </Card>
+                <Card className="p-6">
+                    <h3 className="font-semibold text-neutral-900 mb-2">Growth History</h3>
+                    <p className="text-sm text-neutral-500 mb-4">
+                        Browse every monthly compounding entry ever posted, across all investors.
+                    </p>
+                    <Link to="/cash-management/growth-history">
+                        <Button variant="secondary">View Growth History →</Button>
                     </Link>
                 </Card>
                 <Card className="p-6">

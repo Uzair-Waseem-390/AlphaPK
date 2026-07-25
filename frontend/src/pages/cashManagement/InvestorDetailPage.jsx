@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
-import { useInvestorTransactions, useInvestorValuationEntries } from '../../hooks/useCashManagement';
+import { useInvestorTransactions } from '../../hooks/useCashManagement';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -32,11 +32,6 @@ const InvestorDetailPage = () => {
         data: transactions, meta, page, setPage, loading: txnLoading,
         refetch: refetchTxns, create, delete: deleteTxn,
     } = useInvestorTransactions({ investor_id: id });
-
-    const {
-        data: growthEntries, meta: growthMeta, page: growthPage, setPage: setGrowthPage,
-        loading: growthLoading, refetch: refetchGrowth,
-    } = useInvestorValuationEntries({ investor_id: id });
 
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
@@ -82,7 +77,7 @@ const InvestorDetailPage = () => {
             await create({ ...formData, investor: id, amount: parseFloat(formData.amount) });
             setShowModal(false);
             resetForm();
-            await Promise.all([refetchTxns(), fetchInvestor(), refetchGrowth()]);
+            await Promise.all([refetchTxns(), fetchInvestor()]);
         } catch (error) {
             setFormError(error.response?.data?.detail || error.response?.data?.amount?.[0] || 'Failed to record transaction');
         } finally {
@@ -94,24 +89,12 @@ const InvestorDetailPage = () => {
         try {
             await deleteTxn(txnId);
             setDeleteConfirm(null);
-            await Promise.all([refetchTxns(), fetchInvestor(), refetchGrowth()]);
+            await Promise.all([refetchTxns(), fetchInvestor()]);
         } catch (error) {
             setDeleteConfirm(null);
             alert(error.response?.data?.detail || 'Failed to delete transaction');
         }
     };
-
-    const growthColumns = [
-        { key: 'period', label: 'Period' },
-        { key: 'rate_applied', label: 'Rate', render: (v) => `${(parseFloat(v) * 100).toFixed(2)}%` },
-        { key: 'worth_before', label: 'Worth Before', render: (v) => `Rs. ${fmt(v)}` },
-        {
-            key: 'amount',
-            label: 'Growth',
-            render: (v) => <span className="font-semibold text-success-600">+Rs. {fmt(v)}</span>,
-        },
-        { key: 'worth_after', label: 'Worth After', render: (v) => <span className="font-semibold">Rs. {fmt(v)}</span> },
-    ];
 
     const columns = [
         { key: 'transaction_date', label: 'Date', render: (v) => new Date(v).toLocaleDateString() },
@@ -189,16 +172,24 @@ const InvestorDetailPage = () => {
                         {investor.contact_number || 'No contact number'}{investor.email ? ` · ${investor.email}` : ''}
                     </p>
                 </div>
-                <Button
-                    onClick={() => { resetForm(); setShowModal(true); }}
-                    icon={({ className }) => (
-                        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                    )}
-                >
-                    Record Investment / Withdrawal
-                </Button>
+                <div className="flex gap-2">
+                    <Button
+                        variant="secondary"
+                        onClick={() => navigate('/cash-management/growth-history', { state: { investor_id: id } })}
+                    >
+                        View Growth History →
+                    </Button>
+                    <Button
+                        onClick={() => { resetForm(); setShowModal(true); }}
+                        icon={({ className }) => (
+                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
+                            </svg>
+                        )}
+                    >
+                        Record Investment / Withdrawal
+                    </Button>
+                </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
@@ -260,32 +251,6 @@ const InvestorDetailPage = () => {
                         <Table columns={columns} data={transactions} />
                         {meta.totalPages > 1 && (
                             <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />
-                        )}
-                    </>
-                )}
-            </div>
-
-            <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-neutral-900">Growth History</h2>
-                {growthLoading ? (
-                    <div className="flex items-center justify-center py-8">
-                        <LoadingSpinner size="lg" />
-                    </div>
-                ) : growthEntries.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="text-6xl mb-4">📈</div>
-                        <h3 className="text-lg font-semibold text-neutral-900">No Growth Yet</h3>
-                        <p className="text-sm text-neutral-500 mt-1">
-                            {parseFloat(investor.growth_rate) > 0
-                                ? 'Monthly growth entries appear automatically as months pass.'
-                                : 'This investor has no growth rate set — set one on the Investors page to start compounding.'}
-                        </p>
-                    </div>
-                ) : (
-                    <>
-                        <Table columns={growthColumns} data={growthEntries} />
-                        {growthMeta.totalPages > 1 && (
-                            <Pagination currentPage={growthMeta.currentPage} totalPages={growthMeta.totalPages} onPageChange={setGrowthPage} />
                         )}
                     </>
                 )}

@@ -242,6 +242,35 @@ class BreakdownTotalsMixin:
         return response
 
 
+def _paginate_movements(movements: list, request) -> dict:
+    """
+    Manual page-number pagination for an already-materialized list — mirrors
+    ledger.views._paginate_entries. get_cash_in_hand_breakdown() merges rows
+    from several source models into one plain Python list, so there's no
+    single queryset for DRF's paginator to slice.
+    """
+    try:
+        page_size = min(int(request.query_params.get("page_size", 25)), 500)
+    except (TypeError, ValueError):
+        page_size = 25
+    try:
+        page = max(int(request.query_params.get("page", 1)), 1)
+    except (TypeError, ValueError):
+        page = 1
+
+    count = len(movements)
+    total_pages = max(-(-count // page_size), 1)  # ceil division
+    start = (page - 1) * page_size
+
+    return {
+        "count": count,
+        "total_pages": total_pages,
+        "current_page": page,
+        "page_size": page_size,
+        "results": movements[start:start + page_size],
+    }
+
+
 class CashInHandBreakdownView(APIView):
     """
     GET /cash-flow/breakdown/cash-in-hand/
@@ -251,6 +280,7 @@ class CashInHandBreakdownView(APIView):
         date_from     : YYYY-MM-DD
         date_to       : YYYY-MM-DD
         movement_type : inflow | outflow
+        page, page_size
 
     Each entry shows direction (inflow/outflow), type, date,
     description, reference, amount, method.
@@ -264,20 +294,17 @@ class CashInHandBreakdownView(APIView):
             date_to       = p.get("date_to"),
             movement_type = p.get("movement_type"),
         )
+        # Totals are computed over the FULL filtered set, not just the page
+        # being returned — same convention as BreakdownTotalsMixin.
         total_inflow  = sum((m["amount"] for m in movements if m["direction"] == "inflow"), Decimal("0"))
         total_outflow = sum((m["amount"] for m in movements if m["direction"] == "outflow"), Decimal("0"))
-        return Response({
-            "count"        : len(movements),
-            "total_pages"  : 1,
-            "current_page" : 1,
-            "page_size"    : len(movements),
-            "results"      : movements,
-            "totals": {
-                "total_inflow"  : total_inflow,
-                "total_outflow" : total_outflow,
-                "net"           : total_inflow - total_outflow,
-            },
-        })
+        response = _paginate_movements(movements, request)
+        response["totals"] = {
+            "total_inflow"  : total_inflow,
+            "total_outflow" : total_outflow,
+            "net"           : total_inflow - total_outflow,
+        }
+        return Response(response)
 
 
 class TotalInvoicesCashBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
