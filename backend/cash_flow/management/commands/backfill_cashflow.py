@@ -27,6 +27,7 @@ class Command(BaseCommand):
         cf.supplier_payable_outstanding = Decimal("0")
         cf.total_purchases_cash       = Decimal("0")
         cf.total_expenses_amount      = Decimal("0")
+        cf.total_recurring_expenses_paid = Decimal("0")
         cf.total_lost_inventory_worth = Decimal("0")
         cf.total_lost_inventory_recovered = Decimal("0")
         cf.total_purchase_returns_value = Decimal("0")
@@ -193,6 +194,22 @@ class Command(BaseCommand):
         except Exception:
             pass  # assets app absent — fine, nothing to adjust
 
+        # 5e. Recurring expense payments (salaries, rent, ...) — mirrors
+        #     cash_flow.services.sync_recurring_expense_payment_made. Only
+        #     PAYMENTS touch cash_in_hand — assignments (dues) never do.
+        try:
+            from recurring_expenses.models import RecurringExpenseAssignmentPayment
+
+            total_recurring_paid = Decimal("0")
+            for p in RecurringExpenseAssignmentPayment.objects.filter(is_deleted=False):
+                total_recurring_paid += p.amount
+                cf.cash_in_hand      -= p.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            cf.total_recurring_expenses_paid = total_recurring_paid
+            self.stdout.write(f"  total_recurring_expenses_paid (deducted): {total_recurring_paid}")
+        except Exception:
+            pass  # recurring_expenses app absent — fine, nothing to adjust
+
         # 6. Advance payments already deducted from cash_in_hand
         advance_payments = SupplierPayment.objects.filter(
             is_deleted=False,
@@ -252,6 +269,7 @@ Final CashFlow state:
   supplier_payable_outstanding  : {cf.supplier_payable_outstanding}
   total_purchases_cash          : {cf.total_purchases_cash}
   total_expenses_amount         : {cf.total_expenses_amount}
+  total_recurring_expenses_paid : {cf.total_recurring_expenses_paid}
   total_lost_inventory_worth    : {cf.total_lost_inventory_worth}
   total_lost_inventory_recovered: {cf.total_lost_inventory_recovered}
   total_purchase_returns_value  : {cf.total_purchase_returns_value}

@@ -13,7 +13,7 @@ from .models import CashFlow, Expense, ExpenseCategory
 
 def get_cashflow_stats() -> dict:
     """
-    Returns all 17 dashboard stats from the CashFlow singleton.
+    Returns all 18 dashboard stats from the CashFlow singleton.
     Counts use .count() on the source models — never summed in runtime.
     """
     from billing.models import Invoice
@@ -49,6 +49,7 @@ def get_cashflow_stats() -> dict:
         # Expenses
         "total_expenses_amount"     : cf.total_expenses_amount,
         "total_number_of_expenses"  : Expense.objects.filter(is_deleted=False).count(),
+        "total_recurring_expenses_paid" : cf.total_recurring_expenses_paid,
 
         # Lost inventory — gross fields stay gross (never decrease); net is
         # computed here for the dashboard card, mirroring how
@@ -402,6 +403,31 @@ def get_cash_in_hand_breakdown(
                 "description": f"Fixed asset sold — {d.asset.name}",
                 "reference"  : f"DIS-{d.id}",
                 "amount"     : d.sale_amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
+    # --- Outflows: recurring expense payments (salaries, rent, ...) ---
+    # recurring_expenses is a separate app — import defensively so this
+    # breakdown keeps working even if the app were ever removed.
+    try:
+        from recurring_expenses.models import RecurringExpenseAssignmentPayment
+
+        rep_qs = RecurringExpenseAssignmentPayment.objects.filter(is_deleted=False).select_related("assignment")
+        if _clean(date_from):
+            rep_qs = rep_qs.filter(payment_date__gte=_clean(date_from))
+        if _clean(date_to):
+            rep_qs = rep_qs.filter(payment_date__lte=_clean(date_to))
+
+        for p in rep_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "recurring_expense_payment",
+                "date"       : str(p.payment_date),
+                "description": f"{p.assignment.name_snapshot} — {p.assignment.period} ({p.assignment.category_name_snapshot})",
+                "reference"  : f"REP-{p.id}",
+                "amount"     : p.amount,
                 "method"     : None,
             })
     except Exception:

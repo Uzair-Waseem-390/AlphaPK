@@ -85,6 +85,7 @@ class CashFlowStatsSerializer(serializers.Serializer):
     # Expenses
     total_expenses_amount        = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_number_of_expenses     = serializers.IntegerField()
+    total_recurring_expenses_paid = serializers.DecimalField(max_digits=20, decimal_places=4)
 
     # Lost inventory
     total_lost_inventory_worth     = serializers.DecimalField(max_digits=20, decimal_places=4)

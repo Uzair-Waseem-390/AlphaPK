@@ -19,6 +19,7 @@ def _adjust_cashflow(
     supplier_payable_outstanding_delta : Decimal = Decimal("0"),
     total_purchases_cash_delta         : Decimal = Decimal("0"),
     total_expenses_amount_delta        : Decimal = Decimal("0"),
+    total_recurring_expenses_paid_delta : Decimal = Decimal("0"),
     total_lost_inventory_worth_delta   : Decimal = Decimal("0"),
     total_lost_inventory_recovered_delta : Decimal = Decimal("0"),
     total_purchase_returns_value_delta : Decimal = Decimal("0"),
@@ -79,6 +80,9 @@ def _adjust_cashflow(
         )
         cf.total_expenses_amount = max(
             Decimal("0"), cf.total_expenses_amount + total_expenses_amount_delta
+        )
+        cf.total_recurring_expenses_paid = max(
+            Decimal("0"), cf.total_recurring_expenses_paid + total_recurring_expenses_paid_delta
         )
         cf.total_lost_inventory_worth = max(
             Decimal("0"), cf.total_lost_inventory_worth + total_lost_inventory_worth_delta
@@ -544,6 +548,31 @@ def sync_owner_drawing(*, amount: Decimal, user) -> None:
     """
     _adjust_cashflow(
         cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
+def sync_recurring_expense_payment_made(*, amount: Decimal, user) -> None:
+    """
+    Called by recurring_expenses.services.create_recurring_expense_payment.
+    This is the ONLY moment cash actually leaves the business for a
+    recurring expense — assigning a month due never touches cash_in_hand.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        total_recurring_expenses_paid_delta = +amount,
+        user=user,
+    )
+
+
+def sync_recurring_expense_payment_deleted(*, amount: Decimal, user) -> None:
+    """
+    Called by recurring_expenses.services.delete_recurring_expense_payment —
+    reverses sync_recurring_expense_payment_made exactly.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        total_recurring_expenses_paid_delta = -amount,
         user=user,
     )
 

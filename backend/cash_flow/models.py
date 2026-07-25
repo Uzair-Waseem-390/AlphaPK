@@ -143,6 +143,8 @@ class CashFlow(models.Model):
 
     # ---- Expenses ----
     total_expenses_amount = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    total_recurring_expenses_paid = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Total ever paid against recurring expense assignments (salaries, rent, ...), all-time. Only ever increases; only moves on payment, never on assignment.")
 
     # ---- Lost inventory ----
     total_lost_inventory_worth = models.DecimalField(max_digits=20, decimal_places=4, default=0,
