@@ -307,7 +307,7 @@ def get_cash_in_hand_breakdown(
     # cash_management is a separate app — import defensively so this
     # breakdown keeps working even if the app were ever removed.
     try:
-        from cash_management.models import CashAdjustment, InvestorTransaction
+        from cash_management.models import CashAdjustment, InvestorTransaction, OwnerTransaction
 
         adj_qs = CashAdjustment.objects.filter(is_deleted=False)
         if _clean(date_from):
@@ -341,6 +341,24 @@ def get_cash_in_hand_breakdown(
                 "date"       : str(t.transaction_date),
                 "description": f"{'Investment from' if is_investment else 'Withdrawal by'} {t.investor.name}",
                 "reference"  : f"INV-{t.id}",
+                "amount"     : t.amount,
+                "method"     : None,
+            })
+
+        owner_txn_qs = OwnerTransaction.objects.filter(is_deleted=False)
+        if _clean(date_from):
+            owner_txn_qs = owner_txn_qs.filter(transaction_date__gte=_clean(date_from))
+        if _clean(date_to):
+            owner_txn_qs = owner_txn_qs.filter(transaction_date__lte=_clean(date_to))
+
+        for t in owner_txn_qs:
+            is_contribution = t.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION
+            movements.append({
+                "direction"  : "inflow" if is_contribution else "outflow",
+                "type"       : "owner_contribution" if is_contribution else "owner_drawing",
+                "date"       : str(t.transaction_date),
+                "description": f"Owner {'contribution' if is_contribution else 'drawing'}{f' — {t.note}' if t.note else ''}",
+                "reference"  : f"OWN-{t.id}",
                 "amount"     : t.amount,
                 "method"     : None,
             })

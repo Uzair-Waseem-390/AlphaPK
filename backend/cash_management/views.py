@@ -7,10 +7,12 @@ from .selectors import (
     get_all_cash_adjustments,
     get_all_investor_transactions,
     get_all_investors,
+    get_all_owner_transactions,
     get_cash_adjustment_by_id,
     get_cash_management_stats,
     get_investor_by_id,
     get_investor_transaction_by_id,
+    get_owner_transaction_by_id,
 )
 from .serializers import (
     CashAdjustmentReadSerializer,
@@ -20,14 +22,18 @@ from .serializers import (
     InvestorTransactionReadSerializer,
     InvestorTransactionWriteSerializer,
     InvestorWriteSerializer,
+    OwnerTransactionReadSerializer,
+    OwnerTransactionWriteSerializer,
 )
 from .services import (
     create_cash_adjustment,
     create_investor,
     create_investor_transaction,
+    create_owner_transaction,
     delete_cash_adjustment,
     delete_investor,
     delete_investor_transaction,
+    delete_owner_transaction,
     update_investor,
 )
 
@@ -221,3 +227,61 @@ class InvestorTransactionRetrieveDestroyView(generics.RetrieveDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         delete_investor_transaction(pk=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Investor transaction deleted and balances restored."}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# OwnerTransaction
+# ---------------------------------------------------------------------------
+
+class OwnerTransactionListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /cash-management/owner-transactions/  — all owner contribution/drawing events
+    POST /cash-management/owner-transactions/  — record a new owner contribution or drawing
+
+    Filter params for GET:
+        transaction_type (contribution|drawing), search, date_from, date_to, min_amount, max_amount
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get_serializer_class(self):
+        return OwnerTransactionWriteSerializer if self.request.method == "POST" else OwnerTransactionReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_owner_transactions(
+            transaction_type = p.get("transaction_type"),
+            search           = p.get("search"),
+            date_from        = p.get("date_from"),
+            date_to          = p.get("date_to"),
+            min_amount       = p.get("min_amount"),
+            max_amount       = p.get("max_amount"),
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        obj = create_owner_transaction(
+            transaction_type = d["transaction_type"],
+            amount           = d["amount"],
+            transaction_date = d["transaction_date"],
+            note             = d.get("note", ""),
+            user             = request.user,
+        )
+        return Response(OwnerTransactionReadSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class OwnerTransactionRetrieveDestroyView(generics.RetrieveDestroyAPIView):
+    """
+    GET    /cash-management/owner-transactions/<pk>/
+    DELETE /cash-management/owner-transactions/<pk>/
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = OwnerTransactionReadSerializer
+
+    def get_object(self):
+        return get_owner_transaction_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_owner_transaction(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Owner transaction deleted and cash in hand adjusted."}, status=status.HTTP_200_OK)

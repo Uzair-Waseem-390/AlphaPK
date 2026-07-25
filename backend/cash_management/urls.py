@@ -8,6 +8,8 @@ from .views import (
     InvestorRetrieveUpdateDestroyView,
     InvestorTransactionListCreateView,
     InvestorTransactionRetrieveDestroyView,
+    OwnerTransactionListCreateView,
+    OwnerTransactionRetrieveDestroyView,
 )
 
 urlpatterns = [
@@ -21,4 +23,7 @@ urlpatterns = [
 
     path("investor-transactions/",      InvestorTransactionListCreateView.as_view(),     name="investor-transaction-list-create"),
     path("investor-transactions/<int:pk>/", InvestorTransactionRetrieveDestroyView.as_view(), name="investor-transaction-detail"),
+
+    path("owner-transactions/",      OwnerTransactionListCreateView.as_view(),     name="owner-transaction-list-create"),
+    path("owner-transactions/<int:pk>/", OwnerTransactionRetrieveDestroyView.as_view(), name="owner-transaction-detail"),
 ]

@@ -2,7 +2,9 @@ from decimal import Decimal
 
 from django.core.management.base import BaseCommand
 
-from cash_management.models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction
+from cash_management.models import (
+    CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction,
+)
 
 
 class Command(BaseCommand):
@@ -16,10 +18,13 @@ class Command(BaseCommand):
         # on the correct absolute value); any field summed further down but
         # left out of this reset silently compounds on every re-run instead.
         cmf, _ = CashManagementFlow.objects.get_or_create(pk=1)
-        cmf.total_cash_lost           = Decimal("0")
-        cmf.total_cash_recovered      = Decimal("0")
-        cmf.total_investor_capital    = Decimal("0")
-        cmf.total_investor_withdrawn  = Decimal("0")
+        cmf.total_cash_lost              = Decimal("0")
+        cmf.total_cash_recovered         = Decimal("0")
+        cmf.total_investor_capital       = Decimal("0")
+        cmf.total_investor_withdrawn     = Decimal("0")
+        cmf.total_owner_contributions    = Decimal("0")
+        cmf.total_owner_drawings         = Decimal("0")
+        cmf.total_owner_withdrawals_count = 0
         cmf.save()
 
         # 1. Cash lost/recovered = sum over non-deleted CashAdjustment rows
@@ -50,18 +55,35 @@ class Command(BaseCommand):
         self.stdout.write(f"  total_investor_capital: {cmf.total_investor_capital}")
         self.stdout.write(f"  total_investor_withdrawn: {cmf.total_investor_withdrawn}")
 
+        # 3. Owner totals = sum over non-deleted OwnerTransaction rows
+        for t in OwnerTransaction.objects.filter(is_deleted=False):
+            if t.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
+                cmf.total_owner_contributions += t.amount
+            else:
+                cmf.total_owner_drawings += t.amount
+                cmf.total_owner_withdrawals_count += 1
+        self.stdout.write(f"  total_owner_contributions: {cmf.total_owner_contributions}")
+        self.stdout.write(f"  total_owner_drawings: {cmf.total_owner_drawings}")
+        self.stdout.write(f"  total_owner_withdrawals_count: {cmf.total_owner_withdrawals_count}")
+
         # Derived fields — same recompute-and-store discipline as the live sync path.
         cmf.net_cash_lost = max(Decimal("0"), cmf.total_cash_lost - cmf.total_cash_recovered)
         cmf.net_investor_capital = cmf.total_investor_capital - cmf.total_investor_withdrawn
+        # NOT floored — a sole owner can draw out more than they've deposited.
+        cmf.net_owner_capital = cmf.total_owner_contributions - cmf.total_owner_drawings
 
         cmf.save()
         self.stdout.write(self.style.SUCCESS("\nCashManagement backfill complete."))
         self.stdout.write(f"""
 Final CashManagementFlow state:
-  total_cash_lost           : {cmf.total_cash_lost}
-  total_cash_recovered      : {cmf.total_cash_recovered}
-  net_cash_lost              : {cmf.net_cash_lost}
-  total_investor_capital    : {cmf.total_investor_capital}
-  total_investor_withdrawn  : {cmf.total_investor_withdrawn}
-  net_investor_capital       : {cmf.net_investor_capital}
+  total_cash_lost               : {cmf.total_cash_lost}
+  total_cash_recovered          : {cmf.total_cash_recovered}
+  net_cash_lost                  : {cmf.net_cash_lost}
+  total_investor_capital        : {cmf.total_investor_capital}
+  total_investor_withdrawn      : {cmf.total_investor_withdrawn}
+  net_investor_capital           : {cmf.net_investor_capital}
+  total_owner_contributions     : {cmf.total_owner_contributions}
+  total_owner_drawings          : {cmf.total_owner_drawings}
+  total_owner_withdrawals_count : {cmf.total_owner_withdrawals_count}
+  net_owner_capital              : {cmf.net_owner_capital}
 """)

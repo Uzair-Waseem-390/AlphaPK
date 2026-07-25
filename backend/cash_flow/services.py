@@ -524,6 +524,30 @@ def sync_investor_withdrawal(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_owner_contribution(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when the owner deposits personal
+    money into the business. Equity, same as investor investment — increases
+    cash_in_hand only, never total_invoice_revenue/total_gross_profit.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
+def sync_owner_drawing(*, amount: Decimal, user) -> None:
+    """
+    Called by cash_management.services when the owner withdraws money for
+    personal use. Distinct from lost cash and from investor withdrawals —
+    this is deliberate, tracked owner drawings.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
 def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     """
     Called when a draft purchase order with advance is deleted.

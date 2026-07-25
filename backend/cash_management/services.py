@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction
+from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction
 
 
 # ---------------------------------------------------------------------------
@@ -12,18 +12,21 @@ from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransa
 
 def _adjust_cash_management_flow(
     *,
-    total_cash_lost_delta          : Decimal = Decimal("0"),
-    total_cash_recovered_delta     : Decimal = Decimal("0"),
-    total_investor_capital_delta   : Decimal = Decimal("0"),
-    total_investor_withdrawn_delta : Decimal = Decimal("0"),
+    total_cash_lost_delta               : Decimal = Decimal("0"),
+    total_cash_recovered_delta          : Decimal = Decimal("0"),
+    total_investor_capital_delta        : Decimal = Decimal("0"),
+    total_investor_withdrawn_delta      : Decimal = Decimal("0"),
+    total_owner_contributions_delta     : Decimal = Decimal("0"),
+    total_owner_drawings_delta          : Decimal = Decimal("0"),
+    total_owner_withdrawals_count_delta : int = 0,
     user,
 ) -> CashManagementFlow:
     """
     Atomically adjusts the CashManagementFlow singleton by the given deltas,
-    then recalculates and SAVES the two derived fields (net_cash_lost,
-    net_investor_capital) so nothing downstream ever has to sum rows at
-    request time. Positive delta = increase. Negative delta = decrease.
-    This is the ONLY function that writes to CashManagementFlow.
+    then recalculates and SAVES the derived fields (net_cash_lost,
+    net_investor_capital, net_owner_capital) so nothing downstream ever has
+    to sum rows at request time. Positive delta = increase. Negative delta =
+    decrease. This is the ONLY function that writes to CashManagementFlow.
     """
     with transaction.atomic():
         cmf = CashManagementFlow.objects.select_for_update().get_or_create(pk=1)[0]
@@ -40,12 +43,23 @@ def _adjust_cash_management_flow(
         cmf.total_investor_withdrawn = max(
             Decimal("0"), cmf.total_investor_withdrawn + total_investor_withdrawn_delta
         )
+        cmf.total_owner_contributions = max(
+            Decimal("0"), cmf.total_owner_contributions + total_owner_contributions_delta
+        )
+        cmf.total_owner_drawings = max(
+            Decimal("0"), cmf.total_owner_drawings + total_owner_drawings_delta
+        )
+        cmf.total_owner_withdrawals_count = max(
+            0, cmf.total_owner_withdrawals_count + total_owner_withdrawals_count_delta
+        )
 
         # Derived fields — recomputed and stored on every sync, not on read.
         cmf.net_cash_lost = max(
             Decimal("0"), cmf.total_cash_lost - cmf.total_cash_recovered
         )
         cmf.net_investor_capital = cmf.total_investor_capital - cmf.total_investor_withdrawn
+        # NOT floored — a sole owner can draw out more than they've deposited.
+        cmf.net_owner_capital = cmf.total_owner_contributions - cmf.total_owner_drawings
 
         cmf.last_updated_by = user
         cmf.save()
@@ -282,6 +296,79 @@ def delete_investor_transaction(*, pk: int, user) -> None:
         investor.save(update_fields=["total_withdrawn", "net_stake"])
         _adjust_cash_management_flow(total_investor_withdrawn_delta=-amount, user=user)
         sync_investor_investment(amount=amount, user=user)  # reverse: restore cash_in_hand
+
+    txn.is_deleted = True
+    txn.deleted_at = timezone.now()
+    txn.deleted_by = user
+    txn.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
+# ---------------------------------------------------------------------------
+# OwnerTransaction services (owner drawings/contributions)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_owner_transaction(
+    *, transaction_type: str, amount: Decimal, transaction_date, note: str = "", user,
+) -> OwnerTransaction:
+    """
+    Records an owner contribution or drawing. Contribution adds to
+    CashFlow.cash_in_hand, drawing deducts from it. Unlike investor
+    withdrawals, a drawing is NOT capped by net_owner_capital — the owner
+    can draw more than they've contributed.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if amount <= 0:
+        raise ValidationError({"amount": "Amount must be greater than zero."})
+    if transaction_type not in (OwnerTransaction.TransactionType.CONTRIBUTION, OwnerTransaction.TransactionType.DRAWING):
+        raise ValidationError({"transaction_type": "Must be 'contribution' or 'drawing'."})
+
+    txn = OwnerTransaction.objects.create(
+        transaction_type=transaction_type,
+        amount=amount,
+        transaction_date=transaction_date,
+        note=note,
+        created_by=user,
+        updated_by=user,
+    )
+
+    from cash_flow.services import sync_owner_contribution, sync_owner_drawing
+
+    if transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
+        _adjust_cash_management_flow(total_owner_contributions_delta=+amount, user=user)
+        sync_owner_contribution(amount=amount, user=user)
+    else:
+        _adjust_cash_management_flow(
+            total_owner_drawings_delta=+amount,
+            total_owner_withdrawals_count_delta=+1,
+            user=user,
+        )
+        sync_owner_drawing(amount=amount, user=user)
+
+    return txn
+
+
+@transaction.atomic
+def delete_owner_transaction(*, pk: int, user) -> None:
+    """Soft-deletes an owner transaction and reverses its effects."""
+    from django.shortcuts import get_object_or_404
+
+    txn = get_object_or_404(OwnerTransaction, pk=pk, is_deleted=False)
+    amount = txn.amount
+
+    from cash_flow.services import sync_owner_contribution, sync_owner_drawing
+
+    if txn.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
+        _adjust_cash_management_flow(total_owner_contributions_delta=-amount, user=user)
+        sync_owner_drawing(amount=amount, user=user)  # reverse: remove cash_in_hand again
+    else:
+        _adjust_cash_management_flow(
+            total_owner_drawings_delta=-amount,
+            total_owner_withdrawals_count_delta=-1,
+            user=user,
+        )
+        sync_owner_contribution(amount=amount, user=user)  # reverse: restore cash_in_hand
 
     txn.is_deleted = True
     txn.deleted_at = timezone.now()

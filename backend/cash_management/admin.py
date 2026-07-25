@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction
+from .models import CashAdjustment, CashManagementFlow, Investor, InvestorTransaction, OwnerTransaction
 
 
 @admin.register(CashManagementFlow)
@@ -8,6 +8,7 @@ class CashManagementFlowAdmin(admin.ModelAdmin):
     list_display = [
         "total_cash_lost", "total_cash_recovered", "net_cash_lost",
         "total_investor_capital", "total_investor_withdrawn", "net_investor_capital",
+        "total_owner_contributions", "total_owner_drawings", "total_owner_withdrawals_count", "net_owner_capital",
         "last_updated_at",
     ]
     readonly_fields = [f.name for f in CashManagementFlow._meta.fields]
@@ -49,3 +50,10 @@ class InvestorTransactionAdmin(AuditAdminMixin, admin.ModelAdmin):
     list_display  = ["investor", "transaction_type", "amount", "transaction_date", "is_deleted"]
     list_filter   = ["transaction_type", "is_deleted"]
     search_fields = ["investor__name", "note"]
+
+
+@admin.register(OwnerTransaction)
+class OwnerTransactionAdmin(AuditAdminMixin, admin.ModelAdmin):
+    list_display  = ["transaction_type", "amount", "transaction_date", "is_deleted", "created_by"]
+    list_filter   = ["transaction_type", "is_deleted"]
+    search_fields = ["note"]

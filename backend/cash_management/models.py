@@ -163,6 +163,67 @@ class InvestorTransaction(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# OwnerTransaction  (ledger — owner drawings/contributions, mirrors InvestorTransaction)
+# ---------------------------------------------------------------------------
+
+class OwnerTransaction(models.Model):
+    """
+    One contribution or drawing event for the business owner. Distinct from
+    Investor/InvestorTransaction (external investor equity) and from
+    CashAdjustment (unexplained physical cash discrepancies) — this is the
+    owner deliberately putting personal money in, or deliberately taking
+    money out for personal use. Confirmed immediately on creation — no draft
+    state. Contribution adds to CashFlow.cash_in_hand, drawing deducts from
+    it.
+
+    Unlike InvestorTransaction, a drawing is NOT capped by net_owner_capital
+    — a sole owner can draw out more than they've contributed (financed by
+    the business's profits), same as any real owner's drawing account. It's
+    normal for net_owner_capital to go negative.
+
+    Only one implicit "owner" for now (no separate Owner model, unlike
+    Investor) — this store has a single owner. If that ever changes,
+    this would need to grow an Owner FK the same way InvestorTransaction has one.
+    """
+
+    class TransactionType(models.TextChoices):
+        CONTRIBUTION = "contribution", "Contribution"
+        DRAWING      = "drawing", "Drawing"
+
+    transaction_type = models.CharField(max_length=12, choices=TransactionType.choices)
+    amount           = models.DecimalField(max_digits=18, decimal_places=4)
+    transaction_date = models.DateField(db_index=True)
+    note             = models.TextField(blank=True, default="")
+
+    created_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="owner_transactions_created",
+    )
+    updated_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="owner_transactions_updated",
+    )
+    deleted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="owner_transactions_deleted",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+    is_deleted  = models.BooleanField(default=False, db_index=True)
+
+    objects     = models.Manager()
+
+    class Meta:
+        verbose_name        = "Owner Transaction"
+        verbose_name_plural  = "Owner Transactions"
+        ordering             = ["-transaction_date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.get_transaction_type_display()} — {self.amount} on {self.transaction_date}"
+
+
+# ---------------------------------------------------------------------------
 # CashManagementFlow  (singleton — mirrors cash_flow.CashFlow / taxes.TaxFlow)
 # ---------------------------------------------------------------------------
 
@@ -190,6 +251,17 @@ class CashManagementFlow(models.Model):
                                    help_text="Total ever withdrawn by all investors, all-time (gross, only ever increases).")
     net_investor_capital     = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                    help_text="total_investor_capital - total_investor_withdrawn. Current total equity capital in the business. Stored, recalculated on every sync.")
+
+    total_owner_contributions   = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                       help_text="Total cash the owner has deposited into the business, all-time (gross, only ever increases).")
+    total_owner_drawings        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                       help_text="Total cash the owner has withdrawn for personal use, all-time (gross, only ever increases).")
+    total_owner_withdrawals_count = models.PositiveIntegerField(default=0,
+                                       help_text="Count of owner drawing transactions, all-time (only ever increases).")
+    net_owner_capital            = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                       help_text="total_owner_contributions - total_owner_drawings. NOT floored at 0 — "
+                                                  "a sole owner can draw out more than they've deposited, financed by "
+                                                  "the business's profits, same as any real owner's drawing account.")
 
     last_updated_at = models.DateTimeField(auto_now=True)
     last_updated_by = models.ForeignKey(

@@ -1,16 +1,20 @@
 from rest_framework import serializers
 
-from .models import CashAdjustment, Investor, InvestorTransaction
+from .models import CashAdjustment, Investor, InvestorTransaction, OwnerTransaction
 
 
 class CashManagementStatsSerializer(serializers.Serializer):
-    """Read-only serializer for the 6 cash-management stats."""
-    total_cash_lost          = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_cash_recovered     = serializers.DecimalField(max_digits=20, decimal_places=4)
-    net_cash_lost            = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_investor_capital   = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total_investor_withdrawn = serializers.DecimalField(max_digits=20, decimal_places=4)
-    net_investor_capital     = serializers.DecimalField(max_digits=20, decimal_places=4)
+    """Read-only serializer for the 10 cash-management stats."""
+    total_cash_lost               = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_cash_recovered          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_cash_lost                 = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_investor_capital        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_investor_withdrawn      = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_investor_capital          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_contributions     = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_drawings          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_owner_withdrawals_count = serializers.IntegerField()
+    net_owner_capital             = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 # ---------------------------------------------------------------------------
@@ -95,6 +99,34 @@ class InvestorTransactionWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model  = InvestorTransaction
         fields = ["investor", "transaction_type", "amount", "transaction_date", "note"]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+
+# ---------------------------------------------------------------------------
+# OwnerTransaction
+# ---------------------------------------------------------------------------
+
+class OwnerTransactionReadSerializer(serializers.ModelSerializer):
+    created_by = serializers.StringRelatedField(read_only=True)
+    updated_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = OwnerTransaction
+        fields = [
+            "id", "transaction_type", "amount", "transaction_date", "note",
+            "created_by", "updated_by", "created_at", "updated_at",
+        ]
+        read_only_fields = fields
+
+
+class OwnerTransactionWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = OwnerTransaction
+        fields = ["transaction_type", "amount", "transaction_date", "note"]
 
     def validate_amount(self, value):
         if value <= 0:

@@ -132,7 +132,7 @@ class Command(BaseCommand):
         #     cash_flow.services.sync_cash_lost/sync_cash_found/
         #     sync_investor_investment/sync_investor_withdrawal exactly.
         try:
-            from cash_management.models import CashAdjustment, InvestorTransaction
+            from cash_management.models import CashAdjustment, InvestorTransaction, OwnerTransaction
 
             total_lost = Decimal("0")
             total_found = Decimal("0")
@@ -157,6 +157,18 @@ class Command(BaseCommand):
                     cf.cash_in_hand  -= t.amount
             cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
             self.stdout.write(f"  total_investor_capital (added): {total_invested}, total_investor_withdrawn (deducted): {total_withdrawn}")
+
+            total_owner_contributions = Decimal("0")
+            total_owner_drawings = Decimal("0")
+            for t in OwnerTransaction.objects.filter(is_deleted=False):
+                if t.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
+                    total_owner_contributions += t.amount
+                    cf.cash_in_hand           += t.amount
+                else:
+                    total_owner_drawings      += t.amount
+                    cf.cash_in_hand           -= t.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_owner_contributions (added): {total_owner_contributions}, total_owner_drawings (deducted): {total_owner_drawings}")
         except Exception:
             pass  # cash_management app absent — fine, nothing to adjust
 
