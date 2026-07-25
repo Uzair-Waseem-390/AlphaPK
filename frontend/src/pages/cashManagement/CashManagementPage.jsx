@@ -70,17 +70,20 @@ const CashManagementPage = () => {
 
                     <div>
                         <h2 className="text-lg font-semibold text-neutral-900 mb-3">Investor Capital</h2>
-                        <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <StatBox label="Total Invested" value={stats?.total_investor_capital} tone="blue" subtitle="All-time, gross" />
                             <StatBox label="Total Withdrawn" value={stats?.total_investor_withdrawn} tone="orange" subtitle="All-time, gross" />
                             <StatBox label="Net Investor Capital" value={stats?.net_investor_capital} tone="purple" subtitle="Currently in the business" />
+                            <StatBox label="Total Investor Net Worth" value={stats?.total_investor_net_worth} tone="green" subtitle="Theoretical, growth-compounded" />
                         </div>
                     </div>
 
                     <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
                         Investor capital is equity financing — it increases cash in hand but is never counted as
                         revenue or profit. It's tracked separately so it can be used later to calculate each
-                        investor's share once net (actual) profit is tracked, not just gross profit.
+                        investor's share once net (actual) profit is tracked, not just gross profit. Net Worth
+                        includes each investor's compounded growth and is informational only — never used for
+                        withdrawal validation.
                     </div>
 
                     <div>

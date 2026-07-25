@@ -142,6 +142,15 @@ export const useInvestors = (initialFilters = {}) => {
     };
 };
 
+// Hook for a single investor's growth history, scoped via initialFilters={ investor_id }.
+export const useInvestorValuationEntries = (initialFilters = {}) => {
+    const {
+        data, meta, loading, error, filters, setFilters, page, setPage, refetch,
+    } = usePaginatedList((params) => cashManagementApi.investorValuationEntries.getAll(params), initialFilters);
+
+    return { data, meta, loading, error, filters, setFilters, page, setPage, refetch };
+};
+
 // Hook for investor transaction management (create + delete only), optionally
 // scoped to a single investor via initialFilters={ investor_id }.
 export const useInvestorTransactions = (initialFilters = {}) => {

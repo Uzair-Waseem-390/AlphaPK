@@ -23,6 +23,12 @@ export const cashManagementApi = {
         update: (id, data) => api.patch(`/cash-management/investors/${id}/`, data),
         delete: (id) => api.delete(`/cash-management/investors/${id}/`),
     },
+    investorValuationEntries: {
+        getAll: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-management/investors/valuation-entries/${query ? `?${query}` : ''}`);
+        },
+    },
     investorTransactions: {
         getAll: (params = {}) => {
             const query = new URLSearchParams(params).toString();

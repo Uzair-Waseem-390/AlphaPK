@@ -28,14 +28,14 @@ const InvestorsPage = () => {
 
     const [showModal, setShowModal] = useState(false);
     const [editingInvestor, setEditingInvestor] = useState(null);
-    const [formData, setFormData] = useState({ name: '', contact_number: '', email: '', note: '' });
+    const [formData, setFormData] = useState({ name: '', contact_number: '', email: '', note: '', growth_rate: '' });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [searchTerm, setSearchTerm] = useState('');
 
     const resetForm = () => {
-        setFormData({ name: '', contact_number: '', email: '', note: '' });
+        setFormData({ name: '', contact_number: '', email: '', note: '', growth_rate: '' });
         setEditingInvestor(null);
         setFormError('');
     };
@@ -45,16 +45,17 @@ const InvestorsPage = () => {
         setFormError('');
         setFormLoading(true);
         try {
+            const payload = { ...formData, growth_rate: (parseFloat(formData.growth_rate) || 0) / 100 };
             if (editingInvestor) {
-                await update(editingInvestor.id, formData);
+                await update(editingInvestor.id, payload);
             } else {
-                await create(formData);
+                await create(payload);
             }
             setShowModal(false);
             resetForm();
             refetch();
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.name?.[0] || 'Failed to save investor');
+            setFormError(error.response?.data?.detail || error.response?.data?.name?.[0] || error.response?.data?.growth_rate?.[0] || 'Failed to save investor');
         } finally {
             setFormLoading(false);
         }
@@ -67,6 +68,7 @@ const InvestorsPage = () => {
             contact_number: investor.contact_number || '',
             email: investor.email || '',
             note: investor.note || '',
+            growth_rate: investor.growth_rate ? (parseFloat(investor.growth_rate) * 100).toString() : '',
         });
         setShowModal(true);
     };
@@ -107,6 +109,16 @@ const InvestorsPage = () => {
             key: 'net_stake',
             label: 'Net Stake (PKR)',
             render: (value) => <span className="font-semibold text-purple-600">Rs. {fmt(value)}</span>,
+        },
+        {
+            key: 'growth_rate',
+            label: 'Growth Rate',
+            render: (value) => parseFloat(value) > 0 ? `${(parseFloat(value) * 100).toFixed(2)}% / yr` : <span className="text-neutral-300">—</span>,
+        },
+        {
+            key: 'current_worth',
+            label: 'Current Worth (PKR)',
+            render: (value) => <span className="font-semibold text-teal-600">Rs. {fmt(value)}</span>,
         },
         {
             key: 'actions',
@@ -220,6 +232,15 @@ const InvestorsPage = () => {
                         value={formData.note}
                         onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                         placeholder="Optional"
+                    />
+                    <Input
+                        label="Annual Growth Rate (%)"
+                        type="number"
+                        step="0.01"
+                        min="0"
+                        value={formData.growth_rate}
+                        onChange={(e) => setFormData({ ...formData, growth_rate: e.target.value })}
+                        placeholder="e.g. 2 for 2% annual — 0 or blank for no growth"
                     />
 
                     {formError && (
