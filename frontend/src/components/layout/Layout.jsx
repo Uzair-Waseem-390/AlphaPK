@@ -15,6 +15,7 @@ const Layout = ({ children }) => {
     const [taxesOpen, setTaxesOpen] = useState(false);
     const [cashManagementOpen, setCashManagementOpen] = useState(false);
     const [assetsOpen, setAssetsOpen] = useState(false);
+    const [recurringExpensesOpen, setRecurringExpensesOpen] = useState(false);
 
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const isSuperuser = user?.role === 'superuser';
@@ -91,6 +92,14 @@ const Layout = ({ children }) => {
         return assetsPaths.some(path => location.pathname.startsWith(path));
     };
 
+    // Check if any recurring expenses sub-item is active
+    const isRecurringExpensesActive = () => {
+        const recurringExpensesPaths = [
+            '/recurring-expenses',
+        ];
+        return recurringExpensesPaths.some(path => location.pathname.startsWith(path));
+    };
+
     const mainNavigation = [
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
         // Listing all users is superuser-only (see users app permission matrix)
@@ -129,6 +138,15 @@ const Layout = ({ children }) => {
     const expensesNavigation = [
         { name: 'Categories', path: '/expenses/categories', icon: '📂' },
         { name: 'All Expenses', path: '/expenses', icon: '📋' },
+    ];
+
+    const recurringExpensesNavigation = [
+        { name: 'Overview', path: '/recurring-expenses', icon: '🔁' },
+        { name: 'Categories', path: '/recurring-expenses/categories', icon: '🏷️' },
+        { name: 'Templates', path: '/recurring-expenses/templates', icon: '📄' },
+        { name: 'Post Dues', path: '/recurring-expenses/post-dues', icon: '📮' },
+        { name: 'Assignments', path: '/recurring-expenses/assignments', icon: '📋' },
+        { name: 'Monthly Breakdown', path: '/recurring-expenses/monthly-stats', icon: '📅' },
     ];
 
     const reportsNavigation = [
@@ -171,6 +189,7 @@ const Layout = ({ children }) => {
     const isTaxesActiveNow = isTaxesActive();
     const isCashManagementActiveNow = isCashManagementActive();
     const isAssetsActiveNow = isAssetsActive();
+    const isRecurringExpensesActiveNow = isRecurringExpensesActive();
 
     return (
         <div className="min-h-screen bg-neutral-50">
@@ -372,6 +391,81 @@ const Layout = ({ children }) => {
                                 </div>
                             )}
                         </div>
+
+                        {/* Recurring Expenses Section — admin/superuser only */}
+                        {isAdmin && (
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <button
+                                    onClick={() => setRecurringExpensesOpen(!recurringExpensesOpen)}
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isRecurringExpensesActiveNow
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">🔁</span>
+                                        {sidebarOpen && (
+                                            <span className="font-medium">Recurring Expenses</span>
+                                        )}
+                                    </div>
+                                    {sidebarOpen && (
+                                        <motion.span
+                                            animate={{ rotate: recurringExpensesOpen ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="text-sm"
+                                        >
+                                            ▼
+                                        </motion.span>
+                                    )}
+                                </button>
+
+                                {/* Recurring Expenses Sub-items */}
+                                <AnimatePresence>
+                                    {recurringExpensesOpen && sidebarOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="ml-4 space-y-1 overflow-hidden"
+                                        >
+                                            {recurringExpensesNavigation.map((item) => (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                        ? 'bg-primary-50 text-primary-700'
+                                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                                        }`}
+                                                >
+                                                    <span className="text-base">{item.icon}</span>
+                                                    <span className="font-medium">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* When sidebar is collapsed, show recurring expenses as icons */}
+                                {!sidebarOpen && (
+                                    <div className="mt-1 space-y-1">
+                                        {recurringExpensesNavigation.map((item) => (
+                                            <Link
+                                                key={item.path}
+                                                to={item.path}
+                                                className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
+                                                    ? 'bg-primary-50 text-primary-700'
+                                                    : 'text-neutral-600 hover:bg-neutral-100'
+                                                    }`}
+                                                title={item.name}
+                                            >
+                                                <span className="text-xl">{item.icon}</span>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
 
                         {/* Expenses Section — admin/superuser only (Cash Flow app) */}
                         {isAdmin && (

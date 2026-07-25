@@ -91,6 +91,15 @@ import AssetItemsPage from './pages/assets/AssetItemsPage';
 import AssetDetailPage from './pages/assets/AssetDetailPage';
 import AssetDisposalsPage from './pages/assets/AssetDisposalsPage';
 
+// Recurring Expenses pages
+import RecurringExpensesPage from './pages/recurringExpenses/RecurringExpensesPage';
+import RecurringExpenseCategoriesPage from './pages/recurringExpenses/RecurringExpenseCategoriesPage';
+import RecurringExpenseTemplatesPage from './pages/recurringExpenses/RecurringExpenseTemplatesPage';
+import RecurringExpensePostDuesPage from './pages/recurringExpenses/RecurringExpensePostDuesPage';
+import RecurringExpenseAssignmentsPage from './pages/recurringExpenses/RecurringExpenseAssignmentsPage';
+import RecurringExpenseAssignmentDetailPage from './pages/recurringExpenses/RecurringExpenseAssignmentDetailPage';
+import RecurringExpenseMonthlyStatsPage from './pages/recurringExpenses/RecurringExpenseMonthlyStatsPage';
+
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
 
@@ -665,6 +674,63 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <AssetDisposalsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Recurring Expenses Routes */}
+        <Route path="/recurring-expenses" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpensesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/categories" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpenseCategoriesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/templates" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpenseTemplatesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/post-dues" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpensePostDuesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/assignments" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpenseAssignmentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/assignments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpenseAssignmentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/monthly-stats" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpenseMonthlyStatsPage />
             </Layout>
           </ProtectedRoute>
         } />

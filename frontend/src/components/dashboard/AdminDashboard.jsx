@@ -5,6 +5,7 @@ import { useCashFlowStats } from '../../hooks/useCashFlow';
 import { useTaxesStats } from '../../hooks/useTaxes';
 import { useCashManagementStats } from '../../hooks/useCashManagement';
 import { useAssetStats } from '../../hooks/useAssets';
+import { useRecurringExpenseFlowStats } from '../../hooks/useRecurringExpenses';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
@@ -14,6 +15,7 @@ import ProfitSectionStats from './ProfitSectionStats';
 import TaxesSectionStats from './TaxesSectionStats';
 import CashManagementSectionStats from './CashManagementSectionStats';
 import AssetsSectionStats from './AssetsSectionStats';
+import RecurringExpensesSectionStats from './RecurringExpensesSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -25,6 +27,7 @@ const AdminDashboard = () => {
     const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
     const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
     const { data: assetStats, loading: assetStatsLoading } = useAssetStats();
+    const { data: recurringExpenseStats, loading: recurringExpenseStatsLoading } = useRecurringExpenseFlowStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -84,6 +87,10 @@ const AdminDashboard = () => {
                     stats={stats}
                     loading={statsLoading}
                     onCardClick={handleCardClick}
+                />
+                <RecurringExpensesSectionStats
+                    stats={recurringExpenseStats}
+                    loading={recurringExpenseStatsLoading}
                 />
                 <ReturnsSectionStats
                     stats={stats}
