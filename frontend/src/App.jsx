@@ -74,6 +74,13 @@ import TaxesPage from './pages/taxes/TaxesPage';
 import TaxPaymentsPage from './pages/taxes/TaxPaymentsPage';
 import TaxPaymentDetailPage from './pages/taxes/TaxPaymentDetailPage';
 
+// Cash Management pages
+import CashManagementPage from './pages/cashManagement/CashManagementPage';
+import CashAdjustmentsPage from './pages/cashManagement/CashAdjustmentsPage';
+import CashAdjustmentDetailPage from './pages/cashManagement/CashAdjustmentDetailPage';
+import InvestorsPage from './pages/cashManagement/InvestorsPage';
+import InvestorDetailPage from './pages/cashManagement/InvestorDetailPage';
+
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
 
@@ -542,6 +549,47 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <TaxPaymentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Cash Management Routes */}
+        <Route path="/cash-management" element={
+          <ProtectedRoute>
+            <Layout>
+              <CashManagementPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/adjustments" element={
+          <ProtectedRoute>
+            <Layout>
+              <CashAdjustmentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/adjustments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <CashAdjustmentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/investors" element={
+          <ProtectedRoute>
+            <Layout>
+              <InvestorsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/investors/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <InvestorDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

@@ -3,6 +3,7 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
 import { useTaxesStats } from '../../hooks/useTaxes';
+import { useCashManagementStats } from '../../hooks/useCashManagement';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
@@ -10,6 +11,7 @@ import LostInventorySectionStats from './LostInventorySectionStats';
 import ReturnsSectionStats from './ReturnsSectionStats';
 import ProfitSectionStats from './ProfitSectionStats';
 import TaxesSectionStats from './TaxesSectionStats';
+import CashManagementSectionStats from './CashManagementSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
@@ -19,6 +21,7 @@ const AdminDashboard = () => {
     const { user } = useAuth();
     const { data: stats, loading: statsLoading, refetch: refetchStats } = useCashFlowStats();
     const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
+    const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -92,6 +95,10 @@ const AdminDashboard = () => {
                 <TaxesSectionStats
                     stats={taxStats}
                     loading={taxStatsLoading}
+                />
+                <CashManagementSectionStats
+                    stats={cashMgmtStats}
+                    loading={cashMgmtStatsLoading}
                 />
             </div>
 

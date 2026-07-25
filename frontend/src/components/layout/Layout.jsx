@@ -13,6 +13,7 @@ const Layout = ({ children }) => {
     const [expensesOpen, setExpensesOpen] = useState(false); // Add this state
     const [reportsOpen, setReportsOpen] = useState(false);
     const [taxesOpen, setTaxesOpen] = useState(false);
+    const [cashManagementOpen, setCashManagementOpen] = useState(false);
 
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const isSuperuser = user?.role === 'superuser';
@@ -73,6 +74,14 @@ const Layout = ({ children }) => {
         return taxesPaths.some(path => location.pathname.startsWith(path));
     };
 
+    // Check if any cash management sub-item is active
+    const isCashManagementActive = () => {
+        const cashManagementPaths = [
+            '/cash-management',
+        ];
+        return cashManagementPaths.some(path => location.pathname.startsWith(path));
+    };
+
     const mainNavigation = [
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
         // Listing all users is superuser-only (see users app permission matrix)
@@ -130,12 +139,19 @@ const Layout = ({ children }) => {
         { name: 'Tax Payments', path: '/taxes/payments', icon: '🧾' },
     ];
 
+    const cashManagementNavigation = [
+        { name: 'Overview', path: '/cash-management', icon: '💵' },
+        { name: 'Cash Adjustments', path: '/cash-management/adjustments', icon: '💸' },
+        { name: 'Investors', path: '/cash-management/investors', icon: '🤝' },
+    ];
+
     const isActive = (path) => location.pathname === path;
     const isPurchasesActiveNow = isPurchasesActive();
     const isBillingActiveNow = isBillingActive();
     const isExpensesActiveNow = isExpensesActive();
     const isReportsActiveNow = isReportsActive();
     const isTaxesActiveNow = isTaxesActive();
+    const isCashManagementActiveNow = isCashManagementActive();
 
     return (
         <div className="min-h-screen bg-neutral-50">
@@ -471,6 +487,81 @@ const Layout = ({ children }) => {
                                 {!sidebarOpen && (
                                     <div className="mt-1 space-y-1">
                                         {taxesNavigation.map((item) => (
+                                            <Link
+                                                key={item.path}
+                                                to={item.path}
+                                                className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
+                                                    ? 'bg-primary-50 text-primary-700'
+                                                    : 'text-neutral-600 hover:bg-neutral-100'
+                                                    }`}
+                                                title={item.name}
+                                            >
+                                                <span className="text-xl">{item.icon}</span>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Cash Management Section — admin/superuser only */}
+                        {isAdmin && (
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <button
+                                    onClick={() => setCashManagementOpen(!cashManagementOpen)}
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isCashManagementActiveNow
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">💵</span>
+                                        {sidebarOpen && (
+                                            <span className="font-medium">Cash Management</span>
+                                        )}
+                                    </div>
+                                    {sidebarOpen && (
+                                        <motion.span
+                                            animate={{ rotate: cashManagementOpen ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="text-sm"
+                                        >
+                                            ▼
+                                        </motion.span>
+                                    )}
+                                </button>
+
+                                {/* Cash Management Sub-items */}
+                                <AnimatePresence>
+                                    {cashManagementOpen && sidebarOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="ml-4 space-y-1 overflow-hidden"
+                                        >
+                                            {cashManagementNavigation.map((item) => (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                        ? 'bg-primary-50 text-primary-700'
+                                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                                        }`}
+                                                >
+                                                    <span className="text-base">{item.icon}</span>
+                                                    <span className="font-medium">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* When sidebar is collapsed, show cash management as icons */}
+                                {!sidebarOpen && (
+                                    <div className="mt-1 space-y-1">
+                                        {cashManagementNavigation.map((item) => (
                                             <Link
                                                 key={item.path}
                                                 to={item.path}
