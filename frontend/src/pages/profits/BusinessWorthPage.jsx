@@ -5,7 +5,7 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import {
     PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
-    BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine, LabelList,
+    BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine,
 } from 'recharts';
 
 const fmt = (value) => {
@@ -149,12 +149,16 @@ const BusinessWorthPage = () => {
             ) : (
                 <>
                     {/* Hero total */}
-                    <Card className="p-8 bg-gradient-to-br from-primary-600 to-primary-700 text-white">
-                        <p className="text-sm text-primary-100 uppercase tracking-wide font-medium">Total Business Worth</p>
-                        <p className="text-5xl font-bold mt-2">Rs. {fmt(data.total_business_worth)}</p>
-                        <p className="text-sm text-primary-100 mt-3">
-                            Assets − Liabilities, computed live · never stored, always current
-                        </p>
+                    <Card className="p-4 bg-gradient-to-br from-primary-600 to-primary-700 text-white">
+                        <div className="flex flex-wrap items-baseline justify-between gap-x-4 gap-y-1">
+                            <div className="flex items-baseline gap-3">
+                                <p className="text-sm text-primary-100 uppercase tracking-wide font-medium">Total Business Worth</p>
+                                <p className="text-xl font-bold">Rs. {fmt(data.total_business_worth)}</p>
+                            </div>
+                            <p className="text-sm text-primary-100">
+                                Assets − Liabilities · computed live, never stored
+                            </p>
+                        </div>
                     </Card>
 
                     {/* Charts */}
@@ -212,22 +216,16 @@ const BusinessWorthPage = () => {
                             </p>
                             <div className="h-72">
                                 <ResponsiveContainer width="100%" height="100%">
-                                    <BarChart data={worthBreakdownData} layout="vertical" margin={{ left: 10, right: 30 }}>
+                                    <BarChart data={worthBreakdownData} layout="vertical" margin={{ top: 5, left: 10, right: 20, bottom: 5 }}>
                                         <CartesianGrid strokeDasharray="3 3" stroke="#e2e8f0" horizontal={false} />
                                         <XAxis type="number" tickFormatter={formatCompact} tick={{ fill: '#64748b', fontSize: 11 }} />
-                                        <YAxis type="category" dataKey="name" width={130} tick={{ fill: '#64748b', fontSize: 11 }} />
+                                        <YAxis type="category" dataKey="name" width={140} tick={{ fill: '#64748b', fontSize: 11 }} />
                                         <ReferenceLine x={0} stroke="#94a3b8" />
-                                        <Tooltip content={<BreakdownTooltip />} />
-                                        <Bar dataKey="value" radius={[0, 4, 4, 0]}>
+                                        <Tooltip content={<BreakdownTooltip />} cursor={{ fill: '#f1f5f9' }} />
+                                        <Bar dataKey="value" radius={[4, 4, 4, 4]} barSize={20} isAnimationActive={false}>
                                             {worthBreakdownData.map((entry, index) => (
                                                 <Cell key={index} fill={entry.type === 'asset' ? ASSET_COLOR : LIABILITY_COLOR} />
                                             ))}
-                                            <LabelList
-                                                dataKey="value"
-                                                position="right"
-                                                formatter={formatCompact}
-                                                style={{ fontSize: 11, fill: '#475569' }}
-                                            />
                                         </Bar>
                                     </BarChart>
                                 </ResponsiveContainer>
