@@ -1,0 +1,13 @@
+# Architecture rules
+
+- **O(1) reads.** Dashboard/report/all-time stats read a stored field off a singleton (`CashFlow`/`TaxFlow`/`AssetFlow`/etc.), never a live `Sum()`/`Count()` over history. Live aggregation only OK when genuinely bounded (month-count trend queries, live snapshot reports like Inventory Valuation). No stored source for a needed number → flag to user, don't silently ship O(n).
+- **DRY.** Generalize before duplicating — one `BaseReportPrintView`/template serves all reports, not one per report. Exception: genuinely unique documents (invoice, PO) get their own template. Prefer existing public selectors/services (`get_asset_stats()`, etc.) over reimplementing loops or reaching into internals.
+- **App shape, every time**: `models.py`, `permissions.py` (`IsAdminOrSuperuser`, admin/superuser-only), `selectors.py` (all reads), `services.py` (all writes, `@transaction.atomic`), `serializers.py`, `views.py` (thin, **generics-based only** — no hand-rolled logic that a generic view already covers), `urls.py`, `admin.py`, `backfill_<app>` command. Never read/write directly in views — go through selectors/services.
+- **Soft delete always.** Never hard-delete a row that has any historical/audit relevance — use an `is_deleted` flag (or equivalent) and filter it out everywhere, mirroring existing models.
+- **Pagination always.** Any endpoint whose output is a list gets pagination — use the project's global default `pagination_class`, never `None` and never a custom override.
+- Frontend mirrors backend shape: `services/<app>Api.js`, `hooks/use<App>.js`, `pages/<app>/`, nav section in `Layout.jsx`, routes in `App.jsx`.
+- Rate/% inputs: user types whole numbers (`15`), frontend converts to/from the stored fraction.
+- **Snapshot at lock-in.** Historical figures (`share_percent_snapshot`, `name_snapshot`, `rate_applied`) are stored at the moment they're true, never re-derived from current state later.
+- **Earnings ≠ capital.** A profit payout never touches capital fields (`net_stake`, `total_invested`, `total_withdrawn`). Reinvestment = two separate, independently-reversible ledger entries (payout out, real transaction in), not one combined record.
+- **Catch-up mechanisms** (no cron/celery — "catch-up on view" pattern) must be registered in `GET /api/system/catch-up/` (`backend/backend/views.py`), in dependency order (currently assets → investors → profits).
+- **Disclaimer banner** on any computed-but-uncertified financial page (business worth, monthly profit, payouts, tax) — copy wording from `BusinessWorthPage.jsx`/`TaxesPage.jsx`.
