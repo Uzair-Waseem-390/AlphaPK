@@ -2,7 +2,7 @@ import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
-import Card from '../../components/ui/Card';
+import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 
 const fmt = (value) => {
@@ -33,6 +33,15 @@ const ProfitInvestorsListPage = () => {
         );
     }
 
+    const columns = [
+        { key: 'name', label: 'Name' },
+        { key: 'contact', label: 'Contact', render: (_v, row) => row.contact_number || row.email || <span className="text-neutral-300">—</span> },
+        { key: 'total_invested', label: 'Total Invested (PKR)', render: (v) => `Rs. ${fmt(v)}` },
+        { key: 'total_withdrawn', label: 'Total Withdrawn (PKR)', render: (v) => `Rs. ${fmt(v)}` },
+        { key: 'net_stake', label: 'Net Stake (PKR)', render: (v) => <span className="font-semibold text-neutral-900">Rs. {fmt(v)}</span> },
+        { key: 'current_worth', label: 'Current Worth (PKR)', render: (v) => <span className="font-semibold text-primary-600">Rs. {fmt(v)}</span> },
+    ];
+
     return (
         <div className="space-y-6">
             <div>
@@ -55,28 +64,11 @@ const ProfitInvestorsListPage = () => {
                     </p>
                 </div>
             ) : (
-                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
-                    {investors.map((inv) => (
-                        <Card
-                            key={inv.id}
-                            className="p-5 cursor-pointer hover:shadow-card-hover transition-shadow"
-                            onClick={() => navigate(`/profits/investors/${inv.id}`)}
-                        >
-                            <h3 className="font-semibold text-neutral-900">{inv.name}</h3>
-                            <p className="text-xs text-neutral-500 mt-0.5">{inv.contact_number || inv.email || '—'}</p>
-                            <div className="grid grid-cols-2 gap-3 mt-4">
-                                <div>
-                                    <p className="text-xs text-neutral-500">Net Stake</p>
-                                    <p className="font-semibold text-neutral-900">Rs. {fmt(inv.net_stake)}</p>
-                                </div>
-                                <div>
-                                    <p className="text-xs text-neutral-500">Current Worth</p>
-                                    <p className="font-semibold text-primary-600">Rs. {fmt(inv.current_worth)}</p>
-                                </div>
-                            </div>
-                        </Card>
-                    ))}
-                </div>
+                <Table
+                    columns={columns}
+                    data={investors}
+                    onRowClick={(row) => navigate(`/profits/investors/${row.id}`)}
+                />
             )}
         </div>
     );
