@@ -103,15 +103,22 @@ class RecurringExpenseAssignment(models.Model):
     """
     "This template owes this much for this month." Created explicitly by the
     user (single or bulk "Post"/"Assign" action) — never auto-created, never
-    updated or deleted once created. Only amount_paid/payment_status move,
-    and only as a side effect of RecurringExpenseAssignmentPayment rows.
+    updated once created. Only amount_paid/payment_status move, and only as
+    a side effect of RecurringExpenseAssignmentPayment rows.
+
+    Soft-deletable, but ONLY while still fully unpaid (amount_paid == 0) —
+    lets a mistaken assignment (wrong template, wrong period) be undone
+    cleanly. Once any payment has been recorded against it, it can no longer
+    be unassigned; delete the payment(s) first via
+    delete_recurring_expense_payment. See services.delete_recurring_expense_assignment.
 
     name_snapshot / category_name_snapshot freeze the template's name and
     category exactly as they were at assignment time — a later template
     rename/re-category, or category rename/delete, never rewrites history.
 
-    unique_together enforces "permanently blocked" re-assignment of the same
-    template for the same month at the database level.
+    The unique constraint below only applies to non-deleted rows — unassigning
+    a mistaken entry frees up that template/period combination for a fresh,
+    correct assignment.
     """
 
     class PaymentStatus(models.TextChoices):
@@ -135,6 +142,13 @@ class RecurringExpenseAssignment(models.Model):
     )
     assigned_at = models.DateTimeField(auto_now_add=True)
 
+    deleted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="recurring_expense_assignments_deleted",
+    )
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+    is_deleted  = models.BooleanField(default=False, db_index=True)
+
     objects     = models.Manager()
 
     class Meta:
@@ -142,7 +156,11 @@ class RecurringExpenseAssignment(models.Model):
         verbose_name_plural  = "Recurring Expense Assignments"
         ordering             = ["-period", "-assigned_at"]
         constraints = [
-            models.UniqueConstraint(fields=["recurring_expense", "period"], name="unique_recurring_expense_assignment_per_period"),
+            models.UniqueConstraint(
+                fields=["recurring_expense", "period"],
+                condition=models.Q(is_deleted=False),
+                name="unique_recurring_expense_assignment_per_period",
+            ),
         ]
         indexes = [
             models.Index(fields=["period", "category"], name="idx_rea_period_category"),

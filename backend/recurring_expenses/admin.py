@@ -38,8 +38,8 @@ class RecurringExpenseAdmin(AuditAdminMixin, admin.ModelAdmin):
 
 @admin.register(RecurringExpenseAssignment)
 class RecurringExpenseAssignmentAdmin(admin.ModelAdmin):
-    list_display  = ["name_snapshot", "period", "category_name_snapshot", "amount", "amount_paid", "payment_status"]
-    list_filter   = ["payment_status", "period"]
+    list_display  = ["name_snapshot", "period", "category_name_snapshot", "amount", "amount_paid", "payment_status", "is_deleted"]
+    list_filter   = ["payment_status", "period", "is_deleted"]
     search_fields = ["name_snapshot"]
     readonly_fields = [f.name for f in RecurringExpenseAssignment._meta.fields]
 

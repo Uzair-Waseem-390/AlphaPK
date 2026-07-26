@@ -37,6 +37,7 @@ from .services import (
     create_recurring_expense_category,
     create_recurring_expense_payment,
     delete_recurring_expense,
+    delete_recurring_expense_assignment,
     delete_recurring_expense_category,
     delete_recurring_expense_payment,
     update_recurring_expense,
@@ -212,13 +213,22 @@ class RecurringExpenseAssignmentBulkCreateView(APIView):
         }, status=status.HTTP_201_CREATED)
 
 
-class RecurringExpenseAssignmentRetrieveView(generics.RetrieveAPIView):
-    """GET only — an assignment is never updated or deleted directly."""
+class RecurringExpenseAssignmentRetrieveDestroyView(generics.RetrieveDestroyAPIView):
+    """
+    GET    /recurring-expenses/assignments/<pk>/
+    DELETE /recurring-expenses/assignments/<pk>/ — unassign a mistaken
+    posting. Only allowed while it's still fully unpaid (no payments
+    recorded); rejected with a 400 otherwise.
+    """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = RecurringExpenseAssignmentReadSerializer
 
     def get_object(self):
         return get_recurring_expense_assignment_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_recurring_expense_assignment(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Assignment unassigned."}, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------

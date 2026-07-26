@@ -269,7 +269,9 @@ def create_recurring_expense_assignment(*, recurring_expense_id: int, period: st
     if (py, pm) < (sy, sm):
         raise ValidationError({"period": f"'{template.name}' isn't eligible until {sy:04d}-{sm:02d}."})
 
-    if RecurringExpenseAssignment.objects.filter(recurring_expense=template, period=period).exists():
+    if RecurringExpenseAssignment.objects.filter(
+        recurring_expense=template, period=period, is_deleted=False,
+    ).exists():
         raise ValidationError({"period": f"'{template.name}' has already been assigned for {period}."})
 
     assignment = RecurringExpenseAssignment.objects.create(
@@ -290,6 +292,42 @@ def create_recurring_expense_assignment(*, recurring_expense_id: int, period: st
     _adjust_recurring_expense_monthly_stats(period=period, total_assigned_delta=+template.amount)
 
     return assignment
+
+
+@transaction.atomic
+def delete_recurring_expense_assignment(*, pk: int, user) -> None:
+    """
+    Soft-deletes a mistakenly-posted assignment — ONLY allowed while it's
+    still fully unpaid (amount_paid == 0). Reverses it out of
+    RecurringExpenseFlow and that period's RecurringExpenseMonthlyStats.
+    If any payment has been recorded, this is rejected — delete the
+    payment(s) first via delete_recurring_expense_payment, which is the only
+    thing allowed to move amount_paid back down to zero.
+    """
+    from django.shortcuts import get_object_or_404
+    from rest_framework.exceptions import ValidationError
+
+    assignment = get_object_or_404(
+        RecurringExpenseAssignment.objects.select_for_update(), pk=pk, is_deleted=False,
+    )
+
+    if assignment.amount_paid > 0:
+        raise ValidationError({
+            "detail": "This assignment has payments recorded against it and can no longer be "
+                      "unassigned. Delete the payment(s) first, then unassign it."
+        })
+
+    assignment.is_deleted = True
+    assignment.deleted_at = timezone.now()
+    assignment.deleted_by = user
+    assignment.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    _adjust_recurring_expense_flow(
+        total_assigned_amount_delta=-assignment.amount,
+        total_assignments_count_delta=-1,
+        user=user,
+    )
+    _adjust_recurring_expense_monthly_stats(period=assignment.period, total_assigned_delta=-assignment.amount)
 
 
 def bulk_create_recurring_expense_assignments(*, period: str, category_id: int = None, user) -> dict:

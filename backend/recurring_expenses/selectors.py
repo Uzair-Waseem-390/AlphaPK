@@ -81,7 +81,7 @@ def get_pending_recurring_expenses(*, period: str, category_id: str = None) -> Q
         qs = qs.filter(category_id=_clean(category_id))
 
     already_assigned_ids = RecurringExpenseAssignment.objects.filter(
-        period=period,
+        period=period, is_deleted=False,
     ).values_list("recurring_expense_id", flat=True)
 
     return qs.exclude(id__in=already_assigned_ids).order_by("category__name", "name")
@@ -99,7 +99,9 @@ def get_all_recurring_expense_assignments(
     payment_status        : str = None,
     search                : str = None,
 ) -> QuerySet:
-    qs = RecurringExpenseAssignment.objects.select_related("recurring_expense", "category", "assigned_by")
+    qs = RecurringExpenseAssignment.objects.filter(is_deleted=False).select_related(
+        "recurring_expense", "category", "assigned_by",
+    )
 
     if _clean(recurring_expense_id):
         qs = qs.filter(recurring_expense_id=_clean(recurring_expense_id))
@@ -117,7 +119,8 @@ def get_all_recurring_expense_assignments(
 
 def get_recurring_expense_assignment_by_id(pk: int) -> RecurringExpenseAssignment:
     return get_object_or_404(
-        RecurringExpenseAssignment.objects.select_related("recurring_expense", "category", "assigned_by"), pk=pk,
+        RecurringExpenseAssignment.objects.select_related("recurring_expense", "category", "assigned_by"),
+        pk=pk, is_deleted=False,
     )
 
 

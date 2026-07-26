@@ -5,7 +5,7 @@ from .views import (
     RecurringExpenseAssignmentListCreateView,
     RecurringExpenseAssignmentPaymentListCreateView,
     RecurringExpenseAssignmentPaymentRetrieveDestroyView,
-    RecurringExpenseAssignmentRetrieveView,
+    RecurringExpenseAssignmentRetrieveDestroyView,
     RecurringExpenseCategoryListCreateView,
     RecurringExpenseCategoryRetrieveUpdateDestroyView,
     RecurringExpenseFlowStatsView,
@@ -31,7 +31,7 @@ urlpatterns = [
 
     path("assignments/bulk/", RecurringExpenseAssignmentBulkCreateView.as_view(), name="recurring-expense-assignment-bulk-create"),
     path("assignments/",      RecurringExpenseAssignmentListCreateView.as_view(), name="recurring-expense-assignment-list-create"),
-    path("assignments/<int:pk>/", RecurringExpenseAssignmentRetrieveView.as_view(), name="recurring-expense-assignment-detail"),
+    path("assignments/<int:pk>/", RecurringExpenseAssignmentRetrieveDestroyView.as_view(), name="recurring-expense-assignment-detail"),
 
     path("payments/",      RecurringExpenseAssignmentPaymentListCreateView.as_view(),     name="recurring-expense-payment-list-create"),
     path("payments/<int:pk>/", RecurringExpenseAssignmentPaymentRetrieveDestroyView.as_view(), name="recurring-expense-payment-detail"),
