@@ -73,6 +73,8 @@ import SalesTaxReportPage from './pages/reports/SalesTaxReportPage';
 import TaxesPage from './pages/taxes/TaxesPage';
 import TaxPaymentsPage from './pages/taxes/TaxPaymentsPage';
 import TaxPaymentDetailPage from './pages/taxes/TaxPaymentDetailPage';
+import WHTPaymentsPage from './pages/taxes/WHTPaymentsPage';
+import WHTPaymentDetailPage from './pages/taxes/WHTPaymentDetailPage';
 
 // Cash Management pages
 import CashManagementPage from './pages/cashManagement/CashManagementPage';
@@ -568,6 +570,22 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <TaxPaymentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/taxes/wht-payments" element={
+          <ProtectedRoute>
+            <Layout>
+              <WHTPaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/taxes/wht-payments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <WHTPaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

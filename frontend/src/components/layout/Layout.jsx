@@ -163,7 +163,8 @@ const Layout = ({ children }) => {
 
     const taxesNavigation = [
         { name: 'Overview', path: '/taxes', icon: '🧮' },
-        { name: 'Tax Payments', path: '/taxes/payments', icon: '🧾' },
+        { name: 'GST Payments', path: '/taxes/payments', icon: '🧾' },
+        { name: 'WHT Payments', path: '/taxes/wht-payments', icon: '📇' },
     ];
 
     const cashManagementNavigation = [
