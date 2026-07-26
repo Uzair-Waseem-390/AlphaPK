@@ -30,6 +30,16 @@ const formatTotalLabel = (key) => key
     .map(word => (word.toLowerCase() === 'cogs' ? 'COGS' : word.charAt(0).toUpperCase() + word.slice(1)))
     .join(' ');
 
+// Only shown for the cashInHand breakdown's totals — explains how
+// Opening/Net/Closing relate to each other (bank-statement analogy),
+// since "closing cash isn't the same as net movement" was a recurring
+// point of confusion.
+const TOTAL_SUBTITLES = {
+    total_inflow: 'Cash received',
+    total_outflow: 'Cash paid out',
+    net: 'Total inflow − total outflow',
+};
+
 const formatTotalValue = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(num)) return '0.00';
@@ -199,11 +209,16 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                     {Object.entries(extra.totals)
                                         .filter(([key]) => key !== 'count')
                                         .map(([key, value]) => (
-                                            <div key={key} className="px-3 py-2 bg-primary-50 rounded-lg border border-primary-100">
+                                            <div key={key} className="px-3 py-2 bg-primary-50 rounded-lg border border-primary-100 max-w-[220px]">
                                                 <p className="text-xs text-neutral-500">{formatTotalLabel(key)}</p>
                                                 <p className="text-sm font-bold text-primary-700">
                                                     Rs. {formatTotalValue(value)}
                                                 </p>
+                                                {type === 'cashInHand' && TOTAL_SUBTITLES[key] && (
+                                                    <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug">
+                                                        {TOTAL_SUBTITLES[key]}
+                                                    </p>
+                                                )}
                                             </div>
                                         ))}
                                 </div>
@@ -214,7 +229,7 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                 list above, so it never delays the table rendering. */}
                             {type === 'cashInHand' && filters.date_from && filters.date_to && (
                                 <div className="flex flex-wrap gap-3 mt-3">
-                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px]">
+                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px] max-w-[220px]">
                                         <p className="text-xs text-neutral-500">Opening Cash</p>
                                         {openingClosingLoading ? (
                                             <div className="flex items-center gap-1.5 mt-1">
@@ -226,8 +241,11 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                                 Rs. {formatTotalValue(openingClosing?.opening_cash ?? 0)}
                                             </p>
                                         )}
+                                        <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug">
+                                            Balance before window
+                                        </p>
                                     </div>
-                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px]">
+                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px] max-w-[220px]">
                                         <p className="text-xs text-neutral-500">Closing Cash</p>
                                         {openingClosingLoading ? (
                                             <div className="flex items-center gap-1.5 mt-1">
@@ -239,6 +257,9 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                                 Rs. {formatTotalValue(openingClosing?.closing_cash ?? 0)}
                                             </p>
                                         )}
+                                        <p className="text-[11px] text-neutral-400 mt-0.5 leading-snug">
+                                            Opening + Net
+                                        </p>
                                     </div>
                                 </div>
                             )}
