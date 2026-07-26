@@ -1,6 +1,7 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { systemApi } from '../../services/systemApi';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
 import { useTaxesStats } from '../../hooks/useTaxes';
 import { useCashManagementStats } from '../../hooks/useCashManagement';
@@ -24,6 +25,22 @@ import Badge from '../ui/Badge';
 
 const AdminDashboard = () => {
     const { user } = useAuth();
+
+    // IMPORTANT — SYSTEM DESIGN, DO NOT REMOVE THIS WHEN REPLACING THE DASHBOARD:
+    // This triggers every "catch-up on read" calculation in the backend
+    // (asset depreciation, investor growth, monthly profit finalization —
+    // see backend/backend/views.py TriggerAllCatchUpsView) once per
+    // dashboard load. It exists precisely so those three stay fresh
+    // regardless of which specific stat hooks/endpoints the dashboard ends
+    // up calling — do not assume the individual stats hooks below cover
+    // this on their own; whatever replaces this component must keep this
+    // call (or move it somewhere that still fires on every dashboard load).
+    useEffect(() => {
+        systemApi.triggerAllCatchUps().catch((err) => {
+            console.error('Failed to trigger backend catch-up calculations:', err);
+        });
+    }, []);
+
     const { data: stats, loading: statsLoading, refetch: refetchStats } = useCashFlowStats();
     const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
     const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
