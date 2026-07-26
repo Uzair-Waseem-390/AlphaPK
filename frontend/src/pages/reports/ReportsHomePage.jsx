@@ -57,6 +57,24 @@ const REPORTS = [
         icon: '🧮',
         path: '/reports/sales-tax',
     },
+    {
+        title: 'Recurring Expenses Report',
+        description: 'Every recurring expense assignment — rent, salaries, utilities — for a selected date range',
+        icon: '🔁',
+        path: '/reports/recurring-expenses',
+    },
+    {
+        title: 'Net Profit Report',
+        description: '"Real" profit per finalized month, with the full deduction breakdown, for a selected date range',
+        icon: '📈',
+        path: '/reports/net-profit',
+    },
+    {
+        title: 'Asset Depreciation Report',
+        description: 'Every depreciation posting across all assets for a selected date range',
+        icon: '📉',
+        path: '/reports/asset-depreciation',
+    },
 ];
 
 const ReportsHomePage = () => {

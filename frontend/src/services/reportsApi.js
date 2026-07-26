@@ -61,4 +61,22 @@ export const reportsApi = {
             return api.get(`/reports/sales-tax/output/${query ? `?${query}` : ''}`);
         },
     },
+    recurringExpenses: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/recurring-expenses/${query ? `?${query}` : ''}`);
+        },
+    },
+    netProfit: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/net-profit/${query ? `?${query}` : ''}`);
+        },
+    },
+    assetDepreciation: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/asset-depreciation/${query ? `?${query}` : ''}`);
+        },
+    },
 };

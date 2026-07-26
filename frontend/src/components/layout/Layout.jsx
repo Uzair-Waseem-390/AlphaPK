@@ -170,6 +170,9 @@ const Layout = ({ children }) => {
         { name: 'Customer Returns Report', path: '/reports/customer-returns', icon: '↩️' },
         { name: 'Inventory Valuation Report', path: '/reports/inventory-valuation', icon: '🏪' },
         { name: 'Sales Tax Report', path: '/reports/sales-tax', icon: '🧾' },
+        { name: 'Recurring Expenses Report', path: '/reports/recurring-expenses', icon: '🔁' },
+        { name: 'Net Profit Report', path: '/reports/net-profit', icon: '📈' },
+        { name: 'Asset Depreciation Report', path: '/reports/asset-depreciation', icon: '📉' },
     ];
 
     const taxesNavigation = [
