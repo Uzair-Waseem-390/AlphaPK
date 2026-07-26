@@ -86,6 +86,9 @@ import InvestorGrowthHistoryPage from './pages/cashManagement/InvestorGrowthHist
 import OwnerTransactionsPage from './pages/cashManagement/OwnerTransactionsPage';
 import OwnerTransactionDetailPage from './pages/cashManagement/OwnerTransactionDetailPage';
 
+// Profits pages
+import BusinessWorthPage from './pages/profits/BusinessWorthPage';
+
 // Assets pages
 import AssetsPage from './pages/assets/AssetsPage';
 import AssetCategoriesPage from './pages/assets/AssetCategoriesPage';
@@ -692,6 +695,15 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <AssetDisposalsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Business Worth Route */}
+        <Route path="/business-worth" element={
+          <ProtectedRoute>
+            <Layout>
+              <BusinessWorthPage />
             </Layout>
           </ProtectedRoute>
         } />
