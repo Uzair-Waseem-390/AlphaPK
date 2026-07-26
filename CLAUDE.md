@@ -8,6 +8,6 @@
 
 - Backend change (models/services/selectors/serializers/views/migrations/commands) → `instructions/verification.md`
 - New dashboard/report stat, new app, new "catch-up" calc, new report, perf/DRY-shaped work → `instructions/architecture.md`
-- Anything moving cash (payments, returns, expenses, tax, new cash source) → `instructions/cash-in-hand.md`
+- Anything moving cash-in-hand (payments, returns, expenses, tax, new cash source) → `instructions/cash-in-hand.md`
 
 Skip these for unrelated tasks (styling tweaks, questions, isolated unrelated bugfixes).
