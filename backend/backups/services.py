@@ -1,6 +1,4 @@
-import io
-import json
-import zipfile
+from itertools import chain
 
 from django.apps import apps
 from django.conf import settings
@@ -70,19 +68,26 @@ def _base_queryset(model):
 def collect_backup_data(*, since=None, as_of) -> dict:
     """
     Returns {
-        "models": {"<app_label>.<model_name>": "<django-serialized-json>", ...},
+        "fixture_yaml": "<single Django-fixture-format YAML string>",
         "manifest_models": [{"label": ..., "count": ...}, ...],
         "row_count": <total>,
     }
+
+    `fixture_yaml` is ONE combined serialization of every included row,
+    across every model, in the exact format `manage.py dumpdata --format yaml`
+    produces — which means restoring it is just `manage.py loaddata <file>`,
+    no custom import script needed. Model order follows settings.EXTERNAL_APPS (already
+    roughly FK-dependency-ordered: users, purchases, billing, ... last),
+    same order `loaddata` would need to insert rows without FK violations.
 
     `as_of` is captured ONCE by the caller before this runs — every model is
     filtered by that same fixed timestamp, so the backup represents one
     precise, reproducible point in time regardless of how long collection
     itself takes or what writes land on the live tables while it runs.
     """
-    model_data = {}
     manifest_models = []
     total_rows = 0
+    querysets = []
 
     for model in _iter_backup_models():
         label = f"{model._meta.app_label}.{model._meta.model_name}"
@@ -98,39 +103,23 @@ def collect_backup_data(*, since=None, as_of) -> dict:
         if count == 0:
             continue
 
-        model_data[label] = serializers.serialize("json", qs.order_by("pk"))
+        querysets.append(qs.order_by("pk"))
         manifest_models.append({"label": label, "count": count})
         total_rows += count
 
-    return {"models": model_data, "manifest_models": manifest_models, "row_count": total_rows}
+    fixture_yaml = serializers.serialize("yaml", chain(*querysets))
+    return {"fixture_yaml": fixture_yaml, "manifest_models": manifest_models, "row_count": total_rows}
 
 
 # ---------------------------------------------------------------------------
-# Local delivery — zip, streamed straight back; nothing kept server-side
+# Local delivery — one fixture file, streamed straight back; nothing kept
+# server-side. Restoring it is exactly `manage.py loaddata <file>`.
 # ---------------------------------------------------------------------------
-
-def _build_backup_zip(*, backup_type, since, as_of, collected) -> bytes:
-    manifest = {
-        "backup_type": backup_type,
-        "destination": "local",
-        "covers_from": since.isoformat() if since else None,
-        "covers_to": as_of.isoformat(),
-        "row_count": collected["row_count"],
-        "models": collected["manifest_models"],
-    }
-
-    buffer = io.BytesIO()
-    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
-        zf.writestr("manifest.json", json.dumps(manifest, indent=2))
-        for label, json_data in collected["models"].items():
-            zf.writestr(f"{label}.json", json_data)
-    return buffer.getvalue()
-
 
 def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     """
     backup_type: BackupHistory.BackupType.FULL | INCREMENTAL
-    Returns (zip_bytes, filename). Raises on failure (view logs the
+    Returns (file_bytes, filename). Raises on failure (view logs the
     BackupHistory row either way, via try/except around this call).
     """
     from django.utils import timezone
@@ -141,7 +130,6 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
 
     try:
         collected = collect_backup_data(since=since, as_of=as_of)
-        zip_bytes = _build_backup_zip(backup_type=backup_type, since=since, as_of=as_of, collected=collected)
     except Exception as exc:
         BackupHistory.objects.create(
             backup_type=backup_type, destination=BackupHistory.Destination.LOCAL,
@@ -158,8 +146,8 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     flow.local_last_backup_at = as_of
     flow.save(update_fields=["local_last_backup_at"])
 
-    filename = f"backup_{backup_type}_{as_of.strftime('%Y%m%d_%H%M%S')}.zip"
-    return zip_bytes, filename
+    filename = f"backup-{backup_type}-{as_of.strftime('%Y%m%d-%H%M%S')}.yaml"
+    return collected["fixture_yaml"].encode("utf-8"), filename
 
 
 # ---------------------------------------------------------------------------
@@ -240,9 +228,8 @@ def run_remote_backup(*, backup_type: str, user) -> dict:
         collected = collect_backup_data(since=since, as_of=as_of)
 
         with transaction.atomic(using="backup_remote"):
-            for label, json_data in collected["models"].items():
-                for deserialized_obj in serializers.deserialize("json", json_data):
-                    deserialized_obj.save(using="backup_remote")
+            for deserialized_obj in serializers.deserialize("yaml", collected["fixture_yaml"]):
+                deserialized_obj.save(using="backup_remote")
     except Exception as exc:
         BackupHistory.objects.create(
             backup_type=backup_type, destination=BackupHistory.Destination.REMOTE,
