@@ -2,10 +2,15 @@ import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Card from '../ui/Card';
-import Input from '../ui/Input';
-import Button from '../ui/Button';
+import Select from '../ui/Select';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import { cashFlowApi } from '../../services/cashFlowApi';
+
+const MONTHS_OPTIONS = [
+    { value: '6', label: 'Last 6 months' },
+    { value: '12', label: 'Last 12 months' },
+    { value: '24', label: 'Last 24 months' },
+];
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -54,43 +59,28 @@ const GrossProfitTrendChart = () => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState('');
-    const [dateFrom, setDateFrom] = useState('');
-    const [dateTo, setDateTo] = useState('');
-    const [appliedFilters, setAppliedFilters] = useState({});
-
-    const fetchTrend = async (params) => {
-        setLoading(true);
-        setError('');
-        try {
-            const result = await cashFlowApi.grossProfitTrend.get(params);
-            setData(result || []);
-        } catch (err) {
-            setError(err.message || 'Failed to load gross profit trend');
-            setData([]);
-        } finally {
-            setLoading(false);
-        }
-    };
+    const [months, setMonths] = useState(6);
 
     useEffect(() => {
-        fetchTrend(appliedFilters);
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [appliedFilters]);
-
-    const handleApply = () => {
-        const params = {};
-        if (dateFrom) params.date_from = dateFrom;
-        if (dateTo) params.date_to = dateTo;
-        setAppliedFilters(params);
-    };
-
-    const handleReset = () => {
-        setDateFrom('');
-        setDateTo('');
-        setAppliedFilters({});
-    };
-
-    const isFiltered = Object.keys(appliedFilters).length > 0;
+        const fetchTrend = async () => {
+            setLoading(true);
+            setError('');
+            try {
+                const from = new Date();
+                from.setMonth(from.getMonth() - (months - 1));
+                from.setDate(1);
+                const date_from = from.toISOString().slice(0, 10);
+                const result = await cashFlowApi.grossProfitTrend.get({ date_from });
+                setData(result || []);
+            } catch (err) {
+                setError(err.message || 'Failed to load gross profit trend');
+                setData([]);
+            } finally {
+                setLoading(false);
+            }
+        };
+        fetchTrend();
+    }, [months]);
 
     return (
         <Card className="p-6">
@@ -98,29 +88,15 @@ const GrossProfitTrendChart = () => {
                 <div>
                     <h2 className="text-lg font-semibold text-neutral-900">Net Gross Profit Trend</h2>
                     <p className="text-sm text-neutral-500 mt-1">
-                        {isFiltered ? 'Custom range' : 'Last 6 months'} · after returns accepted each month — hover a point for the gross (before-returns) figures
+                        After returns accepted each month — hover a point for the gross (before-returns) figures
                     </p>
                 </div>
-                <div className="flex flex-wrap items-end gap-3">
-                    <Input
-                        label="From"
-                        type="date"
-                        value={dateFrom}
-                        onChange={(e) => setDateFrom(e.target.value)}
-                        className="w-40"
-                    />
-                    <Input
-                        label="To"
-                        type="date"
-                        value={dateTo}
-                        onChange={(e) => setDateTo(e.target.value)}
-                        className="w-40"
-                    />
-                    <Button size="sm" onClick={handleApply}>Apply</Button>
-                    {isFiltered && (
-                        <Button size="sm" variant="secondary" onClick={handleReset}>Reset</Button>
-                    )}
-                </div>
+                <Select
+                    value={String(months)}
+                    onChange={(e) => setMonths(Number(e.target.value))}
+                    options={MONTHS_OPTIONS}
+                    className="w-44"
+                />
             </div>
 
             {error && (

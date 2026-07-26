@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { motion, AnimatePresence } from 'framer-motion';
+import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
 import { systemApi } from '../../services/systemApi';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
@@ -7,6 +7,7 @@ import { useTaxesStats } from '../../hooks/useTaxes';
 import { useCashManagementStats } from '../../hooks/useCashManagement';
 import { useAssetStats } from '../../hooks/useAssets';
 import { useRecurringExpenseFlowStats } from '../../hooks/useRecurringExpenses';
+import { useProfitFlowStats } from '../../hooks/useProfits';
 import ReceivablesSection from './ReceivablesSection';
 import PayablesSection from './PayablesSection';
 import ExpensesSectionStats from './ExpensesSectionStats';
@@ -20,6 +21,8 @@ import RecurringExpensesSectionStats from './RecurringExpensesSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import NetProfitTrendChart from './NetProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
+import CollapsibleGroup from './CollapsibleGroup';
+import KpiStrip from './KpiStrip';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
 
@@ -41,11 +44,12 @@ const AdminDashboard = () => {
         });
     }, []);
 
-    const { data: stats, loading: statsLoading, refetch: refetchStats } = useCashFlowStats();
+    const { data: stats, loading: statsLoading } = useCashFlowStats();
     const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
     const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
     const { data: assetStats, loading: assetStatsLoading } = useAssetStats();
     const { data: recurringExpenseStats, loading: recurringExpenseStatsLoading } = useRecurringExpenseFlowStats();
+    const { data: profitFlowStats, loading: profitFlowLoading } = useProfitFlowStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -63,6 +67,38 @@ const AdminDashboard = () => {
             </div>
         );
     }
+
+    const kpiItems = [
+        {
+            label: 'Cash in Hand',
+            value: stats?.cash_in_hand,
+            icon: '💵',
+            color: 'primary',
+            onClick: () => handleCardClick('cashInHand', 'Cash in Hand Breakdown'),
+        },
+        {
+            label: 'Net Profit',
+            value: profitFlowStats?.total_net_profit,
+            icon: '📊',
+            color: 'green',
+            subtitle: `${profitFlowStats?.months_finalized_count ?? 0} months finalized`,
+            onClick: () => handleCardClick('monthlyProfit', 'Monthly Net Profit'),
+        },
+        {
+            label: 'Customer Outstanding',
+            value: stats?.customer_outstanding,
+            icon: '🧾',
+            color: 'amber',
+            onClick: () => handleCardClick('customerOutstanding', 'Customer Outstanding Breakdown'),
+        },
+        {
+            label: 'Supplier Outstanding',
+            value: stats?.total_outstanding_payable,
+            icon: '📦',
+            color: 'rose',
+            onClick: () => handleCardClick('supplierOutstanding', 'Supplier Outstanding Breakdown'),
+        },
+    ];
 
     return (
         <div className="space-y-6">
@@ -83,56 +119,55 @@ const AdminDashboard = () => {
                 </div>
             </motion.div>
 
-            {/* Stats Section — Profit leads, it's the most important number at a glance */}
-            <div className="space-y-8">
-                <ProfitSectionStats
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
+            {/* KPI Strip — the numbers that matter most, at a glance */}
+            <KpiStrip items={kpiItems} loading={statsLoading || profitFlowLoading} />
+
+            {/* Trend charts — always visible, not tucked behind an accordion */}
+            <div className="space-y-6">
                 <GrossProfitTrendChart />
                 <NetProfitTrendChart />
-                <ReceivablesSection
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
-                <PayablesSection
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
-                <ExpensesSectionStats
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
-                <RecurringExpensesSectionStats
-                    stats={recurringExpenseStats}
-                    loading={recurringExpenseStatsLoading}
-                />
-                <ReturnsSectionStats
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
-                <LostInventorySectionStats
-                    stats={stats}
-                    loading={statsLoading}
-                    onCardClick={handleCardClick}
-                />
-                <TaxesSectionStats
-                    stats={taxStats}
-                    loading={taxStatsLoading}
-                />
-                <CashManagementSectionStats
-                    stats={cashMgmtStats}
-                    loading={cashMgmtStatsLoading}
-                />
-                <AssetsSectionStats
-                    stats={assetStats}
-                    loading={assetStatsLoading}
-                />
+            </div>
+
+            {/* Grouped, collapsible stat sections */}
+            <div className="space-y-4">
+                <CollapsibleGroup
+                    title="Sales & Profit"
+                    icon="💰"
+                    description="Profit, receivables, and customer returns"
+                    defaultOpen
+                >
+                    <ProfitSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                    <ReceivablesSection stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                    <ReturnsSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                </CollapsibleGroup>
+
+                <CollapsibleGroup
+                    title="Purchasing & Expenses"
+                    icon="🛒"
+                    description="Payables, expenses, and recurring costs"
+                >
+                    <PayablesSection stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                    <ExpensesSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                    <RecurringExpensesSectionStats stats={recurringExpenseStats} loading={recurringExpenseStatsLoading} />
+                </CollapsibleGroup>
+
+                <CollapsibleGroup
+                    title="Operations & Risk"
+                    icon="⚠️"
+                    description="Lost inventory and tax position"
+                >
+                    <LostInventorySectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
+                    <TaxesSectionStats stats={taxStats} loading={taxStatsLoading} />
+                </CollapsibleGroup>
+
+                <CollapsibleGroup
+                    title="Capital & Assets"
+                    icon="🏦"
+                    description="Investor capital and fixed assets"
+                >
+                    <CashManagementSectionStats stats={cashMgmtStats} loading={cashMgmtStatsLoading} />
+                    <AssetsSectionStats stats={assetStats} loading={assetStatsLoading} />
+                </CollapsibleGroup>
             </div>
 
             {/* Breakdown Drawer */}

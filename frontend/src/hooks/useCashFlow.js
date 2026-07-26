@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback } from 'react';
 import { cashFlowApi } from '../services/cashFlowApi';
+import { profitsApi } from '../services/profitsApi';
 import { usePaginatedList } from './usePaginatedList';
 
 // Hook for dashboard stats
@@ -71,6 +72,8 @@ export const useBreakdown = (type, initialFilters = {}) => {
                 return cashFlowApi.breakdowns.customerReturns(filterParams);
             case 'profit':
                 return cashFlowApi.breakdowns.profit(filterParams);
+            case 'monthlyProfit':
+                return profitsApi.monthlyProfits.getAll(filterParams);
             default:
                 return Promise.resolve([]);
         }

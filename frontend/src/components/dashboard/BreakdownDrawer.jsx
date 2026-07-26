@@ -121,6 +121,28 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
             ];
         }
 
+        if (type === 'monthlyProfit') {
+            const fmtMoney = (v) => {
+                const num = typeof v === 'string' ? parseFloat(v) : v;
+                return isNaN(num) ? '0.00' : num.toFixed(2);
+            };
+            return [
+                { key: 'period', label: 'Month' },
+                { key: 'gross_profit', label: 'Gross Profit (PKR)', render: fmtMoney },
+                { key: 'net_gross_profit', label: 'Net Gross Profit (PKR)', render: fmtMoney },
+                {
+                    key: 'net_profit',
+                    label: 'Net Profit (PKR)',
+                    render: (v) => {
+                        const num = typeof v === 'string' ? parseFloat(v) : v;
+                        const formatted = isNaN(num) ? '0.00' : num.toFixed(2);
+                        return <span className={num >= 0 ? 'text-success-600 font-medium' : 'text-error-600 font-medium'}>{formatted}</span>;
+                    },
+                },
+                { key: 'computed_at', label: 'Finalized On', render: (v) => v ? new Date(v).toLocaleDateString() : 'N/A' },
+            ];
+        }
+
         // Default columns for other breakdowns — type decided by the FIELD
         // NAME, not by guessing from the value. Guessing from the value
         // (e.g. "contains a T" -> date, "parses as a number" -> amount)
@@ -343,7 +365,7 @@ BreakdownDrawer.propTypes = {
         'cashInHand', 'invoicesCash', 'customerOutstanding',
         'paidPayables', 'supplierOutstanding', 'invoices',
         'purchases', 'expenses', 'lostInventory',
-        'purchaseReturns', 'customerReturns', 'profit'
+        'purchaseReturns', 'customerReturns', 'profit', 'monthlyProfit'
     ]).isRequired,
     initialFilters: PropTypes.object,
 };
