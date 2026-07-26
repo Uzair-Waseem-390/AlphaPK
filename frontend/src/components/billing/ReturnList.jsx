@@ -50,7 +50,7 @@ const ReturnList = ({ returns, onAccept, isAdmin }) => {
                                                 <span className="text-neutral-700">{item.product_name}</span>
                                                 <span className="text-neutral-600">× {item.quantity}</span>
                                                 <span className="font-medium text-primary-600">
-                                                    {item.total_amount ? parseFloat(item.total_amount).toFixed(2) : '0.00'}
+                                                    {item.line_total ? parseFloat(item.line_total).toFixed(2) : '0.00'}
                                                 </span>
                                             </div>
                                         ))}

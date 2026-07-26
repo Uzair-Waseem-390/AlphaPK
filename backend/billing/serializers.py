@@ -344,7 +344,7 @@ class InvoicePaymentSummarySerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             "id", "bill_number", "customer_name", "customer_code",
-            "status", "subtotal",
+            "status", "subtotal", "grand_total",
             "cash_received", "credit_outstanding", "total_paid", "remaining_amount",
             "payment_status", "payment_status_display",
             "payments",
