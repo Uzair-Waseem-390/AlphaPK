@@ -4,7 +4,8 @@ from django.contrib import admin
 from django.urls import include, path
 from users.urls import auth_urlpatterns, user_urlpatterns
 from backend.settings import PATH_ADMIN
- 
+from backend.views import TriggerAllCatchUpsView
+
 urlpatterns = [
     path(f"{PATH_ADMIN}/", admin.site.urls),
     path("api/auth/",      include((auth_urlpatterns, "auth"))),
@@ -21,6 +22,7 @@ urlpatterns = [
     path("api/assets/", include("assets.urls")),
     path("api/recurring-expenses/", include("recurring_expenses.urls")),
     path("api/profits/", include("profits.urls")),
+    path("api/system/catch-up/", TriggerAllCatchUpsView.as_view(), name="trigger-all-catchups"),
 ]
  
 if settings.DEBUG:
