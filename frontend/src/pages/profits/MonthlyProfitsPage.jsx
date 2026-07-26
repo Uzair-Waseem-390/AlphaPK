@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useMonthlyProfits, useCurrentMonthProfit, useProfitFlowStats } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
+import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 
@@ -135,6 +136,11 @@ const MonthlyProfitsPage = () => {
                                     Rs. {fmt(current?.net_profit)}
                                 </p>
                             </div>
+                        </div>
+                        <div className="mt-4">
+                            <Button size="sm" variant="secondary" onClick={() => navigate('/monthly-profits/current')}>
+                                View Full Breakdown →
+                            </Button>
                         </div>
                     </>
                 )}

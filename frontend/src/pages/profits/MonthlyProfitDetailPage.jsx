@@ -1,7 +1,7 @@
 import { useState, Fragment } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
-import { useMonthlyProfitDetail } from '../../hooks/useProfits';
+import { useMonthlyProfitDetail, useCurrentMonthProfit } from '../../hooks/useProfits';
 import { profitsApi } from '../../services/profitsApi';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -43,8 +43,22 @@ const MonthlyProfitDetailPage = () => {
     const { period } = useParams();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const isCurrent = period === 'current';
 
-    const { data: mp, loading, error, refetch } = useMonthlyProfitDetail(period);
+    // Both hooks are always called (rules-of-hooks safe across navigation
+    // between a finalized month and "current" without remounting) — only
+    // the relevant one's result is actually used below.
+    const {
+        data: finalizedData, loading: finalizedLoading, error: finalizedError, refetch: refetchFinalized,
+    } = useMonthlyProfitDetail(isCurrent ? null : period);
+    const {
+        data: currentData, loading: currentLoading, error: currentError, refetch: refetchCurrent,
+    } = useCurrentMonthProfit();
+
+    const mp      = isCurrent ? currentData : finalizedData;
+    const loading = isCurrent ? currentLoading : finalizedLoading;
+    const error   = isCurrent ? currentError : finalizedError;
+    const refetch = isCurrent ? refetchCurrent : refetchFinalized;
 
     const [settleShare, setSettleShare] = useState(null);
     const [formData, setFormData] = useState({
@@ -137,10 +151,22 @@ const MonthlyProfitDetailPage = () => {
                 <Link to="/monthly-profits" className="text-sm text-primary-600 hover:text-primary-700">
                     ← Back to Monthly Profits
                 </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">{formatMonthLabel(mp.period)}</h1>
+                <div className="flex items-center gap-3 mt-1">
+                    <h1 className="text-3xl font-bold text-neutral-900">{formatMonthLabel(mp.period)}</h1>
+                    {isCurrent && (
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                            In progress — provisional
+                        </span>
+                    )}
+                </div>
                 <p className={`text-lg font-semibold mt-1 ${netProfitPositive ? 'text-success-600' : 'text-error-600'}`}>
                     Net Profit: Rs. {fmt(mp.net_profit)}
                 </p>
+                {isCurrent && (
+                    <p className="text-sm text-neutral-500 mt-1">
+                        Still accumulating — figures will keep changing until the month ends and finalizes.
+                    </p>
+                )}
             </div>
 
             {deleteError && (
@@ -197,7 +223,16 @@ const MonthlyProfitDetailPage = () => {
                 </div>
             </Card>
 
-            {/* Ownership split */}
+            {/* Ownership split — only applies to finalized months; the current
+                month has no snapshotted shares yet since it isn't final. */}
+            {isCurrent ? (
+                <Card className="p-6 border-2 border-dashed border-amber-300 bg-amber-50/40">
+                    <p className="text-sm text-amber-700">
+                        Ownership split and settlement actions become available once this month finalizes
+                        (automatically, the moment it's fully over).
+                    </p>
+                </Card>
+            ) : (
             <Card className="p-6">
                 <h3 className="font-semibold text-neutral-900 mb-4">Ownership Split</h3>
                 <div className="overflow-x-auto">
@@ -269,6 +304,7 @@ const MonthlyProfitDetailPage = () => {
                     An unpaid or partial balance isn't a business liability, it's informational tracking only.
                 </p>
             </Card>
+            )}
 
             {/* Settle modal */}
             <Modal
