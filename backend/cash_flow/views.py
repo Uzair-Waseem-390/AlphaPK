@@ -20,6 +20,7 @@ from .selectors import (
     get_invoice_payments_breakdown,
     get_invoices_breakdown,
     get_lost_inventory_breakdown,
+    get_opening_closing_cash,
     get_profit_breakdown,
     get_purchase_returns_breakdown,
     get_purchases_breakdown,
@@ -37,6 +38,7 @@ from .serializers import (
     InvoiceBreakdownSerializer,
     InvoicePaymentBreakdownSerializer,
     LostInventoryBreakdownSerializer,
+    OpeningClosingCashSerializer,
     ProfitBreakdownSerializer,
     PurchaseBreakdownSerializer,
     PurchaseReturnBreakdownSerializer,
@@ -305,6 +307,34 @@ class CashInHandBreakdownView(APIView):
             "net"           : total_inflow - total_outflow,
         }
         return Response(response)
+
+
+class OpeningClosingCashView(APIView):
+    """
+    GET /cash-flow/breakdown/cash-in-hand/opening-closing/?date_from=&date_to=
+
+    Only meaningful under a date filter — both params are required. Not
+    called on any page that loads by default; the frontend fires this
+    separately from the main breakdown list, only once both dates are
+    applied, so a slow historical aggregate never blocks the rest of the
+    drawer from rendering.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        p = request.query_params
+        date_from = p.get("date_from")
+        date_to = p.get("date_to")
+
+        if not date_from or not date_to:
+            return Response(
+                {"detail": "Both date_from and date_to are required."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = get_opening_closing_cash(date_from=date_from, date_to=date_to)
+        serializer = OpeningClosingCashSerializer(data)
+        return Response(serializer.data)
 
 
 class TotalInvoicesCashBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):

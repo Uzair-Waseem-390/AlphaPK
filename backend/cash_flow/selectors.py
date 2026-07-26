@@ -500,6 +500,143 @@ def get_cash_in_hand_breakdown(
     return movements
 
 
+def get_cash_in_hand_as_of(as_of_date) -> Decimal:
+    """
+    Cash-in-hand balance as it stood at the end of `as_of_date` (inclusive).
+    Same 13 sources get_cash_in_hand_breakdown() draws from, but summed at
+    the DB level per source (Sum/Coalesce) instead of building a per-row
+    movement dict for every historical row — this is only ever called
+    on-demand from the opening/closing cash filter (never on a page that
+    loads by default), see instructions/architecture.md.
+    """
+    from billing.models import Payment
+    from purchases.models import SupplierPayment
+    from .models import Expense
+
+    zero = Decimal("0")
+    total = zero
+
+    try:
+        from data_entry.models import OpeningCashEntry
+        total += OpeningCashEntry.objects.filter(
+            added_at__date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    except Exception:
+        pass
+
+    total += Payment.objects.filter(
+        is_deleted=False, amount__gt=0, invoice__is_deleted=False,
+        payment_date__lte=as_of_date,
+    ).exclude(invoice__status="draft").aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+
+    total -= Expense.objects.filter(
+        is_deleted=False, expense_date__lte=as_of_date,
+    ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+
+    total -= SupplierPayment.objects.filter(
+        is_deleted=False, amount__gt=0, payment_date__lte=as_of_date,
+    ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+
+    try:
+        from taxes.models import TaxPayment, WHTPayment
+        total -= TaxPayment.objects.filter(
+            is_deleted=False, payment_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        total -= WHTPayment.objects.filter(
+            is_deleted=False, payment_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    except Exception:
+        pass
+
+    try:
+        from profits.models import InvestorProfitPayout
+        total -= InvestorProfitPayout.objects.filter(
+            is_deleted=False, payout_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    except Exception:
+        pass
+
+    try:
+        from cash_management.models import CashAdjustment, InvestorTransaction, OwnerTransaction
+
+        found = CashAdjustment.objects.filter(
+            is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.FOUND,
+            adjustment_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        lost = CashAdjustment.objects.filter(
+            is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.LOST,
+            adjustment_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        total += found - lost
+
+        investment = InvestorTransaction.objects.filter(
+            is_deleted=False, transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
+            transaction_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        withdrawal = InvestorTransaction.objects.filter(
+            is_deleted=False, transaction_type=InvestorTransaction.TransactionType.WITHDRAWAL,
+            transaction_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        total += investment - withdrawal
+
+        contribution = OwnerTransaction.objects.filter(
+            is_deleted=False, transaction_type=OwnerTransaction.TransactionType.CONTRIBUTION,
+            transaction_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        drawing = OwnerTransaction.objects.filter(
+            is_deleted=False, transaction_type=OwnerTransaction.TransactionType.DRAWING,
+            transaction_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        total += contribution - drawing
+    except Exception:
+        pass
+
+    try:
+        from assets.models import Asset, AssetDisposal
+        total -= Asset.objects.filter(
+            is_deleted=False, acquisition_type=Asset.AcquisitionType.NEW,
+            acquisition_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("cost"), zero))["s"]
+        total += AssetDisposal.objects.filter(
+            disposal_type=AssetDisposal.DisposalType.SOLD,
+            disposal_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("sale_amount"), zero))["s"]
+    except Exception:
+        pass
+
+    try:
+        from recurring_expenses.models import RecurringExpenseAssignmentPayment
+        total -= RecurringExpenseAssignmentPayment.objects.filter(
+            is_deleted=False, payment_date__lte=as_of_date,
+        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    except Exception:
+        pass
+
+    return total
+
+
+def get_opening_closing_cash(*, date_from: str, date_to: str) -> dict:
+    """
+    Opening cash = balance right before `date_from` starts.
+    Closing cash = balance at the end of `date_to` — except when `date_to`
+    is today or later, since today isn't finished yet: return the live
+    CashFlow.cash_in_hand instead of aggregating (equivalent value, O(1)).
+    """
+    from datetime import date as date_cls, timedelta
+
+    date_from_parsed = date_cls.fromisoformat(str(date_from))
+    date_to_parsed = date_cls.fromisoformat(str(date_to))
+
+    opening = get_cash_in_hand_as_of(date_from_parsed - timedelta(days=1))
+
+    if date_to_parsed >= date_cls.today():
+        closing = CashFlow.get_instance().cash_in_hand
+    else:
+        closing = get_cash_in_hand_as_of(date_to_parsed)
+
+    return {"opening_cash": opening, "closing_cash": closing}
+
+
 def get_customer_outstanding_breakdown(
     *,
     customer_name  : str = None,

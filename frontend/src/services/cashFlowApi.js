@@ -42,6 +42,10 @@ export const cashFlowApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/cash-flow/breakdown/cash-in-hand/${query ? `?${query}` : ''}`);
         },
+        openingClosingCash: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/cash-flow/breakdown/cash-in-hand/opening-closing/${query ? `?${query}` : ''}`);
+        },
         invoicesCash: (params = {}) => {
             const query = new URLSearchParams(params).toString();
             return api.get(`/cash-flow/breakdown/invoices-cash/${query ? `?${query}` : ''}`);

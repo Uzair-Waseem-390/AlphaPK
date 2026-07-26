@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
 import { useBreakdown } from '../../hooks/useCashFlow';
+import { cashFlowApi } from '../../services/cashFlowApi';
 import Table from '../ui/Table';
 import SearchBar from '../ui/SearchBar';
 import Button from '../ui/Button';
@@ -39,11 +40,39 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
     const { data, meta, extra, page, setPage, loading, filters, setFilters, refetch } = useBreakdown(type, initialFilters);
     const [localFilters, setLocalFilters] = useState(initialFilters);
 
+    // Opening/closing cash — only meaningful under a date_from + date_to
+    // filter, so it's fetched separately from the main movements list and
+    // never blocks it. This is the one deliberately-not-O(1) call in the
+    // app (walks full history up to each date), so it's opt-in per filter,
+    // never fired on drawer open or any page that loads by default.
+    const [openingClosing, setOpeningClosing] = useState(null);
+    const [openingClosingLoading, setOpeningClosingLoading] = useState(false);
+
     useEffect(() => {
         if (isOpen) {
             refetch();
         }
     }, [isOpen]);
+
+    useEffect(() => {
+        if (type !== 'cashInHand' || !filters.date_from || !filters.date_to) {
+            setOpeningClosing(null);
+            return;
+        }
+        let cancelled = false;
+        setOpeningClosingLoading(true);
+        cashFlowApi.breakdowns.openingClosingCash({
+            date_from: filters.date_from,
+            date_to: filters.date_to,
+        }).then((res) => {
+            if (!cancelled) setOpeningClosing(res);
+        }).catch(() => {
+            if (!cancelled) setOpeningClosing(null);
+        }).finally(() => {
+            if (!cancelled) setOpeningClosingLoading(false);
+        });
+        return () => { cancelled = true; };
+    }, [type, filters.date_from, filters.date_to]);
 
     const handleFilterChange = (key, value) => {
         setLocalFilters(prev => ({ ...prev, [key]: value }));
@@ -177,6 +206,40 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                                 </p>
                                             </div>
                                         ))}
+                                </div>
+                            )}
+
+                            {/* Opening/closing cash — only shown once both date_from and
+                                date_to are applied. Fetched independently of the movements
+                                list above, so it never delays the table rendering. */}
+                            {type === 'cashInHand' && filters.date_from && filters.date_to && (
+                                <div className="flex flex-wrap gap-3 mt-3">
+                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px]">
+                                        <p className="text-xs text-neutral-500">Opening Cash</p>
+                                        {openingClosingLoading ? (
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                <LoadingSpinner size="sm" />
+                                                <span className="text-xs text-neutral-400">Calculating...</span>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm font-bold text-amber-700">
+                                                Rs. {formatTotalValue(openingClosing?.opening_cash ?? 0)}
+                                            </p>
+                                        )}
+                                    </div>
+                                    <div className="px-3 py-2 bg-amber-50 rounded-lg border border-amber-100 min-w-[140px]">
+                                        <p className="text-xs text-neutral-500">Closing Cash</p>
+                                        {openingClosingLoading ? (
+                                            <div className="flex items-center gap-1.5 mt-1">
+                                                <LoadingSpinner size="sm" />
+                                                <span className="text-xs text-neutral-400">Calculating...</span>
+                                            </div>
+                                        ) : (
+                                            <p className="text-sm font-bold text-amber-700">
+                                                Rs. {formatTotalValue(openingClosing?.closing_cash ?? 0)}
+                                            </p>
+                                        )}
+                                    </div>
                                 </div>
                             )}
                         </div>

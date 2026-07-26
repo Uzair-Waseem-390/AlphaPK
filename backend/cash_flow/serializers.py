@@ -62,6 +62,15 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
+# Opening/closing cash (cash-in-hand breakdown, filter-only)
+# ---------------------------------------------------------------------------
+
+class OpeningClosingCashSerializer(serializers.Serializer):
+    opening_cash = serializers.DecimalField(max_digits=20, decimal_places=4)
+    closing_cash = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+
+# ---------------------------------------------------------------------------
 # CashFlow stats (dashboard — 17 numbers)
 # ---------------------------------------------------------------------------
 

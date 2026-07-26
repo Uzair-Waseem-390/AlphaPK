@@ -13,6 +13,7 @@ from .views import (
     GrossProfitTrendView,
     InvoicesBreakdownView,
     LostInventoryBreakdownView,
+    OpeningClosingCashView,
     ProfitBreakdownView,
     PurchaseReturnsBreakdownView,
     PurchasesBreakdownView,
@@ -35,6 +36,7 @@ urlpatterns = [
 
     # Breakdown drill-down endpoints
     path("breakdown/cash-in-hand/",         CashInHandBreakdownView.as_view(),          name="breakdown-cash-in-hand"),
+    path("breakdown/cash-in-hand/opening-closing/", OpeningClosingCashView.as_view(),   name="breakdown-cash-in-hand-opening-closing"),
     path("breakdown/invoices-cash/",        TotalInvoicesCashBreakdownView.as_view(),   name="breakdown-invoices-cash"),
     path("breakdown/customer-outstanding/", CustomerOutstandingBreakdownView.as_view(), name="breakdown-customer-outstanding"),
     path("breakdown/paid-payables/",        TotalPaidPayablesBreakdownView.as_view(),   name="breakdown-paid-payables"),
