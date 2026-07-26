@@ -2,6 +2,7 @@ from pathlib import Path
 from dotenv import load_dotenv
 import os
 from datetime import timedelta
+from urllib.parse import urlparse, parse_qs
 BASE_DIR = Path(__file__).resolve().parent.parent
 load_dotenv(BASE_DIR / '.env.local')
 SECRET_KEY = os.getenv("SECRET_KEY")
@@ -47,6 +48,7 @@ EXTERNAL_APPS = [
     'assets',
     'recurring_expenses',
     'profits',
+    'backups',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS
@@ -89,6 +91,27 @@ DATABASES = {
         'NAME': BASE_DIR / 'db.sqlite3',
     }
 }
+
+# Remote backup target (Supabase/Neon/any Postgres) — read from
+# BACKUP_DATABASE in .env.local. Optional: if unset, the remote backup
+# endpoints simply aren't usable (checked at request time in backups/services.py),
+# local backups are unaffected either way.
+BACKUP_DATABASE_URL = os.getenv("BACKUP_DATABASE")
+
+if BACKUP_DATABASE_URL:
+    _backup_db_parsed = urlparse(BACKUP_DATABASE_URL)
+    _backup_db_query = parse_qs(_backup_db_parsed.query)
+    DATABASES['backup_remote'] = {
+        'ENGINE': 'django.db.backends.postgresql',
+        'NAME': _backup_db_parsed.path.lstrip('/'),
+        'USER': _backup_db_parsed.username,
+        'PASSWORD': _backup_db_parsed.password,
+        'HOST': _backup_db_parsed.hostname,
+        'PORT': _backup_db_parsed.port or 5432,
+        'OPTIONS': {
+            'sslmode': (_backup_db_query.get('sslmode') or ['require'])[0],
+        },
+    }
 
 
 
