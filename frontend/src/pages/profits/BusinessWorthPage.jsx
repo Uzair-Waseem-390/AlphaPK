@@ -125,7 +125,8 @@ const BusinessWorthPage = () => {
                     <p className="text-sm text-amber-700 mt-0.5">
                         Computed live from cash, inventory, assets, receivables, payables, and tax figures
                         already tracked elsewhere in this system. Review with an accountant before using it
-                        to actually distribute profit.
+                        to actually distribute profit. The developer is not responsible at all for decisions
+                        made from this page.
                     </p>
                 </div>
             </div>

@@ -50,6 +50,15 @@ const InvestorPayoutsPage = () => {
 
     return (
         <div className="space-y-6">
+            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
+                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+                <p className="text-sm text-amber-700">
+                    Figures here are computed from an internal estimate, not a certified valuation. Review
+                    with an accountant before relying on them. The developer is not responsible at all for
+                    decisions made from this page.
+                </p>
+            </div>
+
             <div>
                 <h1 className="text-3xl font-bold text-neutral-900">Investor Payments</h1>
                 <p className="text-neutral-500 mt-1">

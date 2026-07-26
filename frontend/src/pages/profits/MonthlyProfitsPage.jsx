@@ -71,6 +71,21 @@ const MonthlyProfitsPage = () => {
 
     return (
         <div className="space-y-6">
+            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
+                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+                <div>
+                    <p className="text-sm font-semibold text-amber-800">
+                        This is an internal estimate, not a certified valuation.
+                    </p>
+                    <p className="text-sm text-amber-700 mt-0.5">
+                        Computed live from cash, inventory, assets, receivables, payables, and tax figures
+                        already tracked elsewhere in this system. Review with an accountant before using it
+                        to actually distribute profit. The developer is not responsible at all for decisions
+                        made from this page.
+                    </p>
+                </div>
+            </div>
+
             <div>
                 <h1 className="text-3xl font-bold text-neutral-900">Monthly Profits</h1>
                 <p className="text-neutral-500 mt-1">

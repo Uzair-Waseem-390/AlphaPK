@@ -132,6 +132,15 @@ const ProfitInvestorDetailPage = () => {
 
     return (
         <div className="space-y-6">
+            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
+                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+                <p className="text-sm text-amber-700">
+                    Profit share figures here are computed from an internal estimate, not a certified
+                    valuation. Review with an accountant before settling anything. The developer is not
+                    responsible at all for decisions made from this page.
+                </p>
+            </div>
+
             <div>
                 <Link to="/profits/investors" className="text-sm text-primary-600 hover:text-primary-700">
                     ← Back to Investors
