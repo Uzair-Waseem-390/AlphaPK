@@ -60,13 +60,21 @@ def get_pending_recurring_expenses(*, period: str, category_id: str = None) -> Q
     """
     Active, non-deleted templates eligible for `period` (period >= start_date)
     that do NOT already have an assignment for it — feeds the Post Dues screen.
+
+    Eligibility is by (year, month) only, matching
+    services.create_recurring_expense_assignment exactly — a template
+    started on any day of a month is eligible for THAT month, not just
+    months starting on or after its exact start_date. Implemented as
+    start_date < first day of the FOLLOWING period, which is equivalent to
+    "template's start month <= period's month" without day-of-month noise.
     """
     y, m = (int(p) for p in period.split("-"))
     from datetime import date
-    period_start = date(y, m, 1)
+    next_y, next_m = (y + 1, 1) if m == 12 else (y, m + 1)
+    next_period_start = date(next_y, next_m, 1)
 
     qs = RecurringExpense.objects.filter(
-        is_deleted=False, is_active=True, start_date__lte=period_start,
+        is_deleted=False, is_active=True, start_date__lt=next_period_start,
     ).select_related("category")
 
     if _clean(category_id):
