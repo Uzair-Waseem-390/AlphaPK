@@ -19,7 +19,17 @@ export const profitsApi = {
         getByPeriod: (period) => api.get(`/profits/monthly/${period}/`),
     },
     payouts: {
+        getAll: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/profits/payouts/${query ? `?${query}` : ''}`);
+        },
         create: (shareId, data) => api.post(`/profits/monthly/shares/${shareId}/payouts/`, data),
         delete: (id) => api.delete(`/profits/payouts/${id}/`),
+    },
+    investors: {
+        getShares: (investorId, params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/profits/investors/${investorId}/shares/${query ? `?${query}` : ''}`);
+        },
     },
 };

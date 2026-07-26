@@ -46,6 +46,20 @@ class InvestorProfitPayoutReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class InvestorProfitPayoutListItemSerializer(serializers.ModelSerializer):
+    investor_name = serializers.CharField(source="share.investor_name_snapshot", read_only=True)
+    period        = serializers.CharField(source="share.monthly_profit.period", read_only=True)
+    created_by    = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = InvestorProfitPayout
+        fields = [
+            "id", "investor_name", "period", "amount", "payout_date",
+            "action_type", "note", "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+
 class InvestorProfitPayoutWriteSerializer(serializers.Serializer):
     amount       = serializers.DecimalField(max_digits=18, decimal_places=4)
     action_type  = serializers.ChoiceField(choices=InvestorProfitPayout.ActionType.choices)
@@ -79,6 +93,21 @@ class MonthlyProfitInvestorShareSerializer(serializers.ModelSerializer):
             instance.payouts.filter(is_deleted=False).order_by("-payout_date", "-created_at"), many=True,
         ).data
         return rep
+
+
+class InvestorMonthlyShareListItemSerializer(serializers.ModelSerializer):
+    period            = serializers.CharField(source="monthly_profit.period", read_only=True)
+    amount_settled    = serializers.DecimalField(max_digits=20, decimal_places=4, read_only=True)
+    amount_remaining  = serializers.DecimalField(max_digits=20, decimal_places=4, read_only=True)
+
+    class Meta:
+        model  = MonthlyProfitInvestorShare
+        fields = [
+            "id", "period", "share_percent_snapshot", "share_amount",
+            "amount_paid_out", "amount_reinvested", "amount_settled",
+            "amount_remaining", "payment_status",
+        ]
+        read_only_fields = fields
 
 
 class MonthlyProfitListSerializer(serializers.ModelSerializer):

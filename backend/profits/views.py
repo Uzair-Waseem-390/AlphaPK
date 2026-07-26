@@ -4,8 +4,10 @@ from rest_framework.views import APIView
 
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
+    get_all_investor_profit_payouts,
     get_all_monthly_profits,
     get_current_month_profit,
+    get_investor_monthly_shares,
     get_investor_profit_payout_by_id,
     get_monthly_profit_by_period,
     get_net_profit_trend,
@@ -14,6 +16,8 @@ from .selectors import (
 )
 from .serializers import (
     CurrentMonthProfitSerializer,
+    InvestorMonthlyShareListItemSerializer,
+    InvestorProfitPayoutListItemSerializer,
     InvestorProfitPayoutReadSerializer,
     InvestorProfitPayoutWriteSerializer,
     MonthlyProfitDetailSerializer,
@@ -161,3 +165,34 @@ class InvestorProfitPayoutRetrieveDestroyView(generics.RetrieveDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         delete_investor_profit_payout(pk=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Payout reversed and cash in hand restored."}, status=status.HTTP_200_OK)
+
+
+class InvestorProfitPayoutListView(generics.ListAPIView):
+    """
+    GET /profits/payouts/
+    Every profit settlement ever recorded (payout or reinvest), across every
+    investor and month, newest-created first. Capital withdrawals are never
+    included — see get_all_investor_profit_payouts docstring.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = InvestorProfitPayoutListItemSerializer
+
+    def get_queryset(self):
+        return get_all_investor_profit_payouts()
+
+
+# ---------------------------------------------------------------------------
+# Per-investor profit view
+# ---------------------------------------------------------------------------
+
+class InvestorMonthlySharesListView(generics.ListAPIView):
+    """
+    GET /profits/investors/<investor_id>/shares/
+    One investor's profit share across every finalized month, newest first —
+    feeds the per-investor profit page's month-by-month settle list.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = InvestorMonthlyShareListItemSerializer
+
+    def get_queryset(self):
+        return get_investor_monthly_shares(self.kwargs["investor_id"])

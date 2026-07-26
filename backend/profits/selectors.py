@@ -263,3 +263,35 @@ def get_investor_profit_payout_by_id(pk: int):
         InvestorProfitPayout.objects.select_related("share__monthly_profit", "share__investor"),
         pk=pk, is_deleted=False,
     )
+
+
+def get_all_investor_profit_payouts():
+    """
+    Every profit settlement (payout or reinvest) ever recorded, across every
+    investor and every month, newest-created first. Deliberately does NOT
+    include capital withdrawals (cash_management.InvestorTransaction,
+    WITHDRAWAL type) — those are a completely different concept (return of
+    capital, not a profit distribution) and live in a different model
+    entirely, so they're naturally excluded here just by querying this one.
+    """
+    from .models import InvestorProfitPayout
+
+    return InvestorProfitPayout.objects.filter(is_deleted=False).select_related(
+        "share__investor", "share__monthly_profit", "created_by",
+    ).order_by("-created_at")
+
+
+def get_investor_monthly_shares(investor_id: int):
+    """
+    One investor's profit share across every finalized month they had a
+    stake in, newest month first — feeds the per-investor profit page
+    (stats header + month-by-month settle list), separate from
+    cash_management's investor CRUD/withdrawal pages.
+    """
+    from .models import MonthlyProfitInvestorShare
+    from .services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    return MonthlyProfitInvestorShare.objects.filter(
+        investor_id=investor_id,
+    ).select_related("monthly_profit").order_by("-monthly_profit__period")

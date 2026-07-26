@@ -138,3 +138,16 @@ export const useMonthlyProfitDetail = (period) => {
 
     return { data, loading, error, refetch: fetchData };
 };
+
+// Hook for the flat, all-investors, all-months payout list (newest first)
+export const useInvestorProfitPayouts = () => {
+    return usePaginatedList((params) => profitsApi.payouts.getAll(params), {});
+};
+
+// Hook for one investor's profit share across every finalized month
+export const useInvestorMonthlyShares = (investorId) => {
+    return usePaginatedList(
+        (params) => profitsApi.investors.getShares(investorId, params),
+        {},
+    );
+};

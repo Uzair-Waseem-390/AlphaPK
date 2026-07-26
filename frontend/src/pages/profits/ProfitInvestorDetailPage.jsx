@@ -1,0 +1,310 @@
+import { useState, useEffect } from 'react';
+import { useParams, Link } from 'react-router-dom';
+import { useAuth } from '../../context/AuthContext';
+import { cashManagementApi } from '../../services/cashManagementApi';
+import { profitsApi } from '../../services/profitsApi';
+import { useInvestorMonthlyShares } from '../../hooks/useProfits';
+import Card from '../../components/ui/Card';
+import Button from '../../components/ui/Button';
+import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
+import Input from '../../components/ui/Input';
+import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import Pagination from '../../components/ui/Pagination';
+
+const fmt = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+    return isNaN(num) ? '0.00' : num.toFixed(2);
+};
+
+const formatMonthLabel = (period) => {
+    if (!period) return '';
+    const [year, m] = period.split('-');
+    const date = new Date(Number(year), Number(m) - 1, 1);
+    return date.toLocaleDateString('en-US', { month: 'long', year: 'numeric' });
+};
+
+const statusBadge = (status) => {
+    if (status === 'paid') return <Badge variant="success" size="sm">Paid</Badge>;
+    if (status === 'partial') return <Badge variant="warning" size="sm">Partial</Badge>;
+    return <Badge variant="error" size="sm">Unpaid</Badge>;
+};
+
+const ProfitInvestorDetailPage = () => {
+    const { id } = useParams();
+    const { user } = useAuth();
+    const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+
+    const [investor, setInvestor] = useState(null);
+    const [investorLoading, setInvestorLoading] = useState(true);
+
+    const { data: shares, meta, page, setPage, loading: sharesLoading, refetch } = useInvestorMonthlyShares(id);
+
+    const [settleShare, setSettleShare] = useState(null);
+    const [formData, setFormData] = useState({
+        amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '',
+    });
+    const [formLoading, setFormLoading] = useState(false);
+    const [formError, setFormError] = useState('');
+
+    const fetchInvestor = () => {
+        setInvestorLoading(true);
+        cashManagementApi.investors.getById(id)
+            .then(setInvestor)
+            .finally(() => setInvestorLoading(false));
+    };
+
+    useEffect(() => {
+        fetchInvestor();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
+
+    const resetForm = () => {
+        setFormData({ amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormError('');
+    };
+
+    const openSettle = (share) => {
+        resetForm();
+        setSettleShare(share);
+    };
+
+    const handleSubmit = async (e) => {
+        e.preventDefault();
+        setFormError('');
+        setFormLoading(true);
+        try {
+            await profitsApi.payouts.create(settleShare.id, {
+                ...formData,
+                amount: parseFloat(formData.amount),
+            });
+            setSettleShare(null);
+            resetForm();
+            refetch();
+            fetchInvestor();
+        } catch (err) {
+            setFormError(
+                err.response?.data?.amount?.[0] ||
+                err.response?.data?.detail ||
+                'Failed to record settlement'
+            );
+        } finally {
+            setFormLoading(false);
+        }
+    };
+
+    if (!isAdmin) {
+        return (
+            <div className="text-center py-12">
+                <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
+                <p className="text-neutral-500 mt-2">Only admins or superusers can view this.</p>
+            </div>
+        );
+    }
+
+    if (investorLoading) {
+        return (
+            <div className="flex items-center justify-center min-h-[60vh]">
+                <LoadingSpinner size="lg" />
+            </div>
+        );
+    }
+
+    if (!investor) {
+        return (
+            <div className="text-center py-12">
+                <h2 className="text-2xl font-semibold text-neutral-900">Investor Not Found</h2>
+                <Link to="/profits/investors" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
+                    ← Back to Investors
+                </Link>
+            </div>
+        );
+    }
+
+    const columns = [
+        { key: 'period', label: 'Month', render: (v) => formatMonthLabel(v) },
+        { key: 'share_percent_snapshot', label: 'Share %', render: (v) => `${fmt(v)}%` },
+        { key: 'share_amount', label: 'Share Amount', render: (v) => `Rs. ${fmt(v)}` },
+        { key: 'amount_settled', label: 'Settled', render: (v) => `Rs. ${fmt(v)}` },
+        { key: 'amount_remaining', label: 'Remaining', render: (v) => `Rs. ${fmt(v)}` },
+        { key: 'payment_status', label: 'Status', render: (v) => statusBadge(v) },
+    ];
+
+    return (
+        <div className="space-y-6">
+            <div>
+                <Link to="/profits/investors" className="text-sm text-primary-600 hover:text-primary-700">
+                    ← Back to Investors
+                </Link>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-1">{investor.name}</h1>
+                <p className="text-neutral-500">{investor.contact_number || investor.email || '—'}</p>
+            </div>
+
+            {/* Header stats */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+                <Card className="p-4">
+                    <p className="text-xs text-neutral-500 mb-1">Current Invested Money</p>
+                    <p className="text-xl font-bold text-info-600">Rs. {fmt(investor.total_invested)}</p>
+                    <p className="text-xs text-neutral-400 mt-1">All-time, gross</p>
+                </Card>
+                <Card className="p-4">
+                    <p className="text-xs text-neutral-500 mb-1">Current Withdrawal</p>
+                    <p className="text-xl font-bold text-orange-600">Rs. {fmt(investor.total_withdrawn)}</p>
+                    <p className="text-xs text-neutral-400 mt-1">All-time, gross</p>
+                </Card>
+                <Card className="p-4">
+                    <p className="text-xs text-neutral-500 mb-1">Net Stake</p>
+                    <p className="text-xl font-bold text-success-600">Rs. {fmt(investor.net_stake)}</p>
+                    <p className="text-xs text-neutral-400 mt-1">Invested minus withdrawn</p>
+                </Card>
+            </div>
+
+            {/* Profit shares by month — pay for profit only, withdrawals live in Cash Management */}
+            <Card className="p-6">
+                <h3 className="font-semibold text-neutral-900 mb-1">Monthly Profit Shares</h3>
+                <p className="text-sm text-neutral-500 mb-4">
+                    Settle this investor's profit share, month by month — payouts or reinvestments only.
+                    Capital withdrawals aren't handled here; use Cash Management → Investors for those.
+                </p>
+
+                {sharesLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size="lg" />
+                    </div>
+                ) : shares.length === 0 ? (
+                    <div className="text-center py-8">
+                        <p className="text-sm text-neutral-500">No finalized months with a share for this investor yet.</p>
+                    </div>
+                ) : (
+                    <>
+                        <div className="overflow-x-auto">
+                            <table className="w-full text-sm">
+                                <thead>
+                                    <tr className="text-left text-neutral-500 border-b border-neutral-200">
+                                        {columns.map((c) => (
+                                            <th key={c.key} className="pb-2 font-medium">{c.label}</th>
+                                        ))}
+                                        <th className="pb-2 font-medium"></th>
+                                    </tr>
+                                </thead>
+                                <tbody>
+                                    {shares.map((share) => (
+                                        <tr key={share.id} className="border-b border-neutral-100">
+                                            {columns.map((c) => (
+                                                <td key={c.key} className="py-2 text-neutral-700">
+                                                    {c.render ? c.render(share[c.key]) : share[c.key]}
+                                                </td>
+                                            ))}
+                                            <td className="py-2 text-right">
+                                                {parseFloat(share.amount_remaining) > 0 && (
+                                                    <Button size="sm" variant="secondary" onClick={() => openSettle(share)}>
+                                                        Pay for Profit
+                                                    </Button>
+                                                )}
+                                            </td>
+                                        </tr>
+                                    ))}
+                                </tbody>
+                            </table>
+                        </div>
+                        {meta.totalPages > 1 && (
+                            <div className="mt-4">
+                                <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />
+                            </div>
+                        )}
+                    </>
+                )}
+            </Card>
+
+            {/* Settle modal */}
+            <Modal
+                isOpen={!!settleShare}
+                onClose={() => { setSettleShare(null); resetForm(); }}
+                title={`Pay for Profit — ${settleShare ? formatMonthLabel(settleShare.period) : ''}`}
+                size="lg"
+            >
+                {settleShare && (
+                    <form onSubmit={handleSubmit} className="space-y-4">
+                        <div className="p-3 bg-neutral-50 rounded-lg text-sm text-neutral-600">
+                            Share amount: <strong>Rs. {fmt(settleShare.share_amount)}</strong> · Remaining: <strong>Rs. {fmt(settleShare.amount_remaining)}</strong>
+                        </div>
+
+                        <Input
+                            label="Amount (PKR)"
+                            type="number"
+                            step="0.01"
+                            min="0.01"
+                            max={settleShare.amount_remaining}
+                            value={formData.amount}
+                            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                            required
+                        />
+
+                        <div>
+                            <label className="block text-sm font-medium text-neutral-700 mb-1.5">Action</label>
+                            <div className="flex gap-3">
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, action_type: 'payout' })}
+                                    className={`flex-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${formData.action_type === 'payout' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-600'}`}
+                                >
+                                    Pay Out
+                                    <p className="text-xs font-normal mt-0.5 opacity-75">Cash leaves the business</p>
+                                </button>
+                                <button
+                                    type="button"
+                                    onClick={() => setFormData({ ...formData, action_type: 'reinvest' })}
+                                    className={`flex-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${formData.action_type === 'reinvest' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-600'}`}
+                                >
+                                    Reinvest
+                                    <p className="text-xs font-normal mt-0.5 opacity-75">Cash out, then back in as new investment</p>
+                                </button>
+                            </div>
+                        </div>
+
+                        <Input
+                            label="Date"
+                            type="date"
+                            value={formData.payout_date}
+                            onChange={(e) => setFormData({ ...formData, payout_date: e.target.value })}
+                            required
+                        />
+                        <Input
+                            label="Note"
+                            value={formData.note}
+                            onChange={(e) => setFormData({ ...formData, note: e.target.value })}
+                            placeholder="Optional"
+                        />
+
+                        {formData.amount && parseFloat(formData.amount) > 0 && (
+                            <div className="p-3 bg-amber-50 rounded-lg">
+                                <p className="text-sm text-amber-700">
+                                    {formData.action_type === 'reinvest'
+                                        ? `⚠️ Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new investment for ${investor.name} — net cash effect is zero, but both are recorded.`
+                                        : `⚠️ This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${investor.name}.`}
+                                </p>
+                            </div>
+                        )}
+
+                        {formError && (
+                            <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
+                                <p className="text-sm text-error-600">{formError}</p>
+                            </div>
+                        )}
+
+                        <div className="flex justify-end gap-3 pt-4">
+                            <Button type="button" variant="secondary" onClick={() => { setSettleShare(null); resetForm(); }}>
+                                Cancel
+                            </Button>
+                            <Button type="submit" loading={formLoading}>
+                                {formData.action_type === 'reinvest' ? 'Reinvest' : 'Pay Out'}
+                            </Button>
+                        </div>
+                    </form>
+                )}
+            </Modal>
+        </div>
+    );
+};
+
+export default ProfitInvestorDetailPage;

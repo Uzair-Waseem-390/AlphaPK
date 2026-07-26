@@ -16,6 +16,7 @@ const Layout = ({ children }) => {
     const [cashManagementOpen, setCashManagementOpen] = useState(false);
     const [assetsOpen, setAssetsOpen] = useState(false);
     const [recurringExpensesOpen, setRecurringExpensesOpen] = useState(false);
+    const [profitsOpen, setProfitsOpen] = useState(false);
 
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const isSuperuser = user?.role === 'superuser';
@@ -100,6 +101,16 @@ const Layout = ({ children }) => {
         return recurringExpensesPaths.some(path => location.pathname.startsWith(path));
     };
 
+    // Check if any profits sub-item is active
+    const isProfitsActive = () => {
+        const profitsPaths = [
+            '/business-worth',
+            '/monthly-profits',
+            '/profits',
+        ];
+        return profitsPaths.some(path => location.pathname.startsWith(path));
+    };
+
     const mainNavigation = [
         { name: 'Dashboard', path: '/dashboard', icon: '📊' },
         // Listing all users is superuser-only (see users app permission matrix)
@@ -110,9 +121,6 @@ const Layout = ({ children }) => {
         { name: 'Rates', path: '/rates', icon: '💰' },
         // Ledger app is admin/superuser-only end to end
         { name: 'Ledger', path: '/ledger', icon: '📒', adminOnly: true },
-        // Business Worth and Monthly Profits are standalone tabs, not nested under any section
-        { name: 'Business Worth', path: '/business-worth', icon: '💎', adminOnly: true },
-        { name: 'Monthly Profits', path: '/monthly-profits', icon: '📊', adminOnly: true },
         // One-time bootstrap tool — superuser only
         { name: 'Data Entry', path: '/data-entry', icon: '📥', superuserOnly: true },
     ].filter(item => (!item.adminOnly || isAdmin) && (!item.superuserOnly || isSuperuser));
@@ -185,6 +193,13 @@ const Layout = ({ children }) => {
         { name: 'Disposals', path: '/assets/disposals', icon: '🗑️' },
     ];
 
+    const profitsNavigation = [
+        { name: 'Business Worth', path: '/business-worth', icon: '💎' },
+        { name: 'Monthly Profits', path: '/monthly-profits', icon: '📊' },
+        { name: 'Investor Payments', path: '/profits/payouts', icon: '💵' },
+        { name: 'Investors', path: '/profits/investors', icon: '🤝' },
+    ];
+
     const isActive = (path) => location.pathname === path;
     const isPurchasesActiveNow = isPurchasesActive();
     const isBillingActiveNow = isBillingActive();
@@ -194,6 +209,7 @@ const Layout = ({ children }) => {
     const isCashManagementActiveNow = isCashManagementActive();
     const isAssetsActiveNow = isAssetsActive();
     const isRecurringExpensesActiveNow = isRecurringExpensesActive();
+    const isProfitsActiveNow = isProfitsActive();
 
     return (
         <div className="min-h-screen bg-neutral-50">
@@ -754,6 +770,81 @@ const Layout = ({ children }) => {
                                 {!sidebarOpen && (
                                     <div className="mt-1 space-y-1">
                                         {assetsNavigation.map((item) => (
+                                            <Link
+                                                key={item.path}
+                                                to={item.path}
+                                                className={`flex items-center justify-center px-4 py-3 rounded-xl transition-all duration-200 ${isActive(item.path)
+                                                    ? 'bg-primary-50 text-primary-700'
+                                                    : 'text-neutral-600 hover:bg-neutral-100'
+                                                    }`}
+                                                title={item.name}
+                                            >
+                                                <span className="text-xl">{item.icon}</span>
+                                            </Link>
+                                        ))}
+                                    </div>
+                                )}
+                            </div>
+                        )}
+
+                        {/* Profits Section — admin/superuser only */}
+                        {isAdmin && (
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <button
+                                    onClick={() => setProfitsOpen(!profitsOpen)}
+                                    className={`w-full flex items-center justify-between gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isProfitsActiveNow
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <div className="flex items-center gap-3">
+                                        <span className="text-xl">💎</span>
+                                        {sidebarOpen && (
+                                            <span className="font-medium">Profits</span>
+                                        )}
+                                    </div>
+                                    {sidebarOpen && (
+                                        <motion.span
+                                            animate={{ rotate: profitsOpen ? 180 : 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="text-sm"
+                                        >
+                                            ▼
+                                        </motion.span>
+                                    )}
+                                </button>
+
+                                {/* Profits Sub-items */}
+                                <AnimatePresence>
+                                    {profitsOpen && sidebarOpen && (
+                                        <motion.div
+                                            initial={{ opacity: 0, height: 0 }}
+                                            animate={{ opacity: 1, height: 'auto' }}
+                                            exit={{ opacity: 0, height: 0 }}
+                                            transition={{ duration: 0.2 }}
+                                            className="ml-4 space-y-1 overflow-hidden"
+                                        >
+                                            {profitsNavigation.map((item) => (
+                                                <Link
+                                                    key={item.path}
+                                                    to={item.path}
+                                                    className={`flex items-center gap-3 px-4 py-2.5 rounded-xl transition-all duration-200 text-sm ${isActive(item.path)
+                                                        ? 'bg-primary-50 text-primary-700'
+                                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                                        }`}
+                                                >
+                                                    <span className="text-base">{item.icon}</span>
+                                                    <span className="font-medium">{item.name}</span>
+                                                </Link>
+                                            ))}
+                                        </motion.div>
+                                    )}
+                                </AnimatePresence>
+
+                                {/* When sidebar is collapsed, show profits as icons */}
+                                {!sidebarOpen && (
+                                    <div className="mt-1 space-y-1">
+                                        {profitsNavigation.map((item) => (
                                             <Link
                                                 key={item.path}
                                                 to={item.path}

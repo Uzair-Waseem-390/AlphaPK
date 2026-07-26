@@ -3,7 +3,9 @@ from django.urls import path
 from .views import (
     BusinessWorthView,
     CurrentMonthProfitView,
+    InvestorMonthlySharesListView,
     InvestorProfitPayoutCreateView,
+    InvestorProfitPayoutListView,
     InvestorProfitPayoutRetrieveDestroyView,
     MonthlyProfitDetailView,
     MonthlyProfitListView,
@@ -23,5 +25,9 @@ urlpatterns = [
     path("monthly/<str:period>/", MonthlyProfitDetailView.as_view(), name="monthly-profit-detail"),
     path("monthly/shares/<int:share_id>/payouts/", InvestorProfitPayoutCreateView.as_view(), name="investor-profit-payout-create"),
 
+    # IMPORTANT: static "payouts/" list before the dynamic "payouts/<pk>/" detail
+    path("payouts/", InvestorProfitPayoutListView.as_view(), name="investor-profit-payout-list"),
     path("payouts/<int:pk>/", InvestorProfitPayoutRetrieveDestroyView.as_view(), name="investor-profit-payout-detail"),
+
+    path("investors/<int:investor_id>/shares/", InvestorMonthlySharesListView.as_view(), name="investor-monthly-shares"),
 ]

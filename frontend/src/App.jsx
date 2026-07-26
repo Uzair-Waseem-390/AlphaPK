@@ -90,6 +90,9 @@ import OwnerTransactionDetailPage from './pages/cashManagement/OwnerTransactionD
 import BusinessWorthPage from './pages/profits/BusinessWorthPage';
 import MonthlyProfitsPage from './pages/profits/MonthlyProfitsPage';
 import MonthlyProfitDetailPage from './pages/profits/MonthlyProfitDetailPage';
+import InvestorPayoutsPage from './pages/profits/InvestorPayoutsPage';
+import ProfitInvestorsListPage from './pages/profits/ProfitInvestorsListPage';
+import ProfitInvestorDetailPage from './pages/profits/ProfitInvestorDetailPage';
 
 // Assets pages
 import AssetsPage from './pages/assets/AssetsPage';
@@ -723,6 +726,30 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <MonthlyProfitDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/profits/payouts" element={
+          <ProtectedRoute>
+            <Layout>
+              <InvestorPayoutsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/profits/investors" element={
+          <ProtectedRoute>
+            <Layout>
+              <ProfitInvestorsListPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/profits/investors/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <ProfitInvestorDetailPage />
             </Layout>
           </ProtectedRoute>
         } />
