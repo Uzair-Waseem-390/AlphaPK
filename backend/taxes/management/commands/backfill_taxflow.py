@@ -11,7 +11,7 @@ class Command(BaseCommand):
     def handle(self, *args, **kwargs):
         from billing.models import Invoice
         from purchases.models import PurchaseOrder
-        from taxes.models import TaxPayment
+        from taxes.models import TaxPayment, WHTPayment
 
         self.stdout.write("Starting TaxFlow backfill...\n")
 
@@ -25,6 +25,7 @@ class Command(BaseCommand):
         tf.total_sales_tax_paid              = Decimal("0")
         tf.total_wht_withheld_from_suppliers = Decimal("0")
         tf.total_wht_withheld_by_customers   = Decimal("0")
+        tf.total_wht_paid                    = Decimal("0")
         tf.save()
 
         # 1. Input tax paid + WHT withheld from suppliers = sum of gst_total/wht_total
@@ -63,10 +64,20 @@ class Command(BaseCommand):
             tf.total_sales_tax_paid += p.amount
         self.stdout.write(f"  total_sales_tax_paid: {tf.total_sales_tax_paid}")
 
+        # 4. WHT actually paid to FBR (supplier side only) = sum of non-deleted
+        #    WHTPayment amounts
+        wht_payments = WHTPayment.objects.filter(is_deleted=False)
+        for wp in wht_payments:
+            tf.total_wht_paid += wp.amount
+        self.stdout.write(f"  total_wht_paid: {tf.total_wht_paid}")
+
         # Derived fields — same recompute-and-store discipline as the live sync path.
         tf.net_sales_tax_payable = tf.total_output_tax_collected - tf.total_input_tax_paid
         tf.sales_tax_outstanding = max(
             Decimal("0"), tf.net_sales_tax_payable - tf.total_sales_tax_paid
+        )
+        tf.wht_outstanding = max(
+            Decimal("0"), tf.total_wht_withheld_from_suppliers - tf.total_wht_paid
         )
 
         tf.save()
@@ -80,4 +91,6 @@ Final TaxFlow state:
   sales_tax_outstanding             : {tf.sales_tax_outstanding}
   total_wht_withheld_from_suppliers : {tf.total_wht_withheld_from_suppliers}
   total_wht_withheld_by_customers   : {tf.total_wht_withheld_by_customers}
+  total_wht_paid                    : {tf.total_wht_paid}
+  wht_outstanding                   : {tf.wht_outstanding}
 """)

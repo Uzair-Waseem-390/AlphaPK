@@ -60,18 +60,24 @@ per transaction, not two sides of the same ledger:
 - **WHT withheld from suppliers**: when the store (as the buyer) pays a
   supplier, it may be required to deduct WHT from that payment and deposit
   it with FBR on the supplier's behalf. This is real cash the store has
-  already deducted and is holding — a genuine liability to FBR.
+  already deducted and is holding — a genuine liability to FBR. **This side
+  is now payment-tracked** (see "WHT Payments" below).
 - **WHT withheld by customers**: when a customer pays the store, *they* may
   deduct WHT from what they owe and deposit it with FBR directly, on the
   store's behalf. The store never touches this money. It's not income the
   store lost — it's a **credit** the store can claim against its own annual
-  income tax return.
+  income tax return. **This side has no payment ledger and never will** —
+  the store never holds this cash, so there's nothing for it to pay.
 
 These two numbers cannot be netted against each other, and neither can be
-netted against Sales Tax — they belong to a different tax law entirely.
-That's why this module shows them as two separate, read-only figures with
-no "amount to pay" calculated from them (see "What's intentionally missing
-in v1" below).
+netted against Sales Tax — they belong to a different tax law entirely. In
+concrete terms: WHT deducted from Supplier A's payment must be deposited on
+Supplier A's tax account; a WHT credit sitting on the store's own account
+(deposited there by Customer B) cannot be used to cover that obligation,
+because it's a different taxpayer's money on a different taxpayer's account.
+That's why the "amount to pay" for WHT (`wht_outstanding`) is built only
+from the supplier side — a running total minus payments made, not a
+difference of two flows like Sales Tax.
 
 ---
 
@@ -88,9 +94,9 @@ not gaps someone forgot about.
 | **Built as an internal tool, not a live FBR filing system** | The store is not currently registered for Sales Tax. Every figure here is a management estimate for the owner's own visibility, not a submission to FBR. |
 | **v1 shows the raw, uncapped Net Sales Tax Payable** | FBR's Section 8B caps how much input tax can be claimed per period (90% of output tax) with carry-forward for the rest. Implementing that properly requires period-by-period tracking, which is a meaningfully bigger feature. Ship the core numbers first, verify they're correct, then add the cap — rather than adding complexity before the basics are trusted. |
 | **Figures use a flexible date range for reporting, not FBR's fixed monthly cycle** | Matches how every other report in this system already works. Since the store isn't filing monthly returns yet, there was no reason to force a monthly structure on this feature specifically. |
-| **WHT is read-only — no payment tracking, no "amount to pay" for either direction** | WHT withheld by customers is money the store never touches (the customer deposits it with FBR directly) — there is nothing for the store to "pay" on that side. WHT withheld from suppliers is a real liability, but tracking its actual deposit to FBR was deliberately deferred to keep v1's scope to the one tax (GST) that's fully modeled end-to-end (owed → paid → outstanding). |
+| **WHT withheld from suppliers is now payment-tracked; WHT withheld by customers stays read-only, permanently** | WHT withheld by customers is money the store never touches (the customer deposits it with FBR directly) — there is nothing for the store to "pay" on that side, ever. WHT withheld from suppliers is a real liability the store is holding, so it now has its own "WHT Payments" ledger (`total_wht_paid` / `wht_outstanding`), mirroring the existing Tax Payments ledger for GST — same reasoning, same shape. |
 | **Running all-time balances, not period-tied payments** | Mirrors how supplier payables already work elsewhere in this system: a gross "total ever paid" figure plus a net "still outstanding" figure, both stored fields kept up to date automatically. Simpler, consistent with the rest of the app, and sufficient since there's no monthly filing deadline driving this yet. |
-| **Backend only — no frontend or dashboard card in v1** | Keeps this round of work scoped to getting the numbers themselves right and verified. The API is fully built and tested, so a frontend can be added whenever it's wanted without touching this layer again. |
+| **Frontend exists for Sales Tax and WHT Payments, no dashboard card yet** | The Taxes page and Tax/WHT Payments list/create/delete flows are built. A dashboard summary card was intentionally left out so far — see item 5 below. |
 | **Every total is calculated off data the system already had** (`gst_total`/`wht_total` already stored on every purchase order and invoice) | No new tax math was introduced — this module aggregates numbers that were already being calculated and stored for purchase/invoice documents. Lower risk than re-deriving tax figures from scratch. |
 
 ---
@@ -110,13 +116,20 @@ builds up.
 | **Net Sales Tax Payable** | Output − Input. What you'd owe FBR today if registered and filing right now | Recalculated every time either total above changes |
 | **Sales Tax Paid** | Total GST actually paid to FBR, all-time | A "Tax Payment" is recorded |
 | **Sales Tax Outstanding** | Net Payable − Sales Tax Paid, never shown below zero | Recalculated every time either total above changes |
-| **WHT Withheld from Suppliers** | Tax deducted from supplier payments — a real liability to FBR, informational only in v1 | A purchase order is confirmed |
-| **WHT Withheld by Customers** | Tax customers deducted from what they paid you — a credit for your annual return, informational only | An invoice is confirmed |
+| **WHT Withheld from Suppliers** | Tax deducted from supplier payments — a real liability to FBR | A purchase order is confirmed |
+| **WHT Withheld by Customers** | Tax customers deducted from what they paid you — a credit for your annual return, informational only, no payment tracking | An invoice is confirmed |
+| **WHT Paid** | Total WHT actually deposited to FBR against tax withheld from suppliers, all-time | A "WHT Payment" is recorded |
+| **WHT Outstanding** | WHT Withheld from Suppliers − WHT Paid, never shown below zero. Never netted against WHT Withheld by Customers — different taxpayer's obligation | Recalculated every time either total above changes |
 
-A separate ledger, **Tax Payments**, records every actual payment made to
-FBR (amount, date, note). Recording one immediately reduces Cash in Hand on
-the main dashboard, exactly the same way recording an Expense does — it's
-real money leaving the till.
+Two separate ledgers record actual FBR deposits:
+- **Tax Payments** — real GST payments made to FBR.
+- **WHT Payments** — real WHT deposits made to FBR, against tax withheld
+  from suppliers only (there is no equivalent ledger for tax withheld by
+  customers — the store never holds that cash).
+
+Recording either immediately reduces Cash in Hand on the main dashboard,
+exactly the same way recording an Expense does — it's real money leaving
+the till.
 
 ---
 
@@ -127,8 +140,10 @@ Input Tax Paid (to suppliers)     : Rs 1,002,348.00
 Output Tax Collected (from customers): Rs    11,241.00
 Net Sales Tax Payable             : Rs  -991,107.00   (you're in an excess-credit position, not owing)
 Sales Tax Outstanding             : Rs         0.00
-WHT Withheld from Suppliers       : Rs    55,686.00   (real FBR liability if/when registered)
+WHT Withheld from Suppliers       : Rs    55,686.00   (real FBR liability)
 WHT Withheld by Customers         : Rs       624.22   (informational credit only)
+WHT Paid                          : Rs         0.00   (no WHT deposits recorded yet)
+WHT Outstanding                   : Rs    55,686.00
 ```
 
 **Why Output Tax is so much smaller than Input Tax:** this almost certainly
@@ -161,17 +176,18 @@ owner, and can be added later without reworking what's already here:
    period-by-period carry-forward tracking, which is meaningfully more
    complex and is planned as a v2 addition once this foundation is trusted.
 
-3. **No payment tracking for WHT.** Only Sales Tax (GST) has a "Tax
-   Payments" ledger and an outstanding balance in v1. WHT withheld from
-   suppliers is shown as an informational running total only — recording
-   an actual WHT deposit to FBR isn't tracked yet.
+3. **No payment tracking for WHT withheld by customers** — and there never
+   will be. The store never holds that cash, so there's nothing to record a
+   payment against. (WHT withheld from suppliers *does* have payment
+   tracking — see "WHT Payments" above.)
 
 4. **No period grouping.** Figures are all-time running totals, not broken
    down by FBR's monthly filing calendar. Since the store isn't currently
    registered/filing, this wasn't needed yet.
 
-5. **No frontend yet.** This is backend-only for now — API endpoints exist
-   and are verified, but there's no UI page to view or manage this from.
+5. **No dashboard summary card yet.** The Taxes page exists as its own
+   section, but none of these figures are surfaced on the main dashboard
+   the way CashFlow/AssetFlow stats are.
 
 6. **Input tax assumes every supplier is GST-registered.** Legally, input
    tax is only claimable on purchases from suppliers who are themselves
@@ -191,12 +207,8 @@ owner, and can be added later without reworking what's already here:
    registers with FBR (or earlier, if useful for planning ahead).
 3. Add return-reversal logic for GST/WHT totals, matching whatever
    convention gets adopted for the rest of the system's running totals.
-4. Add WHT payment tracking (an FBR deposit ledger, same shape as the
-   existing Tax Payments ledger for GST).
-5. Add a monthly tax-period view once the store is registered and needs to
+4. Add a monthly tax-period view once the store is registered and needs to
    match its actual filing calendar.
-6. Build the frontend: a Taxes page (stats + Tax Payments list/create/
-   delete), and optionally a dashboard summary card.
 
 ---
 
@@ -244,11 +256,15 @@ or superuser) — normal users get a 403.
 
 | Method | Endpoint | Purpose |
 |---|---|---|
-| GET | `/api/taxes/stats/` | Current tax position (all 7 fields above) |
-| GET | `/api/taxes/payments/` | List tax payments (filters: `search`, `date_from`, `date_to`, `min_amount`, `max_amount`) |
+| GET | `/api/taxes/stats/` | Current tax position (all 9 fields above) |
+| GET | `/api/taxes/payments/` | List GST payments (filters: `search`, `date_from`, `date_to`, `min_amount`, `max_amount`) |
 | POST | `/api/taxes/payments/` | Record a new GST payment to FBR — deducts Cash in Hand |
-| GET | `/api/taxes/payments/<id>/` | Retrieve a single tax payment |
-| DELETE | `/api/taxes/payments/<id>/` | Soft-delete a tax payment — restores Cash in Hand |
+| GET | `/api/taxes/payments/<id>/` | Retrieve a single GST payment |
+| DELETE | `/api/taxes/payments/<id>/` | Soft-delete a GST payment — restores Cash in Hand |
+| GET | `/api/taxes/wht-payments/` | List WHT payments (same filters as above) |
+| POST | `/api/taxes/wht-payments/` | Record a new WHT deposit to FBR (against tax withheld from suppliers) — deducts Cash in Hand |
+| GET | `/api/taxes/wht-payments/<id>/` | Retrieve a single WHT payment |
+| DELETE | `/api/taxes/wht-payments/<id>/` | Soft-delete a WHT payment — restores Cash in Hand |
 
 Run `python manage.py backfill_taxflow` any time to recompute the Tax Flow
 singleton from scratch off existing confirmed purchases/invoices/payments —

@@ -56,16 +56,29 @@ class TaxFlow(models.Model):
                    "What's left to pay right now.",
     )
 
-    # ---- Withholding Tax (WHT) — informational only, see README ----
+    # ---- Withholding Tax (WHT) — supplier side is payment-tracked, customer side stays informational ----
     total_wht_withheld_from_suppliers = models.DecimalField(
         max_digits=20, decimal_places=4, default=0,
         help_text="Tax you deducted from supplier payments, all-time. Real cash you "
-                   "owe FBR, but not payment-tracked here in v1 — informational only.",
+                   "owe FBR — a liability, now payment-tracked via WHTPayment.",
     )
     total_wht_withheld_by_customers = models.DecimalField(
         max_digits=20, decimal_places=4, default=0,
         help_text="Tax customers deducted from what they paid you, all-time. You never "
-                   "touch this money — it's a credit for your own annual return.",
+                   "touch this money — it's a credit for your own annual return. Never "
+                   "netted against total_wht_withheld_from_suppliers — different taxpayer's "
+                   "obligation, informational only.",
+    )
+    total_wht_paid = models.DecimalField(
+        max_digits=20, decimal_places=4, default=0,
+        help_text="Actual WHT deposits made to FBR (via WHTPayment records) against tax "
+                   "withheld from suppliers, all-time (gross, only ever increases).",
+    )
+    wht_outstanding = models.DecimalField(
+        max_digits=20, decimal_places=4, default=0,
+        help_text="total_wht_withheld_from_suppliers - total_wht_paid, floored at 0. "
+                   "What's still owed to FBR from tax already withheld from suppliers. "
+                   "Never netted against total_wht_withheld_by_customers — see docstring above.",
     )
 
     # ---- Last sync metadata ----
@@ -130,3 +143,51 @@ class TaxPayment(models.Model):
 
     def __str__(self):
         return f"Tax Payment — {self.amount} on {self.payment_date}"
+
+
+# ---------------------------------------------------------------------------
+# WHTPayment  (ledger — mirrors TaxPayment, tracks deposits against WHT withheld from suppliers)
+# ---------------------------------------------------------------------------
+
+class WHTPayment(models.Model):
+    """
+    A real WHT deposit made to FBR, against tax previously withheld from
+    supplier payments. Confirmed immediately on creation — no draft state.
+    Amount auto-deducted from CashFlow.cash_in_hand on create, restored on
+    delete. Full audit trail via created_by/updated_by/deleted_by.
+
+    Only tracks the supplier side (total_wht_withheld_from_suppliers) — WHT
+    withheld by customers is never paid by this business, so it has no
+    payment ledger; see TaxFlow docstring.
+    """
+
+    amount       = models.DecimalField(max_digits=18, decimal_places=4)
+    payment_date = models.DateField(db_index=True)
+    note         = models.TextField(blank=True, default="")
+
+    created_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="wht_payments_created",
+    )
+    updated_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="wht_payments_updated",
+    )
+    deleted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="wht_payments_deleted",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+    is_deleted  = models.BooleanField(default=False, db_index=True)
+
+    objects     = models.Manager()
+
+    class Meta:
+        verbose_name        = "WHT Payment"
+        verbose_name_plural  = "WHT Payments"
+        ordering             = ["-payment_date", "-created_at"]
+
+    def __str__(self):
+        return f"WHT Payment — {self.amount} on {self.payment_date}"

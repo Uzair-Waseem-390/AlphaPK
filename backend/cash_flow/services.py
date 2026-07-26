@@ -483,6 +483,28 @@ def sync_tax_payment_deleted(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_wht_payment_made(*, amount: Decimal, user) -> None:
+    """
+    Called by taxes.services.create_wht_payment when a WHT deposit to FBR is
+    recorded. Same mechanism as a Tax Payment — it's real cash leaving the till.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = -amount,
+        user=user,
+    )
+
+
+def sync_wht_payment_deleted(*, amount: Decimal, user) -> None:
+    """
+    Called by taxes.services.delete_wht_payment when a WHT payment record is
+    deleted. Restores the amount to cash_in_hand.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta = +amount,
+        user=user,
+    )
+
+
 def sync_cash_lost(*, amount: Decimal, user) -> None:
     """
     Called by cash_management.services when cash is recorded as lost

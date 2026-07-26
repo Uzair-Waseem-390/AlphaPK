@@ -129,6 +129,21 @@ class Command(BaseCommand):
         except Exception:
             pass  # taxes app absent — fine, nothing to deduct
 
+        # 5b2. WHT payments (withholding tax deposited to FBR) — same treatment
+        #      as tax payments: real cash leaving the till. Mirrors
+        #      taxes.services.sync_wht_payment_made.
+        try:
+            from taxes.models import WHTPayment
+            wht_payments = WHTPayment.objects.filter(is_deleted=False)
+            total_wht_paid = Decimal("0")
+            for wp in wht_payments:
+                total_wht_paid  += wp.amount
+                cf.cash_in_hand -= wp.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_wht_paid (deducted from cash_in_hand): {total_wht_paid}")
+        except Exception:
+            pass  # taxes app absent — fine, nothing to deduct
+
         # 5c. Lost/found cash + investor investments/withdrawals — mirrors
         #     cash_flow.services.sync_cash_lost/sync_cash_found/
         #     sync_investor_investment/sync_investor_withdrawal exactly.

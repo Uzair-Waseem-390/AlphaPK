@@ -1,7 +1,7 @@
 from django.db.models import Q, QuerySet
 from django.shortcuts import get_object_or_404
 
-from .models import TaxFlow, TaxPayment
+from .models import TaxFlow, TaxPayment, WHTPayment
 
 
 def _clean(value):
@@ -30,6 +30,8 @@ def get_tax_stats() -> dict:
         "sales_tax_outstanding"             : tf.sales_tax_outstanding,
         "total_wht_withheld_from_suppliers" : tf.total_wht_withheld_from_suppliers,
         "total_wht_withheld_by_customers"   : tf.total_wht_withheld_by_customers,
+        "total_wht_paid"                    : tf.total_wht_paid,
+        "wht_outstanding"                   : tf.wht_outstanding,
     }
 
 
@@ -66,3 +68,38 @@ def get_all_tax_payments(
 
 def get_tax_payment_by_id(pk: int) -> TaxPayment:
     return get_object_or_404(TaxPayment, pk=pk, is_deleted=False)
+
+
+# ---------------------------------------------------------------------------
+# WHTPayment
+# ---------------------------------------------------------------------------
+
+def get_all_wht_payments(
+    *,
+    search     : str = None,
+    date_from  : str = None,
+    date_to    : str = None,
+    min_amount : str = None,
+    max_amount : str = None,
+) -> QuerySet:
+    """Returns all non-deleted WHT payments with full filter support."""
+    qs = WHTPayment.objects.filter(is_deleted=False).select_related(
+        "created_by", "updated_by",
+    )
+
+    if _clean(search):
+        qs = qs.filter(Q(note__icontains=_clean(search)))
+    if _clean(date_from):
+        qs = qs.filter(payment_date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(payment_date__lte=_clean(date_to))
+    if _clean(min_amount):
+        qs = qs.filter(amount__gte=_clean(min_amount))
+    if _clean(max_amount):
+        qs = qs.filter(amount__lte=_clean(max_amount))
+
+    return qs.order_by("-payment_date", "-created_at")
+
+
+def get_wht_payment_by_id(pk: int) -> WHTPayment:
+    return get_object_or_404(WHTPayment, pk=pk, is_deleted=False)

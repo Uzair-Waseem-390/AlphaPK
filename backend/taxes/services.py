@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from .models import TaxFlow, TaxPayment
+from .models import TaxFlow, TaxPayment, WHTPayment
 
 
 # ---------------------------------------------------------------------------
@@ -17,6 +17,7 @@ def _adjust_taxflow(
     total_sales_tax_paid_delta              : Decimal = Decimal("0"),
     total_wht_withheld_from_suppliers_delta : Decimal = Decimal("0"),
     total_wht_withheld_by_customers_delta   : Decimal = Decimal("0"),
+    total_wht_paid_delta                    : Decimal = Decimal("0"),
     user,
 ) -> TaxFlow:
     """
@@ -46,11 +47,21 @@ def _adjust_taxflow(
             Decimal("0"),
             tf.total_wht_withheld_by_customers + total_wht_withheld_by_customers_delta,
         )
+        tf.total_wht_paid = max(
+            Decimal("0"), tf.total_wht_paid + total_wht_paid_delta
+        )
 
         # Derived fields — recomputed and stored on every sync, not on read.
         tf.net_sales_tax_payable = tf.total_output_tax_collected - tf.total_input_tax_paid
         tf.sales_tax_outstanding = max(
             Decimal("0"), tf.net_sales_tax_payable - tf.total_sales_tax_paid
+        )
+        # wht_outstanding is NEVER netted against total_wht_withheld_by_customers —
+        # that's a different taxpayer's obligation (WHT deposited by customers on
+        # the store's behalf), not something the store can apply against its own
+        # deposit duty for tax withheld from suppliers. See TaxFlow docstring.
+        tf.wht_outstanding = max(
+            Decimal("0"), tf.total_wht_withheld_from_suppliers - tf.total_wht_paid
         )
 
         tf.last_updated_by = user
@@ -144,3 +155,60 @@ def delete_tax_payment(*, pk: int, user) -> None:
 
     from cash_flow.services import sync_tax_payment_deleted
     sync_tax_payment_deleted(amount=amount, user=user)
+
+
+# ---------------------------------------------------------------------------
+# WHTPayment services
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_wht_payment(
+    *, amount: Decimal, payment_date, note: str = "", user,
+) -> WHTPayment:
+    """
+    Records a real WHT deposit made to FBR, against tax withheld from
+    supplier payments. Deducts amount from CashFlow.cash_in_hand (same
+    mechanism as a Tax Payment) and increases TaxFlow.total_wht_paid,
+    recalculating wht_outstanding.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if amount <= 0:
+        raise ValidationError({"amount": "Payment amount must be greater than zero."})
+
+    payment = WHTPayment.objects.create(
+        amount=amount,
+        payment_date=payment_date,
+        note=note,
+        created_by=user,
+        updated_by=user,
+    )
+
+    _adjust_taxflow(total_wht_paid_delta=+amount, user=user)
+
+    from cash_flow.services import sync_wht_payment_made
+    sync_wht_payment_made(amount=amount, user=user)
+
+    return payment
+
+
+@transaction.atomic
+def delete_wht_payment(*, pk: int, user) -> None:
+    """
+    Soft-deletes a WHT payment, restores its amount to cash_in_hand, and
+    reverses it out of total_wht_paid / wht_outstanding.
+    """
+    from django.shortcuts import get_object_or_404
+
+    payment = get_object_or_404(WHTPayment, pk=pk, is_deleted=False)
+    amount  = payment.amount
+
+    payment.is_deleted = True
+    payment.deleted_at = timezone.now()
+    payment.deleted_by = user
+    payment.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    _adjust_taxflow(total_wht_paid_delta=-amount, user=user)
+
+    from cash_flow.services import sync_wht_payment_deleted
+    sync_wht_payment_deleted(amount=amount, user=user)

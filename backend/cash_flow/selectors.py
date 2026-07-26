@@ -316,6 +316,28 @@ def get_cash_in_hand_breakdown(
     except Exception:
         pass
 
+    # --- Outflows: WHT payments (withholding tax deposited to FBR) ---
+    try:
+        from taxes.models import WHTPayment
+        wht_qs = WHTPayment.objects.filter(is_deleted=False)
+        if _clean(date_from):
+            wht_qs = wht_qs.filter(payment_date__gte=_clean(date_from))
+        if _clean(date_to):
+            wht_qs = wht_qs.filter(payment_date__lte=_clean(date_to))
+
+        for wp in wht_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "wht_payment",
+                "date"       : str(wp.payment_date),
+                "description": f"WHT payment to FBR{f' — {wp.note}' if wp.note else ''}",
+                "reference"  : f"WHT-{wp.id}",
+                "amount"     : wp.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # --- Lost/found cash + investor investments/withdrawals ---
     # cash_management is a separate app — import defensively so this
     # breakdown keeps working even if the app were ever removed.

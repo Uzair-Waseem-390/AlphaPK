@@ -3,13 +3,21 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import IsAdminOrSuperuser
-from .selectors import get_all_tax_payments, get_tax_payment_by_id, get_tax_stats
+from .selectors import (
+    get_all_tax_payments,
+    get_all_wht_payments,
+    get_tax_payment_by_id,
+    get_tax_stats,
+    get_wht_payment_by_id,
+)
 from .serializers import (
     TaxPaymentReadSerializer,
     TaxPaymentWriteSerializer,
     TaxStatsSerializer,
+    WHTPaymentReadSerializer,
+    WHTPaymentWriteSerializer,
 )
-from .services import create_tax_payment, delete_tax_payment
+from .services import create_tax_payment, create_wht_payment, delete_tax_payment, delete_wht_payment
 
 
 # ---------------------------------------------------------------------------
@@ -84,3 +92,59 @@ class TaxPaymentRetrieveDestroyView(generics.RetrieveDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         delete_tax_payment(pk=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Tax payment deleted and cash in hand restored."}, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# WHTPayment
+# ---------------------------------------------------------------------------
+
+class WHTPaymentListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /taxes/wht-payments/  — all WHT deposits made to FBR, newest first
+    POST /taxes/wht-payments/  — record a new WHT payment (deducts cash_in_hand)
+
+    Filter params for GET:
+        search, date_from, date_to, min_amount, max_amount
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get_serializer_class(self):
+        return WHTPaymentWriteSerializer if self.request.method == "POST" else WHTPaymentReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_wht_payments(
+            search     = p.get("search"),
+            date_from  = p.get("date_from"),
+            date_to    = p.get("date_to"),
+            min_amount = p.get("min_amount"),
+            max_amount = p.get("max_amount"),
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        obj = create_wht_payment(
+            amount       = d["amount"],
+            payment_date = d["payment_date"],
+            note         = d.get("note", ""),
+            user         = request.user,
+        )
+        return Response(WHTPaymentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class WHTPaymentRetrieveDestroyView(generics.RetrieveDestroyAPIView):
+    """
+    GET    /taxes/wht-payments/<pk>/
+    DELETE /taxes/wht-payments/<pk>/
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = WHTPaymentReadSerializer
+
+    def get_object(self):
+        return get_wht_payment_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_wht_payment(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "WHT payment deleted and cash in hand restored."}, status=status.HTTP_200_OK)
