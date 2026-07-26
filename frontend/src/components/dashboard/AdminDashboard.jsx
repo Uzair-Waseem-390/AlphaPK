@@ -17,6 +17,7 @@ import CashManagementSectionStats from './CashManagementSectionStats';
 import AssetsSectionStats from './AssetsSectionStats';
 import RecurringExpensesSectionStats from './RecurringExpensesSectionStats';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
+import NetProfitTrendChart from './NetProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
@@ -73,6 +74,7 @@ const AdminDashboard = () => {
                     onCardClick={handleCardClick}
                 />
                 <GrossProfitTrendChart />
+                <NetProfitTrendChart />
                 <ReceivablesSection
                     stats={stats}
                     loading={statsLoading}
