@@ -152,7 +152,7 @@ const ProfitMarginReportPage = () => {
                                 </p>
                             </Card>
                             <Card className="p-4">
-                                <p className="text-sm text-neutral-500">Net Profit (PKR)</p>
+                                <p className="text-sm text-neutral-500">Net Gross Profit (PKR)</p>
                                 <p className={`text-2xl font-bold ${Number(stats.net_gross_profit ?? stats.total_gross_profit ?? 0) >= 0 ? 'text-success-600' : 'text-error-600'}`}>
                                     {Number(stats.net_gross_profit ?? stats.total_gross_profit ?? 0).toFixed(2)}
                                 </p>

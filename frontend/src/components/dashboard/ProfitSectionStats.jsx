@@ -50,7 +50,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
                 <StatCard
-                    label="Net Profit"
+                    label="Net Gross Profit"
                     value={stats?.net_gross_profit}
                     icon="💰"
                     color="green"

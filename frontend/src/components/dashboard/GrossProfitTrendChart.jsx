@@ -35,7 +35,7 @@ const CustomTooltip = ({ active, payload, label }) => {
                 Net COGS: <span className="font-medium text-neutral-700">{formatCurrency(data.net_cogs)}</span>
             </p>
             <p className={`text-xs font-semibold mt-1 ${netProfit >= 0 ? 'text-success-600' : 'text-error-600'}`}>
-                Net Profit: {formatCurrency(netProfit)}
+                Net Gross Profit: {formatCurrency(netProfit)}
             </p>
             <p className="text-xs text-neutral-400 mt-2 pt-2 border-t border-neutral-100">
                 Before returns — Revenue: {formatCurrency(data.revenue)}, COGS: {formatCurrency(data.cogs)}, Gross Profit: {formatCurrency(data.gross_profit)}
@@ -96,7 +96,7 @@ const GrossProfitTrendChart = () => {
         <Card className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div>
-                    <h2 className="text-lg font-semibold text-neutral-900">Net Profit Trend</h2>
+                    <h2 className="text-lg font-semibold text-neutral-900">Net Gross Profit Trend</h2>
                     <p className="text-sm text-neutral-500 mt-1">
                         {isFiltered ? 'Custom range' : 'Last 6 months'} · after returns accepted each month — hover a point for the gross (before-returns) figures
                     </p>
