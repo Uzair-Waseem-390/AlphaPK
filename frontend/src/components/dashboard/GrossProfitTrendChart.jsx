@@ -24,17 +24,21 @@ const formatMonthLabel = (month) => {
 const CustomTooltip = ({ active, payload, label }) => {
     if (!active || !payload || !payload.length) return null;
     const data = payload[0].payload;
+    const netProfit = Number(data.net_gross_profit ?? data.gross_profit ?? 0);
     return (
         <div className="bg-white rounded-xl shadow-card-hover border border-neutral-200 p-3">
             <p className="text-sm font-semibold text-neutral-900">{formatMonthLabel(label)}</p>
             <p className="text-xs text-neutral-500 mt-1">
-                Revenue: <span className="font-medium text-neutral-700">{formatCurrency(data.revenue)}</span>
+                Net Revenue: <span className="font-medium text-neutral-700">{formatCurrency(data.net_revenue)}</span>
             </p>
             <p className="text-xs text-neutral-500">
-                COGS: <span className="font-medium text-neutral-700">{formatCurrency(data.cogs)}</span>
+                Net COGS: <span className="font-medium text-neutral-700">{formatCurrency(data.net_cogs)}</span>
             </p>
-            <p className="text-xs text-success-600 font-semibold mt-1">
-                Gross Profit: {formatCurrency(data.gross_profit)}
+            <p className={`text-xs font-semibold mt-1 ${netProfit >= 0 ? 'text-success-600' : 'text-error-600'}`}>
+                Net Profit: {formatCurrency(netProfit)}
+            </p>
+            <p className="text-xs text-neutral-400 mt-2 pt-2 border-t border-neutral-100">
+                Before returns — Revenue: {formatCurrency(data.revenue)}, COGS: {formatCurrency(data.cogs)}, Gross Profit: {formatCurrency(data.gross_profit)}
             </p>
         </div>
     );
@@ -92,9 +96,9 @@ const GrossProfitTrendChart = () => {
         <Card className="p-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div>
-                    <h2 className="text-lg font-semibold text-neutral-900">Gross Profit Trend</h2>
+                    <h2 className="text-lg font-semibold text-neutral-900">Net Profit Trend</h2>
                     <p className="text-sm text-neutral-500 mt-1">
-                        {isFiltered ? 'Custom range' : 'Last 6 months'}
+                        {isFiltered ? 'Custom range' : 'Last 6 months'} · after returns accepted each month — hover a point for the gross (before-returns) figures
                     </p>
                 </div>
                 <div className="flex flex-wrap items-end gap-3">
@@ -161,7 +165,7 @@ const GrossProfitTrendChart = () => {
                             <Tooltip content={<CustomTooltip />} />
                             <Area
                                 type="monotone"
-                                dataKey="gross_profit"
+                                dataKey="net_gross_profit"
                                 stroke="#059669"
                                 strokeWidth={2}
                                 fill="url(#grossProfitGradient)"

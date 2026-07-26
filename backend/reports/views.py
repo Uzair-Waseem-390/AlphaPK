@@ -296,8 +296,13 @@ class ProfitMarginReportView(generics.ListAPIView):
     Response (paginated):
         {"count": int, "total_pages": int, "current_page": int, "page_size": int,
          "stats": {"total_invoices": int, "total_revenue": decimal,
-                    "total_cogs": decimal, "total_gross_profit": decimal},
+                    "total_cogs": decimal, "total_gross_profit": decimal,
+                    "net_revenue": decimal, "net_cogs": decimal, "net_gross_profit": decimal},
          "results": [...]}
+
+    total_revenue/total_cogs/total_gross_profit are GROSS — the historical
+    "as sold" figures, never reduced by later returns. net_revenue/net_cogs/
+    net_gross_profit subtract returns accepted within the same date window.
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = ProfitMarginReportItemSerializer
@@ -310,7 +315,9 @@ class ProfitMarginReportView(generics.ListAPIView):
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
         if _has_date_filter(request):
-            stats = get_profit_margin_report_stats(queryset)
+            filters = ReportDateFilterSerializer(data=request.query_params)
+            filters.is_valid(raise_exception=True)
+            stats = get_profit_margin_report_stats(queryset, **filters.validated_data)
         else:
             stats = get_profit_margin_report_stats_all_time()
 

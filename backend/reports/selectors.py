@@ -315,9 +315,13 @@ def get_profit_margin_report_queryset(
     date_to   : str = None,
 ) -> QuerySet:
     """
-    Non-draft invoices, filtered by confirmed_at. Revenue/COGS/profit are
-    already stored per invoice (grand_total/total_cogs/gross_profit), kept
-    in sync by return acceptance, so no per-item aggregation is needed.
+    Non-draft invoices, filtered by confirmed_at. grand_total/total_cogs/
+    gross_profit are stored per invoice, but NOT reduced by later returns —
+    _recalculate_invoice_totals sums each item's ORIGINAL line_total/line_cogs
+    regardless of returned_quantity, so these stay the historical "as sold"
+    figures forever. get_profit_margin_report_stats() computes the net-of-
+    returns figures separately, by subtracting accepted returns in the same
+    date window — see that function's docstring.
     """
     qs = Invoice.objects.filter(is_deleted=False, is_data_entry=False).exclude(
         status=Invoice.Status.DRAFT,
@@ -333,18 +337,53 @@ def get_profit_margin_report_queryset(
     return qs
 
 
-def get_profit_margin_report_stats(queryset: QuerySet) -> dict:
-    return queryset.aggregate(
+def get_profit_margin_report_stats(
+    queryset: QuerySet, *, date: str = None, date_from: str = None, date_to: str = None,
+) -> dict:
+    """
+    Gross figures sum the filtered invoices directly (unaffected by returns,
+    see get_profit_margin_report_queryset). Net figures additionally subtract
+    every return ACCEPTED within the same date window — regardless of which
+    invoice/period the original sale belongs to, matching how every other
+    event in this app is recognized (at the moment it happens, not
+    retroactively reallocated to an earlier period).
+    """
+    invoice_totals = queryset.aggregate(
         total_invoices     = Count("id"),
         total_revenue      = Coalesce(Sum("grand_total"), Decimal("0")),
         total_cogs         = Coalesce(Sum("total_cogs"), Decimal("0")),
         total_gross_profit = Coalesce(Sum("gross_profit"), Decimal("0")),
     )
 
+    return_totals = get_customer_returns_report_queryset(
+        date=date, date_from=date_from, date_to=date_to,
+    ).aggregate(
+        total_return_value = Coalesce(Sum("total_return_amount"), Decimal("0")),
+        total_return_cogs  = Coalesce(Sum("total_return_cogs"), Decimal("0")),
+    )
+
+    # Deliberately NOT floored at 0, unlike every other gross field in this
+    # app — a return accepted in this window can belong to a sale from an
+    # EARLIER window (outside this date filter), so a narrow window with
+    # returns but little/no matching revenue can legitimately show negative
+    # net revenue/COGS/profit. Flooring here would silently hide that a
+    # window was a net loss, which defeats the entire point of this fix.
+    net_revenue = invoice_totals["total_revenue"] - return_totals["total_return_value"]
+    net_cogs    = invoice_totals["total_cogs"] - return_totals["total_return_cogs"]
+
+    return {
+        **invoice_totals,
+        "net_revenue"      : net_revenue,
+        "net_cogs"         : net_cogs,
+        "net_gross_profit" : net_revenue - net_cogs,
+    }
+
 
 def get_profit_margin_report_stats_all_time() -> dict:
     """No-filter case — reads the pre-synced CashFlow totals."""
     cf = CashFlow.get_instance()
+    net_revenue = max(Decimal("0"), cf.total_invoice_revenue - cf.total_customer_returns_value)
+    net_cogs    = max(Decimal("0"), cf.total_invoice_cogs - cf.total_customer_returns_cogs)
     return {
         "total_invoices": Invoice.objects.filter(
             is_deleted=False, is_data_entry=False,
@@ -352,6 +391,9 @@ def get_profit_margin_report_stats_all_time() -> dict:
         "total_revenue": cf.total_invoice_revenue,
         "total_cogs": cf.total_invoice_cogs,
         "total_gross_profit": cf.total_gross_profit,
+        "net_revenue": net_revenue,
+        "net_cogs": net_cogs,
+        "net_gross_profit": net_revenue - net_cogs,
     }
 
 

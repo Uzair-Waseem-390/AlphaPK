@@ -65,9 +65,21 @@ def get_cashflow_stats() -> dict:
         "total_customer_returns_cogs" : cf.total_customer_returns_cogs,
 
         # Profit / margin
+        # Gross figures are the historical record (what was originally sold,
+        # never rewritten by a later return — see Invoice._recalculate_invoice_totals,
+        # which sums each item's ORIGINAL line_total/line_cogs regardless of
+        # returned_quantity). Net figures subtract the already-tracked
+        # total_customer_returns_value/cogs — same "gross stays gross, net
+        # computed at read time" pattern as net_lost_inventory_worth above.
         "total_invoice_revenue": cf.total_invoice_revenue,
         "total_invoice_cogs"   : cf.total_invoice_cogs,
         "total_gross_profit"   : cf.total_gross_profit,
+        "net_invoice_revenue"  : max(Decimal("0"), cf.total_invoice_revenue - cf.total_customer_returns_value),
+        "net_invoice_cogs"     : max(Decimal("0"), cf.total_invoice_cogs - cf.total_customer_returns_cogs),
+        "net_gross_profit"     : (
+            max(Decimal("0"), cf.total_invoice_revenue - cf.total_customer_returns_value)
+            - max(Decimal("0"), cf.total_invoice_cogs - cf.total_customer_returns_cogs)
+        ),
     }
 
 
@@ -792,7 +804,7 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
     Gaps (months with zero confirmed invoices) are filled with zeros in
     Python so the chart always renders a complete, contiguous series.
     """
-    from billing.models import Invoice
+    from billing.models import Invoice, Return
     from django.db.models.functions import TruncMonth
     from django.utils import timezone
     from datetime import date as date_cls
@@ -861,6 +873,28 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
         )
     }
 
+    # Returns ACCEPTED within this range, grouped by their own month — same
+    # "recognize when it happens" treatment as get_profit_margin_report_stats.
+    # A return accepted in month M can belong to a sale confirmed in an
+    # earlier month (outside this grouping entirely) — that's fine, it still
+    # correctly reduces month M's net figures.
+    return_qs = Return.objects.filter(
+        is_deleted=False, status=Return.Status.ACCEPTED,
+        accepted_at__date__gte=range_start,
+        accepted_at__date__lte=range_end,
+    )
+    returns_grouped = {
+        row["month"].strftime("%Y-%m"): row
+        for row in (
+            return_qs.annotate(month=TruncMonth("accepted_at"))
+                      .values("month")
+                      .annotate(
+                          return_value = Coalesce(Sum("total_return_amount"), Decimal("0")),
+                          return_cogs  = Coalesce(Sum("total_return_cogs"), Decimal("0")),
+                      )
+        )
+    }
+
     # Fill every month in [range_start, range_end], even ones with no data.
     result = []
     year, month = range_start.year, range_start.month
@@ -868,11 +902,28 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
     while True:
         key = f"{year:04d}-{month:02d}"
         row = grouped.get(key)
+        return_row = returns_grouped.get(key)
+
+        revenue      = row["revenue"] if row else Decimal("0")
+        cogs         = row["cogs"] if row else Decimal("0")
+        gross_profit = row["gross_profit"] if row else Decimal("0")
+        return_value = return_row["return_value"] if return_row else Decimal("0")
+        return_cogs  = return_row["return_cogs"] if return_row else Decimal("0")
+
+        # Not floored — a month with heavy returns and little new revenue can
+        # legitimately show a negative net figure. See get_profit_margin_report_stats.
+        net_revenue      = revenue - return_value
+        net_cogs         = cogs - return_cogs
+        net_gross_profit = net_revenue - net_cogs
+
         result.append({
-            "month"        : key,
-            "revenue"      : row["revenue"] if row else Decimal("0"),
-            "cogs"         : row["cogs"] if row else Decimal("0"),
-            "gross_profit" : row["gross_profit"] if row else Decimal("0"),
+            "month"            : key,
+            "revenue"          : revenue,
+            "cogs"             : cogs,
+            "gross_profit"     : gross_profit,
+            "net_revenue"      : net_revenue,
+            "net_cogs"         : net_cogs,
+            "net_gross_profit" : net_gross_profit,
         })
         if key >= end_key:
             break

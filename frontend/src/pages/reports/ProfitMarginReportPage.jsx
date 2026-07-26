@@ -64,9 +64,14 @@ const ProfitMarginReportPage = () => {
 
     // Stats are computed server-side over the full filtered set (not just
     // the current page) and passed through as an extra top-level field.
+    // total_revenue/total_cogs/total_gross_profit are GROSS — the historical
+    // "as sold" figures, never reduced by returns. net_revenue/net_cogs/
+    // net_gross_profit subtract returns accepted within the same window
+    // (not floored — a narrow window can legitimately show a net loss).
     const stats = extra?.stats;
-    const overallMargin = stats && stats.total_revenue > 0
-        ? (stats.total_gross_profit / stats.total_revenue) * 100
+    const netRevenue = Number(stats?.net_revenue ?? stats?.total_revenue ?? 0);
+    const netMargin = netRevenue > 0
+        ? (Number(stats?.net_gross_profit ?? 0) / netRevenue) * 100
         : 0;
 
     if (!isAdmin) {
@@ -84,7 +89,9 @@ const ProfitMarginReportPage = () => {
                     ← Back to Reports
                 </Link>
                 <h1 className="text-3xl font-bold text-neutral-900 mt-1">Profit / Margin Report</h1>
-                <p className="text-neutral-500 mt-1">Revenue, cost of goods sold, and gross profit for a selected date or date range</p>
+                <p className="text-neutral-500 mt-1">
+                    Net figures subtract returns accepted in the same window; gross figures shown below them are the original "as sold" totals.
+                </p>
             </div>
 
             <div className="space-y-4">
@@ -127,23 +134,31 @@ const ProfitMarginReportPage = () => {
                                 <p className="text-2xl font-bold text-neutral-900">{stats.total_invoices}</p>
                             </Card>
                             <Card className="p-4">
-                                <p className="text-sm text-neutral-500">Total Revenue (PKR)</p>
+                                <p className="text-sm text-neutral-500">Net Revenue (PKR)</p>
                                 <p className="text-2xl font-bold text-neutral-900">
-                                    {Number(stats.total_revenue || 0).toFixed(2)}
+                                    {Number(stats.net_revenue ?? stats.total_revenue ?? 0).toFixed(2)}
+                                </p>
+                                <p className="text-xs text-neutral-400 mt-1">
+                                    Before returns: {Number(stats.total_revenue || 0).toFixed(2)}
                                 </p>
                             </Card>
                             <Card className="p-4">
-                                <p className="text-sm text-neutral-500">Total COGS (PKR)</p>
+                                <p className="text-sm text-neutral-500">Net COGS (PKR)</p>
                                 <p className="text-2xl font-bold text-neutral-900">
-                                    {Number(stats.total_cogs || 0).toFixed(2)}
+                                    {Number(stats.net_cogs ?? stats.total_cogs ?? 0).toFixed(2)}
+                                </p>
+                                <p className="text-xs text-neutral-400 mt-1">
+                                    Before returns: {Number(stats.total_cogs || 0).toFixed(2)}
                                 </p>
                             </Card>
                             <Card className="p-4">
-                                <p className="text-sm text-neutral-500">Gross Profit (PKR)</p>
-                                <p className="text-2xl font-bold text-success-600">
-                                    {Number(stats.total_gross_profit || 0).toFixed(2)}
+                                <p className="text-sm text-neutral-500">Net Profit (PKR)</p>
+                                <p className={`text-2xl font-bold ${Number(stats.net_gross_profit ?? stats.total_gross_profit ?? 0) >= 0 ? 'text-success-600' : 'text-error-600'}`}>
+                                    {Number(stats.net_gross_profit ?? stats.total_gross_profit ?? 0).toFixed(2)}
                                 </p>
-                                <p className="text-xs text-neutral-400 mt-1">{overallMargin.toFixed(2)}% margin</p>
+                                <p className="text-xs text-neutral-400 mt-1">
+                                    {netMargin.toFixed(2)}% margin · Gross (before returns): {Number(stats.total_gross_profit || 0).toFixed(2)}
+                                </p>
                             </Card>
                         </div>
                     )}

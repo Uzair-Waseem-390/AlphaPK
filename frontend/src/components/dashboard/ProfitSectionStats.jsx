@@ -2,6 +2,11 @@ import PropTypes from 'prop-types';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
+const fmt = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : Number(value);
+    return isNaN(num) ? '0.00' : num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
 const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
     if (loading) {
         return (
@@ -29,24 +34,27 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                     onClick={() => onCardClick('cashInHand', 'Cash in Hand Breakdown')}
                 />
                 <StatCard
-                    label="Total Revenue"
-                    value={stats?.total_invoice_revenue}
+                    label="Net Revenue"
+                    value={stats?.net_invoice_revenue}
                     icon="📈"
                     color="green"
+                    subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_revenue)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
                 <StatCard
-                    label="Total COGS"
-                    value={stats?.total_invoice_cogs}
+                    label="Net COGS"
+                    value={stats?.net_invoice_cogs}
                     icon="📦"
                     color="amber"
+                    subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_cogs)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
                 <StatCard
-                    label="Total Gross Profit"
-                    value={stats?.total_gross_profit}
+                    label="Net Profit"
+                    value={stats?.net_gross_profit}
                     icon="💰"
                     color="green"
+                    subtitle={`Gross (before returns): Rs. ${fmt(stats?.total_gross_profit)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
             </div>

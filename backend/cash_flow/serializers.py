@@ -102,6 +102,9 @@ class CashFlowStatsSerializer(serializers.Serializer):
     total_invoice_revenue        = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_invoice_cogs           = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_gross_profit           = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_invoice_revenue          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_invoice_cogs             = serializers.DecimalField(max_digits=20, decimal_places=4)
+    net_gross_profit             = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 # ---------------------------------------------------------------------------
