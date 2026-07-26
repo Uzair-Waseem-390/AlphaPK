@@ -46,6 +46,7 @@ EXTERNAL_APPS = [
     'cash_management',
     'assets',
     'recurring_expenses',
+    'profits',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS
