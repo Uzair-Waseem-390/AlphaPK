@@ -215,6 +215,10 @@ class ProfitFlow(models.Model):
     negative, same "not floored" convention as the Profit/Margin Report.
     """
 
+    total_gross_profit             = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="Sum of gross_profit across every FINALIZED month only — excludes the current, still-open month.")
+    total_net_gross_profit         = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="Sum of net_gross_profit (after returns) across every finalized month.")
     total_net_profit              = models.DecimalField(max_digits=20, decimal_places=4, default=0)
     total_investor_profit_share   = models.DecimalField(max_digits=20, decimal_places=4, default=0)
     total_owner_profit_share      = models.DecimalField(max_digits=20, decimal_places=4, default=0)

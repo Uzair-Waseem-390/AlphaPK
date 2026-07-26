@@ -1,6 +1,7 @@
 from django.urls import path
 
 from .views import (
+    AssetDepreciationReportView,
     CashCollectedReportView,
     CustomerReturnsReportView,
     ExpensesReportView,
@@ -8,9 +9,11 @@ from .views import (
     InventoryValuationReportView,
     InvoicesReportView,
     LostInventoryReportView,
+    NetProfitReportView,
     OutputTaxReportView,
     ProfitMarginReportView,
     PurchaseReturnsReportView,
+    RecurringExpensesReportView,
 )
 
 urlpatterns = [
@@ -24,4 +27,7 @@ urlpatterns = [
     path("inventory-valuation/", InventoryValuationReportView.as_view(), name="report-inventory-valuation"),
     path("sales-tax/input/", InputTaxReportView.as_view(), name="report-sales-tax-input"),
     path("sales-tax/output/", OutputTaxReportView.as_view(), name="report-sales-tax-output"),
+    path("recurring-expenses/", RecurringExpensesReportView.as_view(), name="report-recurring-expenses"),
+    path("net-profit/", NetProfitReportView.as_view(), name="report-net-profit"),
+    path("asset-depreciation/", AssetDepreciationReportView.as_view(), name="report-asset-depreciation"),
 ]

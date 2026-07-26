@@ -562,3 +562,187 @@ def get_output_tax_report_stats_all_time() -> dict:
         "total_output_tax_collected": tf.total_output_tax_collected,
         "total_wht_withheld"        : tf.total_wht_withheld_by_customers,
     }
+
+
+# ---------------------------------------------------------------------------
+# Shared helper — translates YYYY-MM-DD date filters into YYYY-MM period
+# bounds, for reports whose source model is keyed by a period string
+# (MonthlyProfit, AssetValuationEntry) instead of a real date field.
+# ---------------------------------------------------------------------------
+
+def _period_bounds_from_dates(*, date: str = None, date_from: str = None, date_to: str = None) -> tuple:
+    if _clean(date):
+        p = _clean(date)[:7]
+        return p, p
+    lo = _clean(date_from)[:7] if _clean(date_from) else None
+    hi = _clean(date_to)[:7] if _clean(date_to) else None
+    return lo, hi
+
+
+# ---------------------------------------------------------------------------
+# Recurring expenses report
+# ---------------------------------------------------------------------------
+
+def get_recurring_expenses_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    Every recurring expense assignment — the underlying transactions behind
+    the Monthly Breakdown page's per-period totals. Filtered by assigned_at,
+    the date each due bill was actually posted.
+    """
+    from recurring_expenses.models import RecurringExpenseAssignment
+
+    qs = RecurringExpenseAssignment.objects.filter(is_deleted=False).select_related(
+        "category",
+    ).order_by("-assigned_at")
+
+    if _clean(date):
+        qs = qs.filter(assigned_at__date=_clean(date))
+    if _clean(date_from):
+        qs = qs.filter(assigned_at__date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(assigned_at__date__lte=_clean(date_to))
+
+    return qs
+
+
+def get_recurring_expenses_report_stats(queryset: QuerySet) -> dict:
+    agg = queryset.aggregate(
+        total_assignments      = Count("id"),
+        total_assigned_amount  = Coalesce(Sum("amount"), Decimal("0")),
+        total_paid_amount      = Coalesce(Sum("amount_paid"), Decimal("0")),
+    )
+    agg["total_pending_amount"] = max(Decimal("0"), agg["total_assigned_amount"] - agg["total_paid_amount"])
+    return agg
+
+
+def get_recurring_expenses_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced RecurringExpenseFlow totals."""
+    from recurring_expenses.models import RecurringExpenseAssignment, RecurringExpenseFlow
+
+    ref = RecurringExpenseFlow.get_instance()
+    return {
+        "total_assignments"     : RecurringExpenseAssignment.objects.filter(is_deleted=False).count(),
+        "total_assigned_amount" : ref.total_assigned_amount,
+        "total_paid_amount"     : ref.total_paid_amount,
+        "total_pending_amount"  : ref.total_pending_amount,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Net profit report — the real counterpart to Profit Margin Report
+# ---------------------------------------------------------------------------
+
+def get_net_profit_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    One row per FINALIZED month (profits.MonthlyProfit) — never the current,
+    still-open month. Filtered by period, translated from the date/
+    date_from/date_to query params (YYYY-MM-DD -> YYYY-MM) since
+    MonthlyProfit is keyed by period, not a literal date field.
+    """
+    from profits.models import MonthlyProfit
+    from profits.services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+
+    qs = MonthlyProfit.objects.order_by("-period")
+    lo, hi = _period_bounds_from_dates(date=date, date_from=date_from, date_to=date_to)
+    if lo:
+        qs = qs.filter(period__gte=lo)
+    if hi:
+        qs = qs.filter(period__lte=hi)
+    return qs
+
+
+def get_net_profit_report_stats(queryset: QuerySet) -> dict:
+    return queryset.aggregate(
+        total_months            = Count("id"),
+        total_gross_profit      = Coalesce(Sum("gross_profit"), Decimal("0")),
+        total_net_gross_profit  = Coalesce(Sum("net_gross_profit"), Decimal("0")),
+        total_net_profit        = Coalesce(Sum("net_profit"), Decimal("0")),
+        total_investor_share    = Coalesce(Sum("total_investor_share_amount"), Decimal("0")),
+        total_owner_share       = Coalesce(Sum("owner_share_amount"), Decimal("0")),
+    )
+
+
+def get_net_profit_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced ProfitFlow totals, O(1)."""
+    from profits.models import MonthlyProfit, ProfitFlow
+    from profits.services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    pf = ProfitFlow.get_instance()
+    return {
+        "total_months"           : MonthlyProfit.objects.count(),
+        "total_gross_profit"     : pf.total_gross_profit,
+        "total_net_gross_profit" : pf.total_net_gross_profit,
+        "total_net_profit"       : pf.total_net_profit,
+        "total_investor_share"   : pf.total_investor_profit_share,
+        "total_owner_share"      : pf.total_owner_profit_share,
+    }
+
+
+# ---------------------------------------------------------------------------
+# Asset depreciation report
+# ---------------------------------------------------------------------------
+
+def get_asset_depreciation_report_queryset(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+) -> QuerySet:
+    """
+    One row per depreciation posting (assets.AssetValuationEntry,
+    entry_type=depreciation) across every asset. Filtered by period,
+    translated from date/date_from/date_to — the period the depreciation
+    applies to, not the day it happened to be computed.
+    """
+    from assets.models import AssetValuationEntry
+    from assets.selectors import get_asset_stats
+
+    get_asset_stats()  # make sure catch-up has posted every due entry first
+
+    qs = AssetValuationEntry.objects.filter(
+        entry_type=AssetValuationEntry.EntryType.DEPRECIATION,
+    ).select_related("asset", "asset__category").order_by("-period", "-created_at")
+
+    lo, hi = _period_bounds_from_dates(date=date, date_from=date_from, date_to=date_to)
+    if lo:
+        qs = qs.filter(period__gte=lo)
+    if hi:
+        qs = qs.filter(period__lte=hi)
+    return qs
+
+
+def get_asset_depreciation_report_stats(queryset: QuerySet) -> dict:
+    agg = queryset.aggregate(
+        total_entries      = Count("id"),
+        total_depreciation = Coalesce(Sum("amount"), Decimal("0")),
+    )
+    agg["total_depreciation"] = abs(agg["total_depreciation"])  # stored negative on each entry
+    return agg
+
+
+def get_asset_depreciation_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced AssetFlow total, O(1)."""
+    from assets.models import AssetFlow, AssetValuationEntry
+    from assets.selectors import get_asset_stats
+
+    get_asset_stats()
+    af = AssetFlow.get_instance()
+    return {
+        "total_entries"      : AssetValuationEntry.objects.filter(
+            entry_type=AssetValuationEntry.EntryType.DEPRECIATION,
+        ).count(),
+        "total_depreciation" : af.total_accumulated_depreciation,
+    }

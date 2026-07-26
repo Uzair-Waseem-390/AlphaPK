@@ -149,6 +149,8 @@ def _compute_share_status(share: MonthlyProfitInvestorShare) -> str:
 
 def _adjust_profitflow(
     *,
+    total_gross_profit_delta             : Decimal = Decimal("0"),
+    total_net_gross_profit_delta         : Decimal = Decimal("0"),
     total_net_profit_delta               : Decimal = Decimal("0"),
     total_investor_profit_share_delta    : Decimal = Decimal("0"),
     total_owner_profit_share_delta       : Decimal = Decimal("0"),
@@ -161,6 +163,8 @@ def _adjust_profitflow(
         pf = ProfitFlow.objects.select_for_update().get_or_create(pk=1)[0]
 
         # Not floored — lifetime profit can legitimately go negative.
+        pf.total_gross_profit           += total_gross_profit_delta
+        pf.total_net_gross_profit       += total_net_gross_profit_delta
         pf.total_net_profit             += total_net_profit_delta
         pf.total_investor_profit_share  += total_investor_profit_share_delta
         pf.total_owner_profit_share     += total_owner_profit_share_delta
@@ -253,6 +257,8 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
     ])
 
     _adjust_profitflow(
+        total_gross_profit_delta=row["gross_profit"],
+        total_net_gross_profit_delta=row["net_gross_profit"],
         total_net_profit_delta=net_profit,
         total_investor_profit_share_delta=investor_amounts_sum,
         total_owner_profit_share_delta=owner_share_amount,

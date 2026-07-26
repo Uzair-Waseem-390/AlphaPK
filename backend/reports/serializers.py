@@ -1,8 +1,11 @@
 from rest_framework import serializers
 
+from assets.models import AssetValuationEntry
 from billing.models import Invoice, Payment, Return
 from cash_flow.models import Expense
+from profits.models import MonthlyProfit
 from purchases.models import LostInventoryItem, PurchaseOrder, PurchaseReturn
+from recurring_expenses.models import RecurringExpenseAssignment
 
 
 # ---------------------------------------------------------------------------
@@ -206,5 +209,52 @@ class OutputTaxReportItemSerializer(serializers.ModelSerializer):
         fields = [
             "id", "bill_number", "customer_name", "customer_code",
             "gst_total", "wht_total", "grand_total", "confirmed_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Recurring expenses report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class RecurringExpenseReportItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = RecurringExpenseAssignment
+        fields = [
+            "id", "name_snapshot", "category_name_snapshot", "period",
+            "amount", "amount_paid", "payment_status", "assigned_at",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Net profit report — lightweight list item (one row per finalized month)
+# ---------------------------------------------------------------------------
+
+class NetProfitReportItemSerializer(serializers.ModelSerializer):
+    class Meta:
+        model = MonthlyProfit
+        fields = [
+            "period", "gross_profit", "net_gross_profit",
+            "expenses_paid", "recurring_expenses_paid", "gst_paid", "wht_paid",
+            "lost_inventory_net", "lost_cash_net", "depreciation", "disposal_gain_loss",
+            "net_profit", "total_investor_share_amount", "owner_share_amount",
+        ]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Asset depreciation report — lightweight list item
+# ---------------------------------------------------------------------------
+
+class AssetDepreciationReportItemSerializer(serializers.ModelSerializer):
+    asset_name    = serializers.CharField(source="asset.name", read_only=True)
+    category_name = serializers.CharField(source="asset.category.name", read_only=True)
+
+    class Meta:
+        model = AssetValuationEntry
+        fields = [
+            "id", "asset_name", "category_name", "period",
+            "rate_applied", "worth_before", "worth_after", "amount", "created_at",
         ]
         read_only_fields = fields

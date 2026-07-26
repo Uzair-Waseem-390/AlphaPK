@@ -246,6 +246,8 @@ def get_profit_flow_stats() -> dict:
     catch_up_monthly_profits()
     pf = ProfitFlow.get_instance()
     return {
+        "total_gross_profit"            : pf.total_gross_profit,
+        "total_net_gross_profit"        : pf.total_net_gross_profit,
         "total_net_profit"              : pf.total_net_profit,
         "total_investor_profit_share"   : pf.total_investor_profit_share,
         "total_owner_profit_share"      : pf.total_owner_profit_share,

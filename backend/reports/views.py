@@ -2,6 +2,9 @@ from rest_framework import generics
 
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
+    get_asset_depreciation_report_queryset,
+    get_asset_depreciation_report_stats,
+    get_asset_depreciation_report_stats_all_time,
     get_cash_collected_report_queryset,
     get_cash_collected_report_stats,
     get_cash_collected_report_stats_all_time,
@@ -22,6 +25,9 @@ from .selectors import (
     get_lost_inventory_report_queryset,
     get_lost_inventory_report_stats,
     get_lost_inventory_report_stats_all_time,
+    get_net_profit_report_queryset,
+    get_net_profit_report_stats,
+    get_net_profit_report_stats_all_time,
     get_output_tax_report_queryset,
     get_output_tax_report_stats,
     get_output_tax_report_stats_all_time,
@@ -31,18 +37,24 @@ from .selectors import (
     get_purchase_returns_report_queryset,
     get_purchase_returns_report_stats,
     get_purchase_returns_report_stats_all_time,
+    get_recurring_expenses_report_queryset,
+    get_recurring_expenses_report_stats,
+    get_recurring_expenses_report_stats_all_time,
 )
 from .serializers import (
+    AssetDepreciationReportItemSerializer,
     CustomerReturnReportItemSerializer,
     ExpenseReportItemSerializer,
     InputTaxReportItemSerializer,
     InventoryValuationReportItemSerializer,
     InvoiceReportItemSerializer,
     LostInventoryReportItemSerializer,
+    NetProfitReportItemSerializer,
     OutputTaxReportItemSerializer,
     PaymentReportItemSerializer,
     ProfitMarginReportItemSerializer,
     PurchaseReturnReportItemSerializer,
+    RecurringExpenseReportItemSerializer,
     ReportDateFilterSerializer,
 )
 
@@ -432,6 +444,130 @@ class OutputTaxReportView(generics.ListAPIView):
             stats = get_output_tax_report_stats(queryset)
         else:
             stats = get_output_tax_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
+class RecurringExpensesReportView(generics.ListAPIView):
+    """
+    GET /reports/recurring-expenses/
+    Every recurring expense assignment — the underlying transactions behind
+    the Recurring Expenses app's Monthly Breakdown page. Filtered by the
+    date each due bill was posted.
+
+    Query params (mutually exclusive with each other where noted):
+        date      : YYYY-MM-DD — exact day
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_assignments": int, "total_assigned_amount": decimal,
+                    "total_paid_amount": decimal, "total_pending_amount": decimal},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = RecurringExpenseReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        return get_recurring_expenses_report_queryset(**filters.validated_data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            stats = get_recurring_expenses_report_stats(queryset)
+        else:
+            stats = get_recurring_expenses_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
+class NetProfitReportView(generics.ListAPIView):
+    """
+    GET /reports/net-profit/
+    One row per FINALIZED month, with the full deduction breakdown down to
+    net_profit — the real counterpart to Profit Margin Report. Filtered by
+    period (translated from date/date_from/date_to — YYYY-MM-DD -> YYYY-MM,
+    since MonthlyProfit is keyed by period, not a literal date field). The
+    current, still-open month never appears here.
+
+    Query params (mutually exclusive with each other where noted):
+        date      : YYYY-MM-DD — exact day (matched to that day's month)
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_months": int, "total_gross_profit": decimal,
+                    "total_net_gross_profit": decimal, "total_net_profit": decimal,
+                    "total_investor_share": decimal, "total_owner_share": decimal},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = NetProfitReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        return get_net_profit_report_queryset(**filters.validated_data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            stats = get_net_profit_report_stats(queryset)
+        else:
+            stats = get_net_profit_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
+class AssetDepreciationReportView(generics.ListAPIView):
+    """
+    GET /reports/asset-depreciation/
+    One row per depreciation posting, across every asset — the number that
+    silently feeds into Monthly Profit's depreciation figure, now with its
+    own visibility. Filtered by period (translated from date/date_from/
+    date_to — the period the depreciation applies to, not the day it was
+    computed).
+
+    Query params (mutually exclusive with each other where noted):
+        date      : YYYY-MM-DD — exact day (matched to that day's month)
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_entries": int, "total_depreciation": decimal},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = AssetDepreciationReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        return get_asset_depreciation_report_queryset(**filters.validated_data)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            stats = get_asset_depreciation_report_stats(queryset)
+        else:
+            stats = get_asset_depreciation_report_stats_all_time()
 
         page = self.paginate_queryset(queryset)
         serializer = self.get_serializer(page, many=True)

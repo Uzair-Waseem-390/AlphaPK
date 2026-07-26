@@ -177,6 +177,8 @@ class NetProfitTrendItemSerializer(serializers.Serializer):
 
 
 class ProfitFlowStatsSerializer(serializers.Serializer):
+    total_gross_profit             = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_net_gross_profit         = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_net_profit               = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_investor_profit_share    = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_owner_profit_share       = serializers.DecimalField(max_digits=20, decimal_places=4)
