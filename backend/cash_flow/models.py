@@ -128,6 +128,10 @@ class CashFlow(models.Model):
     # ---- Receivables (from customers) ----
     cash_in_hand             = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                    help_text="Actual cash available: invoice receipts - expenses - supplier payments.")
+    total_cash_inflow        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                   help_text="Sum of every currently-active cash inflow event (same set as get_cash_in_hand_breakdown()'s inflow rows). Decreases on delete/reversal of an inflow — NOT gross-ever. total_cash_inflow - total_cash_outflow always equals cash_in_hand.")
+    total_cash_outflow       = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                   help_text="Sum of every currently-active cash outflow event (same set as get_cash_in_hand_breakdown()'s outflow rows). Decreases on delete/reversal of an outflow — NOT gross-ever.")
     customer_outstanding     = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                    help_text="Amount customers still owe us.")
     total_invoices_cash      = models.DecimalField(max_digits=20, decimal_places=4, default=0,

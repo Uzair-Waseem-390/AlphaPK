@@ -6,6 +6,7 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from .models import CashFlow
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_expense_categories,
@@ -291,15 +292,30 @@ class CashInHandBreakdownView(APIView):
 
     def get(self, request):
         p = request.query_params
+        date_from     = p.get("date_from")
+        date_to       = p.get("date_to")
+        movement_type = p.get("movement_type")
+
         movements = get_cash_in_hand_breakdown(
-            date_from     = p.get("date_from"),
-            date_to       = p.get("date_to"),
-            movement_type = p.get("movement_type"),
+            date_from     = date_from,
+            date_to       = date_to,
+            movement_type = movement_type,
         )
-        # Totals are computed over the FULL filtered set, not just the page
-        # being returned — same convention as BreakdownTotalsMixin.
-        total_inflow  = sum((m["amount"] for m in movements if m["direction"] == "inflow"), Decimal("0"))
-        total_outflow = sum((m["amount"] for m in movements if m["direction"] == "outflow"), Decimal("0"))
+
+        if not date_from and not date_to and not movement_type:
+            # No filter at all — read the stored gross totals (O(1)) instead
+            # of summing the full movement history in Python on every load.
+            # The row list above is still needed for the paginated table;
+            # only the header totals are affected.
+            cf = CashFlow.get_instance()
+            total_inflow  = cf.total_cash_inflow
+            total_outflow = cf.total_cash_outflow
+        else:
+            # Totals are computed over the FULL filtered set, not just the
+            # page being returned — same convention as BreakdownTotalsMixin.
+            total_inflow  = sum((m["amount"] for m in movements if m["direction"] == "inflow"), Decimal("0"))
+            total_outflow = sum((m["amount"] for m in movements if m["direction"] == "outflow"), Decimal("0"))
+
         response = _paginate_movements(movements, request)
         response["totals"] = {
             "total_inflow"  : total_inflow,

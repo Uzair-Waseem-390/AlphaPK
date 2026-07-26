@@ -21,6 +21,8 @@ class Command(BaseCommand):
         # left out of this reset silently compounds on every re-run instead.
         cf, _ = CashFlow.objects.get_or_create(pk=1)
         cf.cash_in_hand               = Decimal("0")
+        cf.total_cash_inflow          = Decimal("0")
+        cf.total_cash_outflow         = Decimal("0")
         cf.customer_outstanding       = Decimal("0")
         cf.total_invoices_cash        = Decimal("0")
         cf.total_paid_payables        = Decimal("0")
@@ -289,11 +291,26 @@ class Command(BaseCommand):
         self.stdout.write(f"  total_invoice_cogs: {cf.total_invoice_cogs}")
         self.stdout.write(f"  total_gross_profit: {cf.total_gross_profit}")
 
+        # 11. total_cash_inflow / total_cash_outflow — the two gross halves
+        #     of cash_in_hand, used by the Cash In Hand breakdown's no-filter
+        #     totals bar (O(1) read instead of a live sum on every load).
+        #     Reuses the same aggregator get_cash_in_hand_as_of() is built
+        #     on (cross-verified against live cash_in_hand at build time)
+        #     instead of duplicating the 13-source logic here by hand.
+        from cash_flow.selectors import get_cash_flow_totals_up_to
+        totals = get_cash_flow_totals_up_to(None)
+        cf.total_cash_inflow  = totals["inflow"]
+        cf.total_cash_outflow = totals["outflow"]
+        self.stdout.write(f"  total_cash_inflow: {cf.total_cash_inflow}")
+        self.stdout.write(f"  total_cash_outflow: {cf.total_cash_outflow}")
+
         cf.save()
         self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))
         self.stdout.write(f"""
 Final CashFlow state:
   cash_in_hand                  : {cf.cash_in_hand}
+  total_cash_inflow             : {cf.total_cash_inflow}
+  total_cash_outflow            : {cf.total_cash_outflow}
   customer_outstanding          : {cf.customer_outstanding}
   total_invoices_cash           : {cf.total_invoices_cash}
   total_paid_payables           : {cf.total_paid_payables}

@@ -500,119 +500,113 @@ def get_cash_in_hand_breakdown(
     return movements
 
 
-def get_cash_in_hand_as_of(as_of_date) -> Decimal:
+def get_cash_flow_totals_up_to(as_of_date=None) -> dict:
     """
-    Cash-in-hand balance as it stood at the end of `as_of_date` (inclusive).
-    Same 13 sources get_cash_in_hand_breakdown() draws from, but summed at
-    the DB level per source (Sum/Coalesce) instead of building a per-row
-    movement dict for every historical row — this is only ever called
-    on-demand from the opening/closing cash filter (never on a page that
-    loads by default), see instructions/architecture.md.
+    {"inflow": Decimal, "outflow": Decimal} summed at the DB level (Sum/
+    Coalesce per source, no per-row dict building) across the same 13
+    sources get_cash_in_hand_breakdown() draws from. `as_of_date=None` means
+    unbounded (all-time) — used by the backfill command and by
+    get_cash_in_hand_as_of() below, which is the only place this runs with a
+    date bound, and only on-demand from the opening/closing cash filter
+    (never on a page that loads by default), see instructions/architecture.md.
     """
     from billing.models import Payment
     from purchases.models import SupplierPayment
     from .models import Expense
 
     zero = Decimal("0")
-    total = zero
+    inflow = zero
+    outflow = zero
+
+    def _lte(qs, field):
+        return qs.filter(**{f"{field}__lte": as_of_date}) if as_of_date is not None else qs
+
+    def _sum(qs, field="amount"):
+        return qs.aggregate(s=Coalesce(Sum(field), zero))["s"]
 
     try:
         from data_entry.models import OpeningCashEntry
-        total += OpeningCashEntry.objects.filter(
-            added_at__date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        inflow += _sum(_lte(OpeningCashEntry.objects.all(), "added_at__date"))
     except Exception:
         pass
 
-    total += Payment.objects.filter(
+    inflow += _sum(_lte(Payment.objects.filter(
         is_deleted=False, amount__gt=0, invoice__is_deleted=False,
-        payment_date__lte=as_of_date,
-    ).exclude(invoice__status="draft").aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    ).exclude(invoice__status="draft"), "payment_date"))
 
-    total -= Expense.objects.filter(
-        is_deleted=False, expense_date__lte=as_of_date,
-    ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    outflow += _sum(_lte(Expense.objects.filter(is_deleted=False), "expense_date"))
 
-    total -= SupplierPayment.objects.filter(
-        is_deleted=False, amount__gt=0, payment_date__lte=as_of_date,
-    ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+    outflow += _sum(_lte(SupplierPayment.objects.filter(
+        is_deleted=False, amount__gt=0,
+    ), "payment_date"))
 
     try:
         from taxes.models import TaxPayment, WHTPayment
-        total -= TaxPayment.objects.filter(
-            is_deleted=False, payment_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        total -= WHTPayment.objects.filter(
-            is_deleted=False, payment_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        outflow += _sum(_lte(TaxPayment.objects.filter(is_deleted=False), "payment_date"))
+        outflow += _sum(_lte(WHTPayment.objects.filter(is_deleted=False), "payment_date"))
     except Exception:
         pass
 
     try:
         from profits.models import InvestorProfitPayout
-        total -= InvestorProfitPayout.objects.filter(
-            is_deleted=False, payout_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        outflow += _sum(_lte(InvestorProfitPayout.objects.filter(is_deleted=False), "payout_date"))
     except Exception:
         pass
 
     try:
         from cash_management.models import CashAdjustment, InvestorTransaction, OwnerTransaction
 
-        found = CashAdjustment.objects.filter(
+        inflow += _sum(_lte(CashAdjustment.objects.filter(
             is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.FOUND,
-            adjustment_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        lost = CashAdjustment.objects.filter(
+        ), "adjustment_date"))
+        outflow += _sum(_lte(CashAdjustment.objects.filter(
             is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.LOST,
-            adjustment_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        total += found - lost
+        ), "adjustment_date"))
 
-        investment = InvestorTransaction.objects.filter(
+        inflow += _sum(_lte(InvestorTransaction.objects.filter(
             is_deleted=False, transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
-            transaction_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        withdrawal = InvestorTransaction.objects.filter(
+        ), "transaction_date"))
+        outflow += _sum(_lte(InvestorTransaction.objects.filter(
             is_deleted=False, transaction_type=InvestorTransaction.TransactionType.WITHDRAWAL,
-            transaction_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        total += investment - withdrawal
+        ), "transaction_date"))
 
-        contribution = OwnerTransaction.objects.filter(
+        inflow += _sum(_lte(OwnerTransaction.objects.filter(
             is_deleted=False, transaction_type=OwnerTransaction.TransactionType.CONTRIBUTION,
-            transaction_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        drawing = OwnerTransaction.objects.filter(
+        ), "transaction_date"))
+        outflow += _sum(_lte(OwnerTransaction.objects.filter(
             is_deleted=False, transaction_type=OwnerTransaction.TransactionType.DRAWING,
-            transaction_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
-        total += contribution - drawing
+        ), "transaction_date"))
     except Exception:
         pass
 
     try:
         from assets.models import Asset, AssetDisposal
-        total -= Asset.objects.filter(
+        outflow += _sum(_lte(Asset.objects.filter(
             is_deleted=False, acquisition_type=Asset.AcquisitionType.NEW,
-            acquisition_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("cost"), zero))["s"]
-        total += AssetDisposal.objects.filter(
+        ), "acquisition_date"), field="cost")
+        inflow += _sum(_lte(AssetDisposal.objects.filter(
             disposal_type=AssetDisposal.DisposalType.SOLD,
-            disposal_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("sale_amount"), zero))["s"]
+        ), "disposal_date"), field="sale_amount")
     except Exception:
         pass
 
     try:
         from recurring_expenses.models import RecurringExpenseAssignmentPayment
-        total -= RecurringExpenseAssignmentPayment.objects.filter(
-            is_deleted=False, payment_date__lte=as_of_date,
-        ).aggregate(s=Coalesce(Sum("amount"), zero))["s"]
+        outflow += _sum(_lte(RecurringExpenseAssignmentPayment.objects.filter(
+            is_deleted=False,
+        ), "payment_date"))
     except Exception:
         pass
 
-    return total
+    return {"inflow": inflow, "outflow": outflow}
+
+
+def get_cash_in_hand_as_of(as_of_date) -> Decimal:
+    """
+    Cash-in-hand balance as it stood at the end of `as_of_date` (inclusive).
+    """
+    totals = get_cash_flow_totals_up_to(as_of_date)
+    return totals["inflow"] - totals["outflow"]
 
 
 def get_opening_closing_cash(*, date_from: str, date_to: str) -> dict:

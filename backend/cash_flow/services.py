@@ -13,6 +13,8 @@ from .models import CashFlow, Expense, ExpenseCategory
 def _adjust_cashflow(
     *,
     cash_in_hand_delta                 : Decimal = Decimal("0"),
+    total_cash_inflow_delta            : Decimal = Decimal("0"),
+    total_cash_outflow_delta           : Decimal = Decimal("0"),
     customer_outstanding_delta         : Decimal = Decimal("0"),
     total_invoices_cash_delta          : Decimal = Decimal("0"),
     total_paid_payables_delta          : Decimal = Decimal("0"),
@@ -60,6 +62,12 @@ def _adjust_cashflow(
 
         cf.cash_in_hand = max(
             Decimal("0"), cf.cash_in_hand + cash_in_hand_delta
+        )
+        cf.total_cash_inflow = max(
+            Decimal("0"), cf.total_cash_inflow + total_cash_inflow_delta
+        )
+        cf.total_cash_outflow = max(
+            Decimal("0"), cf.total_cash_outflow + total_cash_outflow_delta
         )
         cf.customer_outstanding = max(
             Decimal("0"), cf.customer_outstanding + customer_outstanding_delta
@@ -184,6 +192,7 @@ def create_expense(
     # Deduct from cash_in_hand and add to total_expenses_amount
     _adjust_cashflow(
         cash_in_hand_delta          = -amount,
+        total_cash_outflow_delta    = +amount,
         total_expenses_amount_delta = +amount,
         user=user,
     )
@@ -229,6 +238,7 @@ def update_expense(
         delta = old_amount - amount  # positive = refund, negative = extra deduction
         _adjust_cashflow(
             cash_in_hand_delta          = delta,
+            total_cash_outflow_delta    = -delta,  # refund = less outflow
             total_expenses_amount_delta = -delta,  # inverse
             user=user,
         )
@@ -253,6 +263,7 @@ def delete_expense(*, pk: int, user) -> None:
     # Restore amount to cash_in_hand
     _adjust_cashflow(
         cash_in_hand_delta          = +amount,
+        total_cash_outflow_delta    = -amount,
         total_expenses_amount_delta = -amount,
         user=user,
     )
@@ -294,6 +305,7 @@ def sync_invoice_payment_received(*, amount: Decimal, user) -> None:
     """
     _adjust_cashflow(
         cash_in_hand_delta         = +amount,
+        total_cash_inflow_delta    = +amount,
         customer_outstanding_delta = -amount,
         total_invoices_cash_delta  = +amount,
         user=user,
@@ -309,6 +321,7 @@ def sync_invoice_payment_deleted(*, amount: Decimal, user) -> None:
     if amount > 0:
         _adjust_cashflow(
             cash_in_hand_delta        = -amount,
+            total_cash_inflow_delta   = -amount,
             customer_outstanding_delta= +amount,
             total_invoices_cash_delta = -amount,
             user=user,
@@ -359,6 +372,7 @@ def sync_supplier_payment_made(*, amount: Decimal, user) -> None:
     """
     _adjust_cashflow(
         cash_in_hand_delta                 = -amount,
+        total_cash_outflow_delta           = +amount,
         supplier_payable_outstanding_delta = -amount,
         total_paid_payables_delta          = +amount,
         user=user,
@@ -374,6 +388,7 @@ def sync_supplier_payment_deleted(*, amount: Decimal, user) -> None:
     if amount > 0:
         _adjust_cashflow(
             cash_in_hand_delta                 = +amount,
+            total_cash_outflow_delta           = -amount,
             supplier_payable_outstanding_delta = +amount,
             total_paid_payables_delta          = -amount,
             user=user,
@@ -407,7 +422,8 @@ def sync_advance_payment_created(*, advance_amount: Decimal, user) -> None:
     Recorded in payment history separately.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -advance_amount,
+        cash_in_hand_delta       = -advance_amount,
+        total_cash_outflow_delta = +advance_amount,
         user=user,
     )
 
@@ -419,7 +435,8 @@ def sync_advance_payment_updated(*, old_amount: Decimal, new_amount: Decimal, us
     """
     delta = old_amount - new_amount  # positive = refund, negative = extra deduction
     _adjust_cashflow(
-        cash_in_hand_delta = delta,
+        cash_in_hand_delta       = delta,
+        total_cash_outflow_delta = -delta,
         user=user,
     )
 
@@ -457,6 +474,7 @@ def sync_data_entry_opening_cash(*, amount: Decimal, user) -> None:
     """
     _adjust_cashflow(
         cash_in_hand_delta        = +amount,
+        total_cash_inflow_delta   = +amount,
         user=user,
     )
 
@@ -467,7 +485,8 @@ def sync_tax_payment_made(*, amount: Decimal, user) -> None:
     recorded. Same mechanism as an Expense — it's real cash leaving the till.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -478,7 +497,8 @@ def sync_tax_payment_deleted(*, amount: Decimal, user) -> None:
     deleted. Restores the amount to cash_in_hand.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta       = +amount,
+        total_cash_outflow_delta = -amount,
         user=user,
     )
 
@@ -489,7 +509,8 @@ def sync_wht_payment_made(*, amount: Decimal, user) -> None:
     recorded. Same mechanism as a Tax Payment — it's real cash leaving the till.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -500,7 +521,8 @@ def sync_wht_payment_deleted(*, amount: Decimal, user) -> None:
     deleted. Restores the amount to cash_in_hand.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta       = +amount,
+        total_cash_outflow_delta = -amount,
         user=user,
     )
 
@@ -515,7 +537,8 @@ def sync_investor_profit_payout_made(*, amount: Decimal, user) -> None:
     not a single no-op.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -527,7 +550,8 @@ def sync_investor_profit_payout_reversed(*, amount: Decimal, user) -> None:
     is reversed separately by cash_management.services.delete_investor_transaction.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta       = +amount,
+        total_cash_outflow_delta = -amount,
         user=user,
     )
 
@@ -538,7 +562,8 @@ def sync_cash_lost(*, amount: Decimal, user) -> None:
     (theft, miscount, misplaced). Real cash leaving the till.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -549,7 +574,8 @@ def sync_cash_found(*, amount: Decimal, user) -> None:
     recovered (or when reversing a deleted lost entry).
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta     = +amount,
+        total_cash_inflow_delta = +amount,
         user=user,
     )
 
@@ -561,7 +587,8 @@ def sync_investor_investment(*, amount: Decimal, user) -> None:
     total_invoice_revenue/total_gross_profit (this is not a sale).
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta     = +amount,
+        total_cash_inflow_delta = +amount,
         user=user,
     )
 
@@ -572,7 +599,8 @@ def sync_investor_withdrawal(*, amount: Decimal, user) -> None:
     from the business (return of capital).
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -584,7 +612,8 @@ def sync_owner_contribution(*, amount: Decimal, user) -> None:
     cash_in_hand only, never total_invoice_revenue/total_gross_profit.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta     = +amount,
+        total_cash_inflow_delta = +amount,
         user=user,
     )
 
@@ -596,7 +625,8 @@ def sync_owner_drawing(*, amount: Decimal, user) -> None:
     this is deliberate, tracked owner drawings.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -608,7 +638,8 @@ def sync_recurring_expense_payment_made(*, amount: Decimal, user) -> None:
     recurring expense — assigning a month due never touches cash_in_hand.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         total_recurring_expenses_paid_delta = +amount,
         user=user,
     )
@@ -620,7 +651,8 @@ def sync_recurring_expense_payment_deleted(*, amount: Decimal, user) -> None:
     reverses sync_recurring_expense_payment_made exactly.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta       = +amount,
+        total_cash_outflow_delta = -amount,
         total_recurring_expenses_paid_delta = -amount,
         user=user,
     )
@@ -633,7 +665,8 @@ def sync_asset_purchased(*, amount: Decimal, user) -> None:
     itself is capitalized, not expensed, so this only touches cash_in_hand.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = -amount,
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
         user=user,
     )
 
@@ -645,7 +678,8 @@ def sync_asset_sold(*, amount: Decimal, user) -> None:
     assets.AssetFlow, not here.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +amount,
+        cash_in_hand_delta     = +amount,
+        total_cash_inflow_delta = +amount,
         user=user,
     )
 
@@ -656,7 +690,8 @@ def sync_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
     Restores advance_amount to cash_in_hand.
     """
     _adjust_cashflow(
-        cash_in_hand_delta = +advance_amount,
+        cash_in_hand_delta       = +advance_amount,
+        total_cash_outflow_delta = -advance_amount,
         user=user,
     )
 
