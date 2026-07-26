@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { reportsApi } from '../../services/reportsApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+import { printReport } from '../../utils/print';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
@@ -41,6 +42,7 @@ const PurchaseReturnsReportPage = () => {
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [showFilters, setShowFilters] = useState(false);
+    const [printing, setPrinting] = useState(false);
 
     const {
         data: results, meta, extra, page, setPage, loading, error,
@@ -58,6 +60,17 @@ const PurchaseReturnsReportPage = () => {
 
     const handleApplyFilters = (filterValues) => setFilters(filterValues);
     const handleResetFilters = () => setFilters({});
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            await printReport('/reports/purchase-returns/print/', filters);
+        } catch (err) {
+            alert(err.message || 'Failed to print report');
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -79,6 +92,9 @@ const PurchaseReturnsReportPage = () => {
                             Clear All
                         </Button>
                     )}
+                    <Button variant="secondary" onClick={handlePrint} loading={printing}>
+                        Print
+                    </Button>
                 </div>
 
                 {showFilters && (

@@ -1,5 +1,8 @@
+from django.http import HttpResponse
 from rest_framework import generics
+from rest_framework.views import APIView
 
+from .pdf_service import generate_report_pdf_bytes
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_asset_depreciation_report_queryset,
@@ -573,4 +576,273 @@ class AssetDepreciationReportView(generics.ListAPIView):
         serializer = self.get_serializer(page, many=True)
         response = self.get_paginated_response(serializer.data)
         response.data["stats"] = stats
+        return response
+
+
+# ---------------------------------------------------------------------------
+# Print (PDF) — one generic base view, every report just supplies its own
+# queryset/stats functions, serializer, title, and column list. Honors the
+# SAME date filter as the on-screen report; no filter means every matching
+# row prints (no pagination — this is the one place a report reads its full
+# result set at once, by design).
+# ---------------------------------------------------------------------------
+
+def _describe_filters(query_params) -> str:
+    date      = query_params.get("date")
+    date_from = query_params.get("date_from")
+    date_to   = query_params.get("date_to")
+    if date:
+        return f"Exact date: {date}"
+    if date_from and date_to:
+        return f"From {date_from} to {date_to}"
+    if date_from:
+        return f"From {date_from} onward"
+    if date_to:
+        return f"Up to {date_to}"
+    return "All records — no filter applied"
+
+
+def _humanize(key: str) -> str:
+    return key.replace("_", " ").title()
+
+
+class BaseReportPrintView(APIView):
+    """
+    Not registered directly — subclasses set title/columns/queryset_fn/
+    stats_fn/stats_all_time_fn/serializer_class and inherit this get().
+    stats_needs_filters=True is only for Profit Margin, whose stats function
+    also needs the raw date filters (see get_profit_margin_report_stats).
+    """
+    permission_classes  = [IsAdminOrSuperuser]
+    title               = None
+    columns             = []
+    queryset_fn         = None
+    stats_fn            = None
+    stats_all_time_fn   = None
+    serializer_class    = None
+    stats_needs_filters = False
+
+    def get(self, request):
+        filters_serializer = ReportDateFilterSerializer(data=request.query_params)
+        filters_serializer.is_valid(raise_exception=True)
+        filters = filters_serializer.validated_data
+
+        queryset = self.queryset_fn(**filters)
+
+        if request.query_params.get("date") or request.query_params.get("date_from") or request.query_params.get("date_to"):
+            stats = self.stats_fn(queryset, **filters) if self.stats_needs_filters else self.stats_fn(queryset)
+        else:
+            stats = self.stats_all_time_fn()
+
+        rows = self.serializer_class(queryset, many=True).data
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title=self.title,
+            filter_description=_describe_filters(request.query_params),
+            columns=self.columns,
+            rows=rows,
+            stats=[{"label": _humanize(k), "value": v} for k, v in stats.items()],
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
+class InvoicesReportPrintView(BaseReportPrintView):
+    title             = "Invoices Report"
+    columns           = [
+        {"key": "bill_number", "label": "Bill #"}, {"key": "customer_name", "label": "Customer"},
+        {"key": "grand_total", "label": "Grand Total"}, {"key": "payment_status", "label": "Status"},
+        {"key": "confirmed_at", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_invoices_report_queryset)
+    stats_fn          = staticmethod(get_invoices_report_stats)
+    stats_all_time_fn = staticmethod(get_invoices_report_stats_all_time)
+    serializer_class  = InvoiceReportItemSerializer
+
+
+class CashCollectedReportPrintView(BaseReportPrintView):
+    title             = "Cash Collected Report"
+    columns           = [
+        {"key": "reference_number", "label": "Reference #"}, {"key": "invoice_bill_number", "label": "Bill #"},
+        {"key": "customer_name", "label": "Customer"}, {"key": "amount", "label": "Amount"},
+        {"key": "method_display", "label": "Method"}, {"key": "payment_date", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_cash_collected_report_queryset)
+    stats_fn          = staticmethod(get_cash_collected_report_stats)
+    stats_all_time_fn = staticmethod(get_cash_collected_report_stats_all_time)
+    serializer_class  = PaymentReportItemSerializer
+
+
+class ExpensesReportPrintView(BaseReportPrintView):
+    title             = "Expenses Report"
+    columns           = [
+        {"key": "name", "label": "Expense"}, {"key": "category_name", "label": "Category"},
+        {"key": "amount", "label": "Amount"}, {"key": "expense_date", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_expenses_report_queryset)
+    stats_fn          = staticmethod(get_expenses_report_stats)
+    stats_all_time_fn = staticmethod(get_expenses_report_stats_all_time)
+    serializer_class  = ExpenseReportItemSerializer
+
+
+class LostInventoryReportPrintView(BaseReportPrintView):
+    title             = "Lost Inventory Report"
+    columns           = [
+        {"key": "reference_number", "label": "Reference #"}, {"key": "product_name", "label": "Product"},
+        {"key": "product_code", "label": "Code"}, {"key": "quantity", "label": "Qty"},
+        {"key": "found_quantity", "label": "Found Qty"}, {"key": "reason", "label": "Reason"},
+        {"key": "unit_cost", "label": "Unit Cost"}, {"key": "total_cost", "label": "Total Cost"},
+        {"key": "recovered_amount", "label": "Recovered"}, {"key": "net_amount", "label": "Net Loss"},
+        {"key": "created_at", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_lost_inventory_report_queryset)
+    stats_fn          = staticmethod(get_lost_inventory_report_stats)
+    stats_all_time_fn = staticmethod(get_lost_inventory_report_stats_all_time)
+    serializer_class  = LostInventoryReportItemSerializer
+
+
+class PurchaseReturnsReportPrintView(BaseReportPrintView):
+    title             = "Purchase Returns Report"
+    columns           = [
+        {"key": "reference_number", "label": "Reference #"}, {"key": "order_number", "label": "Order #"},
+        {"key": "supplier_name", "label": "Supplier"}, {"key": "total_return_gross", "label": "Gross"},
+        {"key": "total_return_gst", "label": "GST"}, {"key": "total_return_wht", "label": "WHT"},
+        {"key": "total_return_amount", "label": "Total Return"}, {"key": "accepted_at", "label": "Accepted On"},
+    ]
+    queryset_fn       = staticmethod(get_purchase_returns_report_queryset)
+    stats_fn          = staticmethod(get_purchase_returns_report_stats)
+    stats_all_time_fn = staticmethod(get_purchase_returns_report_stats_all_time)
+    serializer_class  = PurchaseReturnReportItemSerializer
+
+
+class CustomerReturnsReportPrintView(BaseReportPrintView):
+    title             = "Customer Returns Report"
+    columns           = [
+        {"key": "reference_number", "label": "Reference #"}, {"key": "bill_number", "label": "Bill #"},
+        {"key": "customer_name", "label": "Customer"}, {"key": "total_return_amount", "label": "Total Return"},
+        {"key": "total_return_cogs", "label": "COGS"}, {"key": "accepted_at", "label": "Accepted On"},
+    ]
+    queryset_fn       = staticmethod(get_customer_returns_report_queryset)
+    stats_fn          = staticmethod(get_customer_returns_report_stats)
+    stats_all_time_fn = staticmethod(get_customer_returns_report_stats_all_time)
+    serializer_class  = CustomerReturnReportItemSerializer
+
+
+class ProfitMarginReportPrintView(BaseReportPrintView):
+    title               = "Profit / Margin Report"
+    columns             = [
+        {"key": "bill_number", "label": "Bill #"}, {"key": "customer_name", "label": "Customer"},
+        {"key": "grand_total", "label": "Revenue"}, {"key": "total_cogs", "label": "COGS"},
+        {"key": "gross_profit", "label": "Gross Profit"}, {"key": "margin_percent", "label": "Margin %"},
+        {"key": "confirmed_at", "label": "Date"},
+    ]
+    queryset_fn         = staticmethod(get_profit_margin_report_queryset)
+    stats_fn            = staticmethod(get_profit_margin_report_stats)
+    stats_all_time_fn   = staticmethod(get_profit_margin_report_stats_all_time)
+    serializer_class    = ProfitMarginReportItemSerializer
+    stats_needs_filters = True
+
+
+class InputTaxReportPrintView(BaseReportPrintView):
+    title             = "Sales Tax Report — Input Tax"
+    columns           = [
+        {"key": "order_number", "label": "Order #"}, {"key": "supplier_name", "label": "Supplier"},
+        {"key": "supplier_code", "label": "Code"}, {"key": "gst_total", "label": "GST Paid"},
+        {"key": "wht_total", "label": "WHT Withheld"}, {"key": "net_payable", "label": "Net Payable"},
+        {"key": "confirmed_at", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_input_tax_report_queryset)
+    stats_fn          = staticmethod(get_input_tax_report_stats)
+    stats_all_time_fn = staticmethod(get_input_tax_report_stats_all_time)
+    serializer_class  = InputTaxReportItemSerializer
+
+
+class OutputTaxReportPrintView(BaseReportPrintView):
+    title             = "Sales Tax Report — Output Tax"
+    columns           = [
+        {"key": "bill_number", "label": "Bill #"}, {"key": "customer_name", "label": "Customer"},
+        {"key": "customer_code", "label": "Code"}, {"key": "gst_total", "label": "GST Collected"},
+        {"key": "wht_total", "label": "WHT Withheld"}, {"key": "grand_total", "label": "Grand Total"},
+        {"key": "confirmed_at", "label": "Date"},
+    ]
+    queryset_fn       = staticmethod(get_output_tax_report_queryset)
+    stats_fn          = staticmethod(get_output_tax_report_stats)
+    stats_all_time_fn = staticmethod(get_output_tax_report_stats_all_time)
+    serializer_class  = OutputTaxReportItemSerializer
+
+
+class RecurringExpensesReportPrintView(BaseReportPrintView):
+    title             = "Recurring Expenses Report"
+    columns           = [
+        {"key": "name_snapshot", "label": "Expense"}, {"key": "category_name_snapshot", "label": "Category"},
+        {"key": "period", "label": "For Month"}, {"key": "amount", "label": "Amount"},
+        {"key": "amount_paid", "label": "Paid"}, {"key": "payment_status", "label": "Status"},
+        {"key": "assigned_at", "label": "Assigned On"},
+    ]
+    queryset_fn       = staticmethod(get_recurring_expenses_report_queryset)
+    stats_fn          = staticmethod(get_recurring_expenses_report_stats)
+    stats_all_time_fn = staticmethod(get_recurring_expenses_report_stats_all_time)
+    serializer_class  = RecurringExpenseReportItemSerializer
+
+
+class NetProfitReportPrintView(BaseReportPrintView):
+    title             = "Net Profit Report"
+    columns           = [
+        {"key": "period", "label": "Month"}, {"key": "gross_profit", "label": "Gross Profit"},
+        {"key": "net_gross_profit", "label": "Net Gross Profit"}, {"key": "expenses_paid", "label": "Expenses"},
+        {"key": "recurring_expenses_paid", "label": "Recurring Exp."}, {"key": "gst_paid", "label": "GST Paid"},
+        {"key": "wht_paid", "label": "WHT Paid"}, {"key": "lost_inventory_net", "label": "Lost Inventory"},
+        {"key": "lost_cash_net", "label": "Lost Cash"}, {"key": "depreciation", "label": "Depreciation"},
+        {"key": "disposal_gain_loss", "label": "Disposal Gain/Loss"}, {"key": "net_profit", "label": "Net Profit"},
+        {"key": "total_investor_share_amount", "label": "Investor Share"}, {"key": "owner_share_amount", "label": "Owner Share"},
+    ]
+    queryset_fn       = staticmethod(get_net_profit_report_queryset)
+    stats_fn          = staticmethod(get_net_profit_report_stats)
+    stats_all_time_fn = staticmethod(get_net_profit_report_stats_all_time)
+    serializer_class  = NetProfitReportItemSerializer
+
+
+class AssetDepreciationReportPrintView(BaseReportPrintView):
+    title             = "Asset Depreciation Report"
+    columns           = [
+        {"key": "asset_name", "label": "Asset"}, {"key": "category_name", "label": "Category"},
+        {"key": "period", "label": "For Month"}, {"key": "rate_applied", "label": "Rate"},
+        {"key": "worth_before", "label": "Worth Before"}, {"key": "worth_after", "label": "Worth After"},
+        {"key": "amount", "label": "Depreciation"}, {"key": "created_at", "label": "Posted On"},
+    ]
+    queryset_fn       = staticmethod(get_asset_depreciation_report_queryset)
+    stats_fn          = staticmethod(get_asset_depreciation_report_stats)
+    stats_all_time_fn = staticmethod(get_asset_depreciation_report_stats_all_time)
+    serializer_class  = AssetDepreciationReportItemSerializer
+
+
+class InventoryValuationReportPrintView(APIView):
+    """
+    GET /reports/inventory-valuation/print/?search=
+    Live snapshot, no date filter — same shape as the on-screen report.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        search = request.query_params.get("search")
+        rows_data = get_inventory_valuation_report_data(search=search)
+        stats = get_inventory_valuation_report_stats(rows_data)
+        rows = InventoryValuationReportItemSerializer(rows_data, many=True).data
+
+        filter_description = f"Search: {search}" if search else "All products currently in stock"
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title="Inventory Valuation Report",
+            filter_description=filter_description,
+            columns=[
+                {"key": "product_name", "label": "Product"}, {"key": "product_code", "label": "Code"},
+                {"key": "category_name", "label": "Category"}, {"key": "quantity_on_hand", "label": "Qty on Hand"},
+                {"key": "avg_unit_cost", "label": "Avg Unit Cost"}, {"key": "total_value", "label": "Total Value"},
+            ],
+            rows=rows,
+            stats=[{"label": _humanize(k), "value": v} for k, v in stats.items()],
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
         return response

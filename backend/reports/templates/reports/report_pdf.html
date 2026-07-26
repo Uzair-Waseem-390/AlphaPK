@@ -1,0 +1,182 @@
+{% load report_extras %}<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+
+  body {
+    font-family: Arial, sans-serif;
+    font-size: 11px;
+    color: #1a1a1a;
+    padding: 30px;
+  }
+
+  .header {
+    display: flex;
+    justify-content: space-between;
+    align-items: flex-start;
+    border-bottom: 2px solid #1a1a1a;
+    padding-bottom: 16px;
+    margin-bottom: 16px;
+  }
+  .company-name {
+    font-size: 24px;
+    font-weight: 900;
+    letter-spacing: 2px;
+    color: #1a1a1a;
+  }
+  .company-sub {
+    font-size: 10px;
+    color: #555;
+    margin-top: 3px;
+  }
+  .report-title { text-align: right; }
+  .report-title h2 {
+    font-size: 18px;
+    font-weight: 700;
+    color: #1a1a1a;
+  }
+  .report-title .meta-line {
+    font-size: 10px;
+    color: #555;
+    margin-top: 3px;
+  }
+
+  .filter-line {
+    font-size: 11px;
+    color: #555;
+    margin-bottom: 16px;
+    padding: 8px 12px;
+    background: #f5f5f5;
+    border-radius: 4px;
+  }
+
+  .stats-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-bottom: 20px;
+  }
+  .stat-box {
+    border: 1px solid #e0e0e0;
+    border-radius: 4px;
+    padding: 8px 12px;
+    min-width: 120px;
+  }
+  .stat-box .label {
+    font-size: 9px;
+    color: #888;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .stat-box .value {
+    font-size: 14px;
+    font-weight: 700;
+    color: #1a1a1a;
+    margin-top: 2px;
+  }
+
+  .report-table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: 20px;
+  }
+  .report-table thead tr {
+    background: #1a1a1a;
+    color: #fff;
+  }
+  .report-table thead th {
+    padding: 6px 8px;
+    text-align: left;
+    font-size: 9px;
+    font-weight: 600;
+    text-transform: uppercase;
+    letter-spacing: 0.5px;
+  }
+  .report-table tbody tr { border-bottom: 1px solid #e8e8e8; }
+  .report-table tbody tr:nth-child(even) { background: #f9f9f9; }
+  .report-table tbody td {
+    padding: 6px 8px;
+    font-size: 10px;
+    vertical-align: middle;
+  }
+
+  .empty-note {
+    padding: 20px;
+    text-align: center;
+    color: #888;
+    font-size: 12px;
+  }
+
+  .footer {
+    border-top: 1px solid #e0e0e0;
+    padding-top: 10px;
+    text-align: center;
+    font-size: 9px;
+    color: #aaa;
+  }
+
+  @page { size: A4 landscape; margin: 15mm; }
+</style>
+</head>
+<body>
+<div class="page">
+
+  <div class="header">
+    <div>
+      <div class="company-name">APHA</div>
+      <div class="company-sub">Internal Report — not a certified filing</div>
+    </div>
+    <div class="report-title">
+      <h2>{{ title }}</h2>
+      <div class="meta-line">{{ row_count }} record{{ row_count|pluralize }}</div>
+      <div class="meta-line">Generated: {{ generated_at }}</div>
+    </div>
+  </div>
+
+  <div class="filter-line">
+    <strong>Filter:</strong> {{ filter_description }}
+  </div>
+
+  {% if stats %}
+  <div class="stats-row">
+    {% for stat in stats %}
+    <div class="stat-box">
+      <div class="label">{{ stat.label }}</div>
+      <div class="value">{{ stat.value }}</div>
+    </div>
+    {% endfor %}
+  </div>
+  {% endif %}
+
+  {% if rows %}
+  <table class="report-table">
+    <thead>
+      <tr>
+        {% for column in columns %}
+        <th>{{ column.label }}</th>
+        {% endfor %}
+      </tr>
+    </thead>
+    <tbody>
+      {% for row in rows %}
+      <tr>
+        {% for column in columns %}
+        <td>{{ row|get_item:column.key }}</td>
+        {% endfor %}
+      </tr>
+      {% endfor %}
+    </tbody>
+  </table>
+  {% else %}
+  <div class="empty-note">No records match this filter.</div>
+  {% endif %}
+
+  <div class="footer">
+    <p>Internal estimate, not a certified valuation or filing. The developer is not responsible at all for decisions made from this document.</p>
+  </div>
+
+</div>
+</body>
+</html>

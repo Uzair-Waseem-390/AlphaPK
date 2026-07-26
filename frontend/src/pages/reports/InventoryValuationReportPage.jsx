@@ -3,8 +3,10 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { reportsApi } from '../../services/reportsApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+import { printReport } from '../../utils/print';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
+import Button from '../../components/ui/Button';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
@@ -29,6 +31,7 @@ const InventoryValuationReportPage = () => {
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [searchTerm, setSearchTerm] = useState('');
+    const [printing, setPrinting] = useState(false);
 
     // Point-in-time snapshot — no date filters, just an optional search.
     const fetchValuationPage = (params) => {
@@ -55,6 +58,17 @@ const InventoryValuationReportPage = () => {
         setPage(1);
     };
 
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            await printReport('/reports/inventory-valuation/print/', searchTerm ? { search: searchTerm } : {});
+        } catch (err) {
+            alert(err.message || 'Failed to print report');
+        } finally {
+            setPrinting(false);
+        }
+    };
+
     return (
         <div className="space-y-6">
             <div>
@@ -65,10 +79,16 @@ const InventoryValuationReportPage = () => {
                 <p className="text-neutral-500 mt-1">Live snapshot of current stock valued at FIFO cost — no date range, this is right now</p>
             </div>
 
-            <SearchBar
-                onSearch={handleSearch}
-                placeholder="Search products by name or code..."
-            />
+            <div className="flex gap-4 items-start">
+                <SearchBar
+                    onSearch={handleSearch}
+                    placeholder="Search products by name or code..."
+                    className="flex-1"
+                />
+                <Button variant="secondary" onClick={handlePrint} loading={printing}>
+                    Print
+                </Button>
+            </div>
 
             {error && (
                 <div className="p-4 bg-error-50 border border-error-200 rounded-lg">

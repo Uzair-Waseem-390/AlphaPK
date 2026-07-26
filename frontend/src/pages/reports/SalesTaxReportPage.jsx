@@ -3,6 +3,7 @@ import { Link, useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { reportsApi } from '../../services/reportsApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+import { printReport } from '../../utils/print';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
@@ -48,6 +49,7 @@ const SalesTaxReportPage = () => {
 
     const [activeTab, setActiveTab] = useState('input'); // 'input' | 'output'
     const [showFilters, setShowFilters] = useState(false);
+    const [printing, setPrinting] = useState(false);
 
     const fetchPage = (params) =>
         activeTab === 'input' ? reportsApi.salesTaxInput.get(params) : reportsApi.salesTaxOutput.get(params);
@@ -70,6 +72,18 @@ const SalesTaxReportPage = () => {
         setActiveTab(tab);
         setFilters({});
         setPage(1);
+    };
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            const endpoint = activeTab === 'input' ? '/reports/sales-tax/input/print/' : '/reports/sales-tax/output/print/';
+            await printReport(endpoint, filters);
+        } catch (err) {
+            alert(err.message || 'Failed to print report');
+        } finally {
+            setPrinting(false);
+        }
     };
 
     const columns = activeTab === 'input' ? inputColumns : outputColumns;
@@ -118,6 +132,9 @@ const SalesTaxReportPage = () => {
                 {Object.keys(filters).length > 0 && (
                     <Button variant="secondary" onClick={handleResetFilters}>Clear Filters</Button>
                 )}
+                <Button variant="secondary" onClick={handlePrint} loading={printing}>
+                    Print
+                </Button>
             </div>
             {showFilters && (
                 <FilterBar filters={filterConfig} onApply={handleApplyFilters} onReset={handleResetFilters} />
