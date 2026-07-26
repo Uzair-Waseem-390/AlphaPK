@@ -1,4 +1,4 @@
-from rest_framework import status
+from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
@@ -6,8 +6,33 @@ from django.http import HttpResponse
 
 from .models import BackupHistory
 from .permissions import IsAdminOrSuperuser
-from .serializers import RemoteBackupResultSerializer
+from .selectors import get_all_backup_history, get_backup_flow_stats
+from .serializers import BackupFlowStatsSerializer, BackupHistorySerializer, RemoteBackupResultSerializer
 from .services import remote_backup_configured, run_local_backup, run_remote_backup
+
+
+class BackupFlowStatsView(APIView):
+    """
+    GET /api/backups/stats/
+    Just the two watermarks — when the last local/remote backup ran.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        serializer = BackupFlowStatsSerializer(get_backup_flow_stats())
+        return Response(serializer.data)
+
+
+class BackupHistoryListView(generics.ListAPIView):
+    """
+    GET /api/backups/history/
+    Every backup run ever attempted, newest first — global default pagination.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = BackupHistorySerializer
+
+    def get_queryset(self):
+        return get_all_backup_history()
 
 
 class _LocalBackupView(APIView):

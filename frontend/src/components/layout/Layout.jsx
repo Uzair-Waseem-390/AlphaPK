@@ -939,6 +939,30 @@ const Layout = ({ children }) => {
                                 )}
                             </div>
                         )}
+
+                        {/* Backups — admin/superuser only, always last */}
+                        {isAdmin && (
+                            <div className="mt-2 pt-2 border-t border-neutral-200">
+                                <Link
+                                    to="/backups"
+                                    className={`flex items-center gap-3 px-4 py-3 rounded-xl transition-all duration-200 ${isActive('/backups')
+                                        ? 'bg-primary-50 text-primary-700'
+                                        : 'text-neutral-600 hover:bg-neutral-100'
+                                        }`}
+                                >
+                                    <span className="text-xl">🗄️</span>
+                                    {sidebarOpen && (
+                                        <motion.span
+                                            initial={{ opacity: 0 }}
+                                            animate={{ opacity: 1 }}
+                                            className="font-medium"
+                                        >
+                                            Backups
+                                        </motion.span>
+                                    )}
+                                </Link>
+                            </div>
+                        )}
                     </nav>
 
                     {/* User Info */}

@@ -96,6 +96,8 @@ import MonthlyProfitDetailPage from './pages/profits/MonthlyProfitDetailPage';
 import InvestorPayoutsPage from './pages/profits/InvestorPayoutsPage';
 import ProfitInvestorsListPage from './pages/profits/ProfitInvestorsListPage';
 import ProfitInvestorDetailPage from './pages/profits/ProfitInvestorDetailPage';
+import BackupPage from './pages/backups/BackupPage';
+import BackupHistoryPage from './pages/backups/BackupHistoryPage';
 
 // Assets pages
 import AssetsPage from './pages/assets/AssetsPage';
@@ -777,6 +779,23 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <ProfitInvestorDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Backups Routes */}
+        <Route path="/backups" element={
+          <ProtectedRoute>
+            <Layout>
+              <BackupPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/backups/history" element={
+          <ProtectedRoute>
+            <Layout>
+              <BackupHistoryPage />
             </Layout>
           </ProtectedRoute>
         } />
