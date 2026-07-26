@@ -223,14 +223,47 @@ const MonthlyProfitDetailPage = () => {
                 </div>
             </Card>
 
-            {/* Ownership split — only applies to finalized months; the current
-                month has no snapshotted shares yet since it isn't final. */}
+            {/* Ownership split — a live PREVIEW for the current month (today's
+                ownership % applied to the still-moving net profit — no settle
+                actions, since nothing here is final yet); a real, frozen
+                snapshot with settle actions for finalized months. */}
             {isCurrent ? (
                 <Card className="p-6 border-2 border-dashed border-amber-300 bg-amber-50/40">
-                    <p className="text-sm text-amber-700">
-                        Ownership split and settlement actions become available once this month finalizes
-                        (automatically, the moment it's fully over).
+                    <div className="flex items-center gap-2 mb-1">
+                        <h3 className="font-semibold text-neutral-900">Ownership Split — Preview</h3>
+                        <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
+                            Informational only
+                        </span>
+                    </div>
+                    <p className="text-sm text-amber-700 mb-4">
+                        Today's ownership % applied to this month's still-moving net profit — nothing here is
+                        final, and no settlement can be recorded until the month finalizes.
                     </p>
+                    <div className="overflow-x-auto">
+                        <table className="w-full text-sm">
+                            <thead>
+                                <tr className="text-left text-neutral-500 border-b border-amber-200">
+                                    <th className="pb-2 font-medium">Investor</th>
+                                    <th className="pb-2 font-medium">Share %</th>
+                                    <th className="pb-2 font-medium">Share Amount (preview)</th>
+                                </tr>
+                            </thead>
+                            <tbody>
+                                {mp.investors_preview.map((inv) => (
+                                    <tr key={inv.id} className="border-b border-amber-100">
+                                        <td className="py-2 text-neutral-900">{inv.name}</td>
+                                        <td className="py-2 text-neutral-700">{fmt(inv.share_percent)}%</td>
+                                        <td className="py-2 text-neutral-700">Rs. {fmt(inv.share_amount)}</td>
+                                    </tr>
+                                ))}
+                                <tr>
+                                    <td className="py-2 font-semibold text-neutral-900">Owner</td>
+                                    <td className="py-2 font-semibold text-neutral-900">{fmt(mp.owner_share_percent)}%</td>
+                                    <td className="py-2 font-semibold text-neutral-900">Rs. {fmt(mp.owner_share_amount_preview)}</td>
+                                </tr>
+                            </tbody>
+                        </table>
+                    </div>
                 </Card>
             ) : (
             <Card className="p-6">

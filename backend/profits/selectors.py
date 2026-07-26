@@ -176,6 +176,23 @@ def get_current_month_profit() -> dict:
         + disposal_gain_loss
     )
 
+    # Live preview only — informational, never stored, no settle actions
+    # possible against it. Applying today's ownership % to a still-moving
+    # net_profit would make any payout amount potentially wrong once the
+    # month actually finalizes, so this is read-only by design.
+    split = get_ownership_split()
+    investors_preview = [
+        {
+            "id"            : inv["id"],
+            "name"          : inv["name"],
+            "share_percent" : inv["share_percent"],
+            "share_amount"  : (net_profit * inv["share_percent"] / Decimal("100")).quantize(Decimal("0.0001")),
+        }
+        for inv in split["investors"]
+    ]
+    investor_preview_sum = sum((inv["share_amount"] for inv in investors_preview), Decimal("0"))
+    owner_preview_amount = net_profit - investor_preview_sum
+
     return {
         "period"                   : period,
         "is_provisional"           : True,
@@ -194,6 +211,9 @@ def get_current_month_profit() -> dict:
         "depreciation"                : depreciation,
         "disposal_gain_loss"          : disposal_gain_loss,
         "net_profit"                  : net_profit,
+        "investors_preview"             : investors_preview,
+        "owner_share_percent"           : split["owner_share_percent"],
+        "owner_share_amount_preview"    : owner_preview_amount,
     }
 
 

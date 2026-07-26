@@ -107,6 +107,13 @@ class MonthlyProfitDetailSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
 
+class InvestorSharePreviewSerializer(serializers.Serializer):
+    id            = serializers.IntegerField()
+    name          = serializers.CharField()
+    share_percent = serializers.DecimalField(max_digits=10, decimal_places=4)
+    share_amount  = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+
 class CurrentMonthProfitSerializer(serializers.Serializer):
     period                    = serializers.CharField()
     is_provisional             = serializers.BooleanField()
@@ -125,6 +132,12 @@ class CurrentMonthProfitSerializer(serializers.Serializer):
     depreciation                   = serializers.DecimalField(max_digits=20, decimal_places=4)
     disposal_gain_loss             = serializers.DecimalField(max_digits=20, decimal_places=4)
     net_profit                     = serializers.DecimalField(max_digits=20, decimal_places=4)
+
+    # Live preview only — informational, matches the same % Business Worth
+    # uses today. Never stored, no settle actions apply to it.
+    investors_preview           = InvestorSharePreviewSerializer(many=True)
+    owner_share_percent          = serializers.DecimalField(max_digits=10, decimal_places=4)
+    owner_share_amount_preview   = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 class NetProfitTrendItemSerializer(serializers.Serializer):
