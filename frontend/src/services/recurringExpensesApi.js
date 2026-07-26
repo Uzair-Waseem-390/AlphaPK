@@ -44,6 +44,7 @@ export const recurringExpensesApi = {
         getById: (id) => api.get(`/recurring-expenses/assignments/${id}/`),
         create: (data) => api.post('/recurring-expenses/assignments/', data),
         bulkCreate: (data) => api.post('/recurring-expenses/assignments/bulk/', data),
+        delete: (id) => api.delete(`/recurring-expenses/assignments/${id}/`),
     },
     payments: {
         getAll: (params = {}) => {

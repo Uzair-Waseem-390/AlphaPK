@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { useRecurringExpensePayments } from '../../hooks/useRecurringExpenses';
@@ -26,11 +26,15 @@ const statusBadge = (status) => {
 
 const RecurringExpenseAssignmentDetailPage = () => {
     const { id } = useParams();
+    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [assignment, setAssignment] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [unassignConfirm, setUnassignConfirm] = useState(false);
+    const [unassignError, setUnassignError] = useState('');
+    const [unassigning, setUnassigning] = useState(false);
 
     const {
         data: payments, meta, page, setPage, loading: paymentsLoading,
@@ -91,6 +95,20 @@ const RecurringExpenseAssignmentDetailPage = () => {
         } catch (error) {
             setDeleteConfirm(null);
             alert(error.response?.data?.detail || 'Failed to delete payment');
+        }
+    };
+
+    const handleUnassign = async () => {
+        setUnassignError('');
+        setUnassigning(true);
+        try {
+            await recurringExpensesApi.assignments.delete(id);
+            navigate('/recurring-expenses/assignments');
+        } catch (error) {
+            setUnassignConfirm(false);
+            setUnassignError(error.response?.data?.detail || 'Failed to unassign — it may already have payments recorded.');
+        } finally {
+            setUnassigning(false);
         }
     };
 
@@ -156,10 +174,23 @@ const RecurringExpenseAssignmentDetailPage = () => {
                     </div>
                     <p className="text-neutral-500">{assignment.category_name_snapshot} · {assignment.period}</p>
                 </div>
-                {amountPending > 0 && (
-                    <Button onClick={() => { resetForm(); setShowModal(true); }}>Record Payment</Button>
-                )}
+                <div className="flex gap-3">
+                    {assignment.payment_status === 'unpaid' && (
+                        <Button variant="danger" onClick={() => { setUnassignError(''); setUnassignConfirm(true); }}>
+                            Unassign
+                        </Button>
+                    )}
+                    {amountPending > 0 && (
+                        <Button onClick={() => { resetForm(); setShowModal(true); }}>Record Payment</Button>
+                    )}
+                </div>
             </div>
+
+            {unassignError && (
+                <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
+                    <p className="text-sm text-error-600">{unassignError}</p>
+                </div>
+            )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                 <Card className="p-4">
@@ -266,6 +297,15 @@ const RecurringExpenseAssignmentDetailPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Payment"
                 message={`Are you sure you want to delete this Rs. ${fmt(deleteConfirm?.amount)} payment? This will restore cash in hand and this assignment's pending balance.`}
+            />
+
+            <ConfirmDialog
+                isOpen={unassignConfirm}
+                onClose={() => setUnassignConfirm(false)}
+                onConfirm={handleUnassign}
+                loading={unassigning}
+                title="Unassign"
+                message={`Are you sure you want to unassign "${assignment.name_snapshot}" for ${assignment.period}? This removes the assignment entirely so you can post it again correctly. Only possible because no payments have been recorded yet.`}
             />
         </div>
     );
