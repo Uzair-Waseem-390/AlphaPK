@@ -112,3 +112,134 @@ def get_ownership_split() -> dict:
         "owner_worth"                : owner_worth,
         "owner_share_percent"        : owner_share_percent,
     }
+
+
+# ---------------------------------------------------------------------------
+# Monthly Profit — every read path runs catch-up first (no cron), same
+# pattern as assets/recurring_expenses (see services.catch_up_monthly_profits)
+# ---------------------------------------------------------------------------
+
+def get_all_monthly_profits():
+    from .models import MonthlyProfit
+    from .services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    return MonthlyProfit.objects.order_by("-period")
+
+
+def get_monthly_profit_by_period(period: str):
+    from django.shortcuts import get_object_or_404
+    from .models import MonthlyProfit
+    from .services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    return get_object_or_404(
+        MonthlyProfit.objects.prefetch_related("investor_shares__payouts", "investor_shares__investor"),
+        period=period,
+    )
+
+
+def get_current_month_profit() -> dict:
+    """
+    Live, provisional figures for the current, still-open month — never
+    stored, always recomputed, clearly flagged so the caller never confuses
+    it with a finalized MonthlyProfit row.
+    """
+    from django.utils import timezone
+    from .services import (
+        _compute_depreciation, _compute_disposal_gain_loss, _compute_expenses_paid,
+        _compute_gst_paid, _compute_lost_cash_net, _compute_lost_inventory_net,
+        _compute_recurring_expenses_paid, _compute_wht_paid, _month_bounds,
+    )
+
+    today = timezone.localdate()
+    period = f"{today.year:04d}-{today.month:02d}"
+    first_day, _ = _month_bounds(period)
+    last_day = today  # only up to today — the month itself isn't over yet
+
+    from cash_flow.selectors import get_gross_profit_trend
+    row = get_gross_profit_trend(date_from=first_day.isoformat(), date_to=last_day.isoformat())[0]
+
+    expenses_paid           = _compute_expenses_paid(first_day, last_day)
+    recurring_expenses_paid = _compute_recurring_expenses_paid(first_day, last_day)
+    gst_paid                 = _compute_gst_paid(first_day, last_day)
+    wht_paid                 = _compute_wht_paid(first_day, last_day)
+    lost_inventory_net       = _compute_lost_inventory_net(first_day, last_day)
+    lost_cash_net            = _compute_lost_cash_net(first_day, last_day)
+    depreciation             = _compute_depreciation(period)
+    disposal_gain_loss       = _compute_disposal_gain_loss(first_day, last_day)
+
+    net_profit = (
+        row["net_gross_profit"]
+        - expenses_paid - recurring_expenses_paid - gst_paid - wht_paid
+        - lost_inventory_net - lost_cash_net - depreciation
+        + disposal_gain_loss
+    )
+
+    return {
+        "period"                   : period,
+        "is_provisional"           : True,
+        "gross_revenue"            : row["revenue"],
+        "gross_cogs"                : row["cogs"],
+        "gross_profit"              : row["gross_profit"],
+        "net_revenue"               : row["net_revenue"],
+        "net_cogs"                  : row["net_cogs"],
+        "net_gross_profit"          : row["net_gross_profit"],
+        "expenses_paid"             : expenses_paid,
+        "recurring_expenses_paid"   : recurring_expenses_paid,
+        "gst_paid"                   : gst_paid,
+        "wht_paid"                   : wht_paid,
+        "lost_inventory_net"         : lost_inventory_net,
+        "lost_cash_net"              : lost_cash_net,
+        "depreciation"                : depreciation,
+        "disposal_gain_loss"          : disposal_gain_loss,
+        "net_profit"                  : net_profit,
+    }
+
+
+def get_net_profit_trend(*, months: int = 12) -> list:
+    """
+    Cheap read straight off stored MonthlyProfit rows (catch-up already
+    keeps them current) — powers the dashboard's Net Profit Trend chart,
+    no live aggregation needed at all.
+    """
+    from .models import MonthlyProfit
+    from .services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    rows = MonthlyProfit.objects.order_by("-period")[:months]
+    return [
+        {
+            "month"        : r.period,
+            "gross_profit" : r.gross_profit,
+            "net_gross_profit" : r.net_gross_profit,
+            "net_profit"   : r.net_profit,
+        }
+        for r in reversed(list(rows))
+    ]
+
+
+def get_profit_flow_stats() -> dict:
+    from .models import ProfitFlow
+    from .services import catch_up_monthly_profits
+
+    catch_up_monthly_profits()
+    pf = ProfitFlow.get_instance()
+    return {
+        "total_net_profit"              : pf.total_net_profit,
+        "total_investor_profit_share"   : pf.total_investor_profit_share,
+        "total_owner_profit_share"      : pf.total_owner_profit_share,
+        "total_paid_out_to_investors"   : pf.total_paid_out_to_investors,
+        "total_reinvested_by_investors" : pf.total_reinvested_by_investors,
+        "months_finalized_count"        : pf.months_finalized_count,
+    }
+
+
+def get_investor_profit_payout_by_id(pk: int):
+    from django.shortcuts import get_object_or_404
+    from .models import InvestorProfitPayout
+
+    return get_object_or_404(
+        InvestorProfitPayout.objects.select_related("share__monthly_profit", "share__investor"),
+        pk=pk, is_deleted=False,
+    )

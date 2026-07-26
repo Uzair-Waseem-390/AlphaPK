@@ -144,6 +144,22 @@ class Command(BaseCommand):
         except Exception:
             pass  # taxes app absent — fine, nothing to deduct
 
+        # 5b3. Investor profit payouts (payout or reinvest — BOTH move cash out
+        #      the same way; a reinvest's offsetting inflow is already counted
+        #      separately via the investor-transactions loop below). Mirrors
+        #      profits.services.sync_investor_profit_payout_made.
+        try:
+            from profits.models import InvestorProfitPayout
+            payouts = InvestorProfitPayout.objects.filter(is_deleted=False)
+            total_profit_payouts = Decimal("0")
+            for pp in payouts:
+                total_profit_payouts += pp.amount
+                cf.cash_in_hand      -= pp.amount
+            cf.cash_in_hand = max(Decimal("0"), cf.cash_in_hand)
+            self.stdout.write(f"  total_investor_profit_payouts (deducted from cash_in_hand): {total_profit_payouts}")
+        except Exception:
+            pass  # profits app absent — fine, nothing to deduct
+
         # 5c. Lost/found cash + investor investments/withdrawals — mirrors
         #     cash_flow.services.sync_cash_lost/sync_cash_found/
         #     sync_investor_investment/sync_investor_withdrawal exactly.

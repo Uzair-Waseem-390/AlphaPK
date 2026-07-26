@@ -1,8 +1,244 @@
-from django.db import models  # noqa: F401
+from django.conf import settings
+from django.db import models
 
-# No models in this app. Every figure business-worth needs is already an
-# O(1) singleton field on another app's Flow model (CashFlow, AssetFlow,
-# TaxFlow, CashManagementFlow, RecurringExpenseFlow) or a bounded live
-# computation (Inventory Valuation — cost scales with today's distinct
-# product count, not history size, same reasoning as the existing report).
-# See profits.selectors for the read-time aggregation.
+# NOTE: Business Worth (see selectors.get_business_worth/get_ownership_split)
+# still has no stored model — it's a live aggregation of other apps' already
+# O(1) figures. Monthly Profit is different: it's a point-in-time snapshot
+# of a FINISHED month's own activity, which must be frozen forever (the
+# whole point of "store, don't calculate at runtime" here), so it gets real
+# models below.
+
+
+# ---------------------------------------------------------------------------
+# MonthlyProfit  (one row per FINISHED month — never recomputed once created)
+# ---------------------------------------------------------------------------
+
+class MonthlyProfit(models.Model):
+    """
+    One row per finished month, created once by
+    profits.services.catch_up_monthly_profits (catch-up on read, no cron —
+    same pattern as assets/recurring_expenses) and never recomputed
+    afterward. The current, still-accumulating month deliberately has no
+    row here — profits.selectors.get_current_month_profit() computes it
+    live and marks it provisional.
+
+    net_profit = net_gross_profit minus every deduction below, plus
+    disposal_gain_loss (itself signed — a loss is already negative, so it's
+    ADDED, not subtracted). Not floored at 0 — a month with heavy losses can
+    legitimately show negative net profit, same "not floored" convention as
+    the Profit/Margin Report.
+
+    Known limitation (flagged, not silently decided, same convention as
+    TaxFlow): lost_inventory_net uses each lost item's found_quantity AS OF
+    the moment this month is finalized. LostInventoryItem has no per-find
+    timestamp, so a recovery happening after finalization is never
+    retroactively credited to this or any other month.
+    """
+
+    period = models.CharField(max_length=7, unique=True, db_index=True, help_text="YYYY-MM")
+
+    # ---- Gross figures (before returns) — same numbers as the Gross Profit Trend chart ----
+    gross_revenue = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    gross_cogs    = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    gross_profit  = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+
+    # ---- Net of returns accepted this month ----
+    net_revenue      = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    net_cogs         = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    net_gross_profit = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                            help_text="net_revenue - net_cogs — the starting point for net_profit below.")
+
+    # ---- Deductions, each a cash-basis figure for THIS month specifically ----
+    expenses_paid           = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    recurring_expenses_paid = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    gst_paid                 = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    wht_paid                 = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    lost_inventory_net       = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Lost this month minus found-as-of-finalization for those same items.")
+    lost_cash_net             = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Cash lost this month minus cash found this month (both dated events).")
+    depreciation              = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Sum of AssetValuationEntry depreciation posted for this period.")
+    disposal_gain_loss        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Signed — positive for a net gain on asset disposals this month, negative for a net loss. Added, not subtracted.")
+
+    net_profit = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                    help_text="The 'real profit' for this month — net_gross_profit minus every deduction above, plus disposal_gain_loss.")
+
+    # ---- Ownership split, snapshotted at finalization ----
+    total_investor_share_percent = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    total_investor_share_amount  = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    owner_share_percent           = models.DecimalField(max_digits=10, decimal_places=4, default=0)
+    owner_share_amount            = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                        help_text="Informational only — the owner never gets a settle-share flow.")
+
+    computed_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Monthly Profit"
+        verbose_name_plural  = "Monthly Profits"
+        ordering             = ["-period"]
+
+    def __str__(self):
+        return f"{self.period} — net profit {self.net_profit}"
+
+
+# ---------------------------------------------------------------------------
+# MonthlyProfitInvestorShare  (one row per investor per finished month)
+# ---------------------------------------------------------------------------
+
+class MonthlyProfitInvestorShare(models.Model):
+    """
+    One investor's slice of one month's net_profit. share_percent_snapshot
+    is frozen forever at creation time — it is that investor's ownership %
+    AS OF that month, never recalculated even if their current ownership %
+    later changes (new investment, growth compounding, etc.).
+
+    amount_paid_out / amount_reinvested are updated exclusively by
+    InvestorProfitPayout rows via profits.services — never edited directly.
+    Settling is entirely optional: an unpaid or partially-paid balance is
+    NOT a liability anywhere in this system (not in Business Worth, not
+    anywhere else) — it's pure record-keeping for the owner's own tracking,
+    not a debt the business owes.
+    """
+
+    class PaymentStatus(models.TextChoices):
+        UNPAID  = "unpaid", "Unpaid"
+        PARTIAL = "partial", "Partial"
+        PAID    = "paid", "Paid"
+
+    monthly_profit = models.ForeignKey(MonthlyProfit, on_delete=models.CASCADE, related_name="investor_shares")
+    investor       = models.ForeignKey("cash_management.Investor", on_delete=models.PROTECT, related_name="monthly_profit_shares")
+    investor_name_snapshot = models.CharField(max_length=255)
+
+    share_percent_snapshot = models.DecimalField(max_digits=10, decimal_places=4,
+                                help_text="This investor's ownership %% as of this month — frozen forever.")
+    share_amount = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+
+    amount_paid_out   = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    amount_reinvested = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    payment_status    = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID, db_index=True)
+
+    class Meta:
+        verbose_name        = "Monthly Profit Investor Share"
+        verbose_name_plural  = "Monthly Profit Investor Shares"
+        ordering             = ["monthly_profit", "investor_name_snapshot"]
+        constraints = [
+            models.UniqueConstraint(fields=["monthly_profit", "investor"], name="unique_investor_share_per_month"),
+        ]
+
+    @property
+    def amount_settled(self):
+        return self.amount_paid_out + self.amount_reinvested
+
+    @property
+    def amount_remaining(self):
+        return self.share_amount - self.amount_settled
+
+    def __str__(self):
+        return f"{self.monthly_profit.period} — {self.investor_name_snapshot}: {self.share_amount}"
+
+
+# ---------------------------------------------------------------------------
+# InvestorProfitPayout  (ledger — mirrors taxes.TaxPayment / purchases.SupplierPayment)
+# ---------------------------------------------------------------------------
+
+class InvestorProfitPayout(models.Model):
+    """
+    One settlement action against an investor's monthly profit share.
+    PAYOUT moves cash_in_hand out and never touches the investor's capital
+    account (net_stake/current_worth) — it's a distribution of earnings,
+    not a return of capital. REINVEST does the same cash-out, then
+    immediately creates a real cash_management.InvestorTransaction
+    (INVESTMENT) that brings the cash back in AND genuinely grows the
+    investor's capital account — linked_investor_transaction points at
+    that row so the two are never orphaned from each other. Net cash_in_hand
+    effect for a reinvest is zero, but as two honest, separately reversible
+    ledger entries — not a single flag on one row.
+    """
+
+    class ActionType(models.TextChoices):
+        PAYOUT   = "payout", "Payout"
+        REINVEST = "reinvest", "Reinvest"
+
+    share       = models.ForeignKey(MonthlyProfitInvestorShare, on_delete=models.PROTECT, related_name="payouts")
+    amount      = models.DecimalField(max_digits=18, decimal_places=4)
+    payout_date = models.DateField(db_index=True)
+    action_type = models.CharField(max_length=10, choices=ActionType.choices)
+    note        = models.TextField(blank=True, default="")
+
+    linked_investor_transaction = models.ForeignKey(
+        "cash_management.InvestorTransaction", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="linked_profit_payout",
+        help_text="Set only when action_type='reinvest' — the InvestorTransaction that brought the cash back in.",
+    )
+
+    created_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="investor_profit_payouts_created",
+    )
+    updated_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="investor_profit_payouts_updated",
+    )
+    deleted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="investor_profit_payouts_deleted",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+    is_deleted  = models.BooleanField(default=False, db_index=True)
+
+    objects     = models.Manager()
+
+    class Meta:
+        verbose_name        = "Investor Profit Payout"
+        verbose_name_plural  = "Investor Profit Payouts"
+        ordering             = ["-payout_date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.get_action_type_display()} — {self.amount} on {self.payout_date}"
+
+
+# ---------------------------------------------------------------------------
+# ProfitFlow  (singleton — mirrors CashFlow/TaxFlow/AssetFlow/RecurringExpenseFlow)
+# ---------------------------------------------------------------------------
+
+class ProfitFlow(models.Model):
+    """
+    Single live record — O(1) dashboard reads. Never created manually —
+    managed exclusively via profits.services, updated whenever a month is
+    finalized or a payout is created/deleted. total_net_profit /
+    total_investor_profit_share / total_owner_profit_share are NOT floored
+    at 0 — a run of loss months can legitimately make lifetime profit
+    negative, same "not floored" convention as the Profit/Margin Report.
+    """
+
+    total_net_profit              = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    total_investor_profit_share   = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    total_owner_profit_share      = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    total_paid_out_to_investors    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="All-time, gross, only ever increases.")
+    total_reinvested_by_investors  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="All-time, gross, only ever increases.")
+    months_finalized_count        = models.PositiveIntegerField(default=0)
+
+    last_updated_at = models.DateTimeField(auto_now=True)
+    last_updated_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="profit_flow_updates",
+    )
+
+    class Meta:
+        verbose_name        = "Profit Flow"
+        verbose_name_plural  = "Profit Flow"
+
+    def __str__(self):
+        return f"ProfitFlow — total_net_profit: {self.total_net_profit}"
+
+    @classmethod
+    def get_instance(cls):
+        """Always returns the single ProfitFlow record, creating it if needed."""
+        instance, _ = cls.objects.get_or_create(pk=1)
+        return instance

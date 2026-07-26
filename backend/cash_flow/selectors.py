@@ -338,6 +338,30 @@ def get_cash_in_hand_breakdown(
     except Exception:
         pass
 
+    # --- Outflows: investor profit payouts (payout or reinvest — both move cash out) ---
+    try:
+        from profits.models import InvestorProfitPayout
+        payout_qs = InvestorProfitPayout.objects.filter(is_deleted=False).select_related(
+            "share__investor",
+        )
+        if _clean(date_from):
+            payout_qs = payout_qs.filter(payout_date__gte=_clean(date_from))
+        if _clean(date_to):
+            payout_qs = payout_qs.filter(payout_date__lte=_clean(date_to))
+
+        for pp in payout_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "investor_profit_payout",
+                "date"       : str(pp.payout_date),
+                "description": f"{pp.get_action_type_display()} — {pp.share.investor_name_snapshot} ({pp.share.monthly_profit.period})",
+                "reference"  : f"PROFIT-{pp.id}",
+                "amount"     : pp.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # --- Lost/found cash + investor investments/withdrawals ---
     # cash_management is a separate app — import defensively so this
     # breakdown keeps working even if the app were ever removed.
