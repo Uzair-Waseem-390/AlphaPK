@@ -1,5 +1,6 @@
 import io
 import zipfile
+from collections import defaultdict
 from itertools import chain
 
 from django.apps import apps
@@ -139,8 +140,32 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     flow = BackupFlow.get_instance()
     since = flow.local_last_backup_at if backup_type == BackupHistory.BackupType.INCREMENTAL else None
 
+    if backup_type == BackupHistory.BackupType.INCREMENTAL and since is None:
+        # No prior local backup exists yet — "everything since the last
+        # backup" is meaningless (there isn't one), so this degenerates
+        # into a full backup. Same precedent as the remote schema-change
+        # auto-upgrade: silently do the correct thing instead of crashing
+        # or producing an empty/misleading result.
+        backup_type = BackupHistory.BackupType.FULL
+
     try:
         collected = collect_backup_data(since=since, as_of=as_of)
+
+        to_stamp = as_of.strftime('%Y%m%d-%H%M%S')
+        if backup_type == BackupHistory.BackupType.INCREMENTAL:
+            # Embeds the exact covered range in the filename itself — no
+            # separate manifest file needed for a restore script to detect
+            # gaps in a chain of incremental files.
+            from_stamp = since.strftime('%Y%m%d-%H%M%S')
+            base_name = f"backup-incremental-{from_stamp}-to-{to_stamp}"
+        else:
+            base_name = f"backup-full-{to_stamp}"
+
+        # Built BEFORE any success is recorded or the watermark advances —
+        # if this fails, the failure path below runs instead, and neither
+        # BackupHistory nor BackupFlow claims a backup that was never
+        # actually produced.
+        zip_bytes = _zip_single_file(inner_filename=f"{base_name}.yaml", content=collected["fixture_yaml"])
     except Exception as exc:
         BackupHistory.objects.create(
             backup_type=backup_type, destination=BackupHistory.Destination.LOCAL,
@@ -157,17 +182,6 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     flow.local_last_backup_at = as_of
     flow.save(update_fields=["local_last_backup_at"])
 
-    to_stamp = as_of.strftime('%Y%m%d-%H%M%S')
-    if backup_type == BackupHistory.BackupType.INCREMENTAL:
-        # Embeds the exact covered range in the filename itself — no
-        # separate manifest file needed for a restore script to detect
-        # gaps in a chain of incremental files.
-        from_stamp = since.strftime('%Y%m%d-%H%M%S')
-        base_name = f"backup-incremental-{from_stamp}-to-{to_stamp}"
-    else:
-        base_name = f"backup-full-{to_stamp}"
-
-    zip_bytes = _zip_single_file(inner_filename=f"{base_name}.yaml", content=collected["fixture_yaml"])
     return zip_bytes, f"{base_name}.zip"
 
 
@@ -245,12 +259,34 @@ def run_remote_backup(*, backup_type: str, user) -> dict:
     flow = BackupFlow.get_instance()
     since = flow.remote_last_backup_at if backup_type == BackupHistory.BackupType.INCREMENTAL else None
 
+    if backup_type == BackupHistory.BackupType.INCREMENTAL and since is None:
+        # Same as the local path — no prior remote backup exists, so
+        # "since last backup" is meaningless; do a full one instead.
+        backup_type = BackupHistory.BackupType.FULL
+
     try:
         collected = collect_backup_data(since=since, as_of=as_of)
 
         with transaction.atomic(using="backup_remote"):
+            seen_pks = defaultdict(set)
             for deserialized_obj in serializers.deserialize("yaml", collected["fixture_yaml"]):
-                deserialized_obj.save(using="backup_remote")
+                obj = deserialized_obj.object
+                obj.save(using="backup_remote")
+                seen_pks[type(obj)].add(obj.pk)
+
+            if backup_type == BackupHistory.BackupType.FULL:
+                # A full backup should leave the remote as an exact mirror,
+                # not just an append/update target — prune anything on the
+                # remote that's no longer in the source, including models
+                # that now have zero rows at all (never touched above).
+                # Incremental backups deliberately don't do this: a row
+                # deleted between two incrementals has no "changed" event
+                # an incremental filter can see, so hard deletes only
+                # propagate to the remote on the next full backup.
+                for model in _iter_backup_models():
+                    _base_queryset(model).using("backup_remote").exclude(
+                        pk__in=seen_pks.get(model, set())
+                    ).delete()
     except Exception as exc:
         BackupHistory.objects.create(
             backup_type=backup_type, destination=BackupHistory.Destination.REMOTE,

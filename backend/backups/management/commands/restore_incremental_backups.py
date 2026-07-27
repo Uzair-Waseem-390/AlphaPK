@@ -5,6 +5,7 @@ from pathlib import Path
 from django.conf import settings
 from django.core.management import call_command
 from django.core.management.base import BaseCommand, CommandError
+from django.db import transaction
 
 INCREMENTAL_DIR = Path(settings.BASE_DIR) / "backups" / "backup_files" / "incremental_backup_files"
 FULL_DIR = Path(settings.BASE_DIR) / "backups" / "backup_files" / "full_backup_file"
@@ -61,17 +62,22 @@ class Command(BaseCommand):
         self.stdout.write("Applying migrations to the current database...")
         call_command("migrate", interactive=False, verbosity=1)
 
-        for path, covers_from, covers_to in entries:
-            self.stdout.write(f"Loading {path.name}...")
-            try:
-                call_command("loaddata", str(path))
-            except Exception as exc:
-                raise CommandError(
-                    f"Failed to load {path.name}: {exc}\n"
-                    "This usually means the file isn't a valid backup fixture, or the database's "
-                    "schema doesn't match what this file expects (wrong codebase version). "
-                    f"Files before this one were already loaded successfully."
-                )
+        # One transaction across the WHOLE chain — if any file in the
+        # middle fails, everything loaded so far in this run rolls back
+        # too, instead of leaving a half-restored database that only the
+        # files-before-the-failure actually landed in.
+        try:
+            with transaction.atomic():
+                for path, covers_from, covers_to in entries:
+                    self.stdout.write(f"Loading {path.name}...")
+                    call_command("loaddata", str(path))
+        except Exception as exc:
+            raise CommandError(
+                f"Failed to load one of the files: {exc}\n"
+                "This usually means a file isn't a valid backup fixture, or the database's "
+                "schema doesn't match what these files expect (wrong codebase version). "
+                "Nothing from this run was committed — the database is unchanged."
+            )
 
         self.stdout.write(self.style.SUCCESS(f"Restored {len(entries)} incremental backup(s) successfully."))
 

@@ -68,6 +68,20 @@ longer be trusted to mean what it used to, so the run re-baselines instead
 of risking a gap. Check `schema_migrated` in the response (or the History
 page) to see if this happened.
 
+**A full remote backup is an exact mirror — an incremental one isn't.**
+Every full backup deletes any remote row that's no longer present in the
+source (per model), so the remote never accumulates stale data as long as
+you run full backups periodically. Incremental backups only add/update —
+they can't detect a row that was deleted between two incrementals (there's
+no "changed" event a timestamp filter can see for something that no longer
+exists), so a hard-deleted row lingers on the remote until the next full
+backup cleans it up. In practice this rarely matters here, since this
+project's convention is soft-delete (rows get an `is_deleted` flag, not a
+real deletion) — soft deletes ARE just field updates, so they propagate
+through incrementals normally. This limitation only applies to genuine
+hard deletes, which this codebase avoids by design for anything with
+audit/historical relevance.
+
 ---
 
 ## Restoring a full backup
@@ -163,8 +177,9 @@ changes, only a connection string.
 If you ever need to promote a remote backup target to be the app's actual
 live database (disaster recovery, or switching hosting providers):
 
-1. In `.env.local`, change `DATABASES['default']` (in `settings.py`) to
-   point at that database's connection details.
+1. `DATABASES['default']` is currently hardcoded in `settings.py`, not
+   read from an env var — edit it directly there to point at that
+   database's connection details.
 2. Run:
    ```
    python manage.py migrate
