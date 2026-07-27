@@ -37,9 +37,9 @@ class BackupHistoryListView(generics.ListAPIView):
 
 class _LocalBackupView(APIView):
     """
-    Shared body for both local backup endpoints — streams a single Django
-    fixture-format YAML file straight back as a download. Nothing is
-    retained server-side. Restoring it later is exactly
+    Shared body for both local backup endpoints — streams a zip containing
+    a single Django fixture-format YAML file straight back as a download.
+    Nothing is retained server-side. Restoring it later is: unzip, then
     `python manage.py loaddata <file>` against a fresh database — no custom
     import script needed.
     """
@@ -48,11 +48,11 @@ class _LocalBackupView(APIView):
 
     def post(self, request):
         try:
-            file_bytes, filename = run_local_backup(backup_type=self.backup_type, user=request.user)
+            zip_bytes, filename = run_local_backup(backup_type=self.backup_type, user=request.user)
         except Exception as exc:
             return Response({"detail": str(exc)}, status=status.HTTP_500_INTERNAL_SERVER_ERROR)
 
-        response = HttpResponse(file_bytes, content_type="application/x-yaml")
+        response = HttpResponse(zip_bytes, content_type="application/zip")
         response["Content-Disposition"] = f'attachment; filename="{filename}"'
         return response
 
@@ -60,7 +60,7 @@ class _LocalBackupView(APIView):
 class FullLocalBackupView(_LocalBackupView):
     """
     POST /api/backups/full/local/
-    Every row in the system, from day one to now — streamed as a single
+    Every row in the system, from day one to now — streamed as a zipped
     fixture-format YAML download. Updates BackupFlow.local_last_backup_at.
     """
     backup_type = BackupHistory.BackupType.FULL
@@ -70,7 +70,7 @@ class IncrementalLocalBackupView(_LocalBackupView):
     """
     POST /api/backups/incremental/local/
     Only rows changed since the last successful LOCAL backup (full or
-    incremental) — streamed as a single fixture-format YAML download.
+    incremental) — streamed as a zipped fixture-format YAML download.
     """
     backup_type = BackupHistory.BackupType.INCREMENTAL
 

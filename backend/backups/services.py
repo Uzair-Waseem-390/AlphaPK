@@ -1,3 +1,5 @@
+import io
+import zipfile
 from itertools import chain
 
 from django.apps import apps
@@ -112,15 +114,24 @@ def collect_backup_data(*, since=None, as_of) -> dict:
 
 
 # ---------------------------------------------------------------------------
-# Local delivery — one fixture file, streamed straight back; nothing kept
-# server-side. Restoring it is exactly `manage.py loaddata <file>`.
+# Local delivery — one fixture file, zipped for compression, streamed
+# straight back; nothing kept server-side. Restoring it is unzip, then
+# `manage.py loaddata <file>`.
 # ---------------------------------------------------------------------------
+
+def _zip_single_file(*, inner_filename: str, content: str) -> bytes:
+    buffer = io.BytesIO()
+    with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as zf:
+        zf.writestr(inner_filename, content)
+    return buffer.getvalue()
+
 
 def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     """
     backup_type: BackupHistory.BackupType.FULL | INCREMENTAL
-    Returns (file_bytes, filename). Raises on failure (view logs the
-    BackupHistory row either way, via try/except around this call).
+    Returns (zip_bytes, filename) — a zip containing exactly one YAML
+    fixture file. Raises on failure (view logs the BackupHistory row
+    either way, via try/except around this call).
     """
     from django.utils import timezone
 
@@ -146,8 +157,10 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     flow.local_last_backup_at = as_of
     flow.save(update_fields=["local_last_backup_at"])
 
-    filename = f"backup-{backup_type}-{as_of.strftime('%Y%m%d-%H%M%S')}.yaml"
-    return collected["fixture_yaml"].encode("utf-8"), filename
+    stamp = as_of.strftime('%Y%m%d-%H%M%S')
+    yaml_filename = f"backup-{backup_type}-{stamp}.yaml"
+    zip_bytes = _zip_single_file(inner_filename=yaml_filename, content=collected["fixture_yaml"])
+    return zip_bytes, f"backup-{backup_type}-{stamp}.zip"
 
 
 # ---------------------------------------------------------------------------
