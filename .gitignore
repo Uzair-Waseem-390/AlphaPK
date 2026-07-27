@@ -177,6 +177,13 @@ logs
 **/*.backup.*
 **/*.back.*
 
+# Local restore staging — real business data, never committed. Folder
+# structure itself is kept via .gitkeep.
+backend/backups/backup_files/full_backup_file/*
+!backend/backups/backup_files/full_backup_file/.gitkeep
+backend/backups/backup_files/incremental_backup_files/*
+!backend/backups/backup_files/incremental_backup_files/.gitkeep
+
 node_modules
 bower_components
 

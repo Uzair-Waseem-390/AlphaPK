@@ -157,10 +157,18 @@ def run_local_backup(*, backup_type: str, user) -> tuple[bytes, str]:
     flow.local_last_backup_at = as_of
     flow.save(update_fields=["local_last_backup_at"])
 
-    stamp = as_of.strftime('%Y%m%d-%H%M%S')
-    yaml_filename = f"backup-{backup_type}-{stamp}.yaml"
-    zip_bytes = _zip_single_file(inner_filename=yaml_filename, content=collected["fixture_yaml"])
-    return zip_bytes, f"backup-{backup_type}-{stamp}.zip"
+    to_stamp = as_of.strftime('%Y%m%d-%H%M%S')
+    if backup_type == BackupHistory.BackupType.INCREMENTAL:
+        # Embeds the exact covered range in the filename itself — no
+        # separate manifest file needed for a restore script to detect
+        # gaps in a chain of incremental files.
+        from_stamp = since.strftime('%Y%m%d-%H%M%S')
+        base_name = f"backup-incremental-{from_stamp}-to-{to_stamp}"
+    else:
+        base_name = f"backup-full-{to_stamp}"
+
+    zip_bytes = _zip_single_file(inner_filename=f"{base_name}.yaml", content=collected["fixture_yaml"])
+    return zip_bytes, f"{base_name}.zip"
 
 
 # ---------------------------------------------------------------------------
