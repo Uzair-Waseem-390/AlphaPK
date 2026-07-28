@@ -28,8 +28,6 @@ const SuppliersPage = () => {
     const [formData, setFormData] = useState({
         name: '',
         code: '',
-        address: '',
-        mobile: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -126,14 +124,12 @@ const SuppliersPage = () => {
         setFormData({
             name: supplier.name,
             code: supplier.code,
-            address: supplier.address || '',
-            mobile: supplier.mobile || '',
         });
         setShowModal(true);
     };
 
     const resetForm = () => {
-        setFormData({ name: '', code: '', address: '', mobile: '' });
+        setFormData({ name: '', code: '' });
         setEditingSupplier(null);
     };
 
@@ -206,19 +202,6 @@ const SuppliersPage = () => {
                         onChange={(e) => setFormData({ ...formData, code: e.target.value.toUpperCase() })}
                         placeholder="Enter unique code (auto-uppercased)"
                         required
-                    />
-                    <Input
-                        label="Address"
-                        value={formData.address}
-                        onChange={(e) => setFormData({ ...formData, address: e.target.value })}
-                        placeholder="Enter address"
-                        required
-                    />
-                    <Input
-                        label="Mobile"
-                        value={formData.mobile}
-                        onChange={(e) => setFormData({ ...formData, mobile: e.target.value })}
-                        placeholder="Enter mobile number (optional)"
                     />
                     <div className="flex justify-end gap-3 pt-4">
                         <Button

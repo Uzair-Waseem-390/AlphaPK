@@ -148,14 +148,6 @@ const SupplierDetailPage = () => {
                         <p className="font-medium">{supplier.code}</p>
                     </div>
                     <div>
-                        <p className="text-sm text-neutral-500">Address</p>
-                        <p className="font-medium">{supplier.address || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Mobile</p>
-                        <p className="font-medium">{supplier.mobile || 'N/A'}</p>
-                    </div>
-                    <div>
                         <p className="text-sm text-neutral-500">Created</p>
                         <p className="font-medium">{new Date(supplier.created_at).toLocaleDateString()}</p>
                     </div>
