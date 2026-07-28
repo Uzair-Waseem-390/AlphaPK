@@ -3,17 +3,11 @@ import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
-import Modal from '../../components/ui/Modal';
-import Input from '../../components/ui/Input';
-import Select from '../../components/ui/Select';
 import Tabs from '../../components/ui/Tabs';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import Badge from '../../components/ui/Badge';
-import Card from '../../components/ui/Card';
 import FilterBar from '../../components/ui/FilterBar';
-import LineItemRow from '../../components/purchases/LineItemRow';
-import DraftPreview from '../../components/purchases/DraftPreview';
+import PurchaseOrderFormModal from '../../components/purchases/PurchaseOrderFormModal';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import Pagination from '../../components/ui/Pagination';
@@ -29,7 +23,6 @@ const PurchaseOrdersPage = () => {
     const [showCreateModal, setShowCreateModal] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
-    const [error, setError] = useState('');
 
     const fetchOrdersPage = (params) => {
         const p = { ...params };
@@ -47,17 +40,8 @@ const PurchaseOrdersPage = () => {
         filters, setFilters, refetch: fetchOrders,
     } = usePaginatedList(fetchOrdersPage, {}, 25, [activeTab, searchTerm]);
 
-    // Form state
-    const [formData, setFormData] = useState({
-        supplier: '',
-        payment_type: 'after_delivery',
-        advance_amount: '',
-        description: '',
-        items: [],
-    });
     const [products, setProducts] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
-    const [formLoading, setFormLoading] = useState(false);
 
     const tabs = [
         { value: 'all', label: 'All Orders' },
@@ -147,154 +131,10 @@ const PurchaseOrdersPage = () => {
         navigate(`/purchases/orders/${order.id}`);
     };
 
-    const handleAddItem = () => {
-        setFormData(prev => ({
-            ...prev,
-            items: [
-                ...prev.items,
-                { product: '', quantity: 1, unit_price: 0, gst: 0, wht: 0, description: '' }
-            ]
-        }));
-    };
-
-    const handleUpdateItem = (index, field, value) => {
-        setFormData(prev => ({
-            ...prev,
-            items: prev.items.map((item, i) =>
-                i === index ? { ...item, [field]: value } : item
-            )
-        }));
-    };
-
-    const handleRemoveItem = (index) => {
-        setFormData(prev => ({
-            ...prev,
-            items: prev.items.filter((_, i) => i !== index)
-        }));
-    };
-
-    const calculatePreview = () => {
-        const items = formData.items.map(item => {
-            const product = products.find(p => p.id === parseInt(item.product));
-            const gross = (item.quantity || 0) * (item.unit_price || 0);
-            const gstAmount = gross * ((item.gst || 0) / 100);
-            const whtAmount = gross * ((item.wht || 0) / 100);
-            const total = gross + gstAmount - whtAmount;
-
-            return {
-                product_name: product?.name || 'Unknown',
-                quantity: item.quantity || 0,
-                line_total: total,
-                rate_missing: false,
-                stock_insufficient: false,
-            };
-        });
-
-        const subtotal = items.reduce((sum, item) => sum + (item.line_total || 0), 0);
-        return {
-            items,
-            totals: {
-                subtotal: subtotal.toFixed(2),
-                total_cogs: '0.00',
-                gross_profit: '0.00',
-            },
-            warnings: { missing_rate: false, missing_stock: false },
-        };
-    };
-
-    const handleSubmitOrder = async (e) => {
-        e.preventDefault();
-        setError('');
-        setFormLoading(true);
-
-        try {
-            if (!formData.supplier) {
-                setError('Please select a supplier.');
-                setFormLoading(false);
-                return;
-            }
-
-            if (formData.items.length === 0) {
-                setError('Please add at least one item to the order.');
-                setFormLoading(false);
-                return;
-            }
-
-            const invalidItems = formData.items.some(item => !item.product);
-            if (invalidItems) {
-                setError('Please select a product for all items.');
-                setFormLoading(false);
-                return;
-            }
-
-            const invalidQuantity = formData.items.some(item => !item.quantity || item.quantity <= 0);
-            if (invalidQuantity) {
-                setError('Please enter a valid quantity for all items.');
-                setFormLoading(false);
-                return;
-            }
-
-            const invalidPrice = formData.items.some(item => !item.unit_price || item.unit_price <= 0);
-            if (invalidPrice) {
-                setError('Please enter a valid unit price for all items.');
-                setFormLoading(false);
-                return;
-            }
-
-            const data = {
-                supplier_id: parseInt(formData.supplier),
-                payment_type: formData.payment_type,
-                advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
-                description: formData.description || '',
-                items: formData.items.map(item => ({
-                    product_id: parseInt(item.product),
-                    quantity: parseInt(item.quantity) || 0,
-                    unit_price: parseFloat(item.unit_price) || 0,
-                    gst: parseFloat(item.gst) || 0,
-                    wht: parseFloat(item.wht) || 0,
-                    description: item.description || '',
-                })),
-            };
-
-            const result = await purchasesApi.orders.create(data);
-            setShowCreateModal(false);
-            resetForm();
-            fetchOrders();
-        } catch (error) {
-            console.error('Failed to create order:', error);
-
-            if (error.response?.data) {
-                const errorData = error.response.data;
-                if (typeof errorData === 'object') {
-                    const errorMessages = Object.entries(errorData)
-                        .map(([key, value]) => {
-                            if (key === 'items') {
-                                return `${key}: ${JSON.stringify(value)}`;
-                            }
-                            return `${key}: ${Array.isArray(value) ? value.join(', ') : value}`;
-                        })
-                        .join('\n');
-                    setError(`Validation Error:\n${errorMessages}`);
-                } else {
-                    setError(errorData || 'Failed to create order. Please check your input.');
-                }
-            } else {
-                setError(error.message || 'Failed to create order. Please try again.');
-            }
-        } finally {
-            setFormLoading(false);
-        }
-    };
-
-    const resetForm = () => {
-        setFormData({
-            supplier: '',
-            payment_type: 'after_delivery',
-            advance_amount: '',
-            description: '',
-            items: [],
-        });
-        setError('');
+    const handleCreateOrder = async (payload) => {
+        await purchasesApi.orders.create(payload);
+        setShowCreateModal(false);
+        fetchOrders();
     };
 
     const filterConfig = [
@@ -343,10 +183,7 @@ const PurchaseOrdersPage = () => {
                 </div>
                 {isAdmin && (
                     <Button
-                        onClick={() => {
-                            resetForm();
-                            setShowCreateModal(true);
-                        }}
+                        onClick={() => setShowCreateModal(true)}
                         icon={({ className }) => (
                             <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
                                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
@@ -422,115 +259,15 @@ const PurchaseOrdersPage = () => {
                 </div>
             )}
 
-            {/* Create Order Modal */}
-            <Modal
+            <PurchaseOrderFormModal
                 isOpen={showCreateModal}
-                onClose={() => {
-                    setShowCreateModal(false);
-                    resetForm();
-                }}
+                onClose={() => setShowCreateModal(false)}
+                onSubmit={handleCreateOrder}
+                products={products}
+                suppliers={suppliers}
                 title="Create Purchase Order"
-                size="xl"
-            >
-                <form onSubmit={handleSubmitOrder} className="space-y-6">
-                    <div className="space-y-4">
-                        <Select
-                            label="Supplier"
-                            value={formData.supplier}
-                            onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                            options={suppliers.map(s => ({ value: s.id, label: s.name }))}
-                            placeholder="Select supplier"
-                            required
-                        />
-
-                        <div className="grid grid-cols-2 gap-4">
-                            <Select
-                                label="Payment Type"
-                                value={formData.payment_type}
-                                onChange={(e) => setFormData({ ...formData, payment_type: e.target.value })}
-                                options={[
-                                    { value: 'advance', label: 'Advance' },
-                                    { value: 'after_delivery', label: 'After Delivery' },
-                                ]}
-                                required
-                            />
-
-                            {formData.payment_type === 'advance' && (
-                                <Input
-                                    label="Advance Amount (PKR)"
-                                    type="number"
-                                    step="0.01"
-                                    min="0"
-                                    value={formData.advance_amount}
-                                    onChange={(e) => setFormData({ ...formData, advance_amount: e.target.value })}
-                                    placeholder="Enter advance amount"
-                                    required
-                                />
-                            )}
-                        </div>
-
-                        <Input
-                            label="Description"
-                            value={formData.description}
-                            onChange={(e) => setFormData({ ...formData, description: e.target.value })}
-                            placeholder="Order description (optional)"
-                        />
-                    </div>
-
-                    <div>
-                        <div className="flex items-center justify-between mb-4">
-                            <h3 className="font-semibold text-neutral-900">Line Items</h3>
-                            <Button size="sm" onClick={handleAddItem}>
-                                Add Item
-                            </Button>
-                        </div>
-
-                        <div className="space-y-3 max-h-[500px] overflow-y-auto">
-                            {formData.items.length === 0 ? (
-                                <p className="text-center text-neutral-500 py-8">No items added yet. Click "Add Item" to start.</p>
-                            ) : (
-                                formData.items.map((item, index) => (
-                                    <LineItemRow
-                                        key={index}
-                                        index={index}
-                                        item={item}
-                                        products={products}
-                                        onUpdate={handleUpdateItem}
-                                        onRemove={handleRemoveItem}
-                                        canEdit={true}
-                                    />
-                                ))
-                            )}
-                        </div>
-                    </div>
-
-                    {error && (
-                        <div className="p-4 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600 whitespace-pre-wrap">{error}</p>
-                        </div>
-                    )}
-
-                    {formData.items.length > 0 && (
-                        <DraftPreview {...calculatePreview()} />
-                    )}
-
-                    <div className="flex justify-end gap-3 pt-4 border-t border-neutral-200">
-                        <Button
-                            type="button"
-                            variant="secondary"
-                            onClick={() => {
-                                setShowCreateModal(false);
-                                resetForm();
-                            }}
-                        >
-                            Cancel
-                        </Button>
-                        <Button type="submit" loading={formLoading}>
-                            Create Draft
-                        </Button>
-                    </div>
-                </form>
-            </Modal>
+                submitLabel="Create Draft"
+            />
         </div>
     );
 };

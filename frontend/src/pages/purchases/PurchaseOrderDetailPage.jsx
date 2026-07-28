@@ -15,6 +15,7 @@ import PaymentForm from '../../components/purchases/PaymentForm';
 import ReturnList from '../../components/purchases/ReturnList';
 import ReturnForm from '../../components/purchases/ReturnForm';
 import SavePDFModal from '../../components/purchases/SavePDFModal';
+import PurchaseOrderFormModal from '../../components/purchases/PurchaseOrderFormModal';
 
 const PurchaseOrderDetailPage = () => {
     const { id } = useParams();
@@ -34,6 +35,9 @@ const PurchaseOrderDetailPage = () => {
     const [payments, setPayments] = useState([]);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
+    const [showEditModal, setShowEditModal] = useState(false);
+    const [products, setProducts] = useState([]);
+    const [suppliers, setSuppliers] = useState([]);
 
     useEffect(() => {
         fetchData();
@@ -174,6 +178,30 @@ const PurchaseOrderDetailPage = () => {
         }
     };
 
+    const handleOpenEdit = async () => {
+        // Loaded lazily — most order views are confirmed orders that never
+        // need this, so no point fetching it on every page load.
+        if (products.length === 0 || suppliers.length === 0) {
+            try {
+                const [productsRes, suppliersRes] = await Promise.all([
+                    purchasesApi.products.getAll({ page_size: 500 }),
+                    purchasesApi.suppliers.getAll(),
+                ]);
+                setProducts(productsRes.results || productsRes || []);
+                setSuppliers(suppliersRes || []);
+            } catch (error) {
+                console.error('Failed to load products/suppliers:', error);
+            }
+        }
+        setShowEditModal(true);
+    };
+
+    const handleUpdateOrder = async (payload) => {
+        await purchasesApi.orders.update(id, payload);
+        setShowEditModal(false);
+        await fetchData();
+    };
+
     const handleDeleteOrder = async () => {
         try {
             await purchasesApi.orders.delete(id);
@@ -249,6 +277,9 @@ const PurchaseOrderDetailPage = () => {
 
                     {order.status === 'draft' && isAdmin && (
                         <>
+                            <Button variant="secondary" onClick={handleOpenEdit}>
+                                Edit
+                            </Button>
                             <Button variant="success" onClick={handleConfirmOrder}>
                                 Confirm
                             </Button>
@@ -421,6 +452,33 @@ const PurchaseOrderDetailPage = () => {
                         ))}
                     </div>
                 </Card>
+            )}
+
+            {/* Edit Order Modal — draft orders only */}
+            {order.status === 'draft' && (
+                <PurchaseOrderFormModal
+                    isOpen={showEditModal}
+                    onClose={() => setShowEditModal(false)}
+                    onSubmit={handleUpdateOrder}
+                    products={products}
+                    suppliers={suppliers}
+                    title="Edit Purchase Order"
+                    submitLabel="Save Changes"
+                    initialData={{
+                        supplier: order.supplier?.id || '',
+                        payment_type: order.payment_type,
+                        advance_amount: order.advance_amount || '',
+                        description: order.description || '',
+                        items: (order.items || []).map((item) => ({
+                            product: item.product,
+                            quantity: item.quantity,
+                            unit_price: item.unit_price,
+                            gst: item.gst,
+                            wht: item.wht,
+                            description: item.description || '',
+                        })),
+                    }}
+                />
             )}
 
             {/* Payment Form Modal */}
