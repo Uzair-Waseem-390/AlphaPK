@@ -81,37 +81,44 @@ def _compute_wht_paid(first_day, last_day) -> Decimal:
     return total or Decimal("0")
 
 
-def _compute_lost_cash_net(first_day, last_day) -> Decimal:
+def _compute_lost_cash(first_day, last_day) -> Decimal:
     from cash_management.models import CashAdjustment
 
-    lost = CashAdjustment.objects.filter(
+    total = CashAdjustment.objects.filter(
         is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.LOST,
         adjustment_date__gte=first_day, adjustment_date__lte=last_day,
-    ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
-    found = CashAdjustment.objects.filter(
+    ).aggregate(total=Sum("amount"))["total"]
+    return total or Decimal("0")
+
+
+def _compute_found_cash(first_day, last_day) -> Decimal:
+    from cash_management.models import CashAdjustment
+
+    total = CashAdjustment.objects.filter(
         is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.FOUND,
         adjustment_date__gte=first_day, adjustment_date__lte=last_day,
-    ).aggregate(total=Sum("amount"))["total"] or Decimal("0")
-    return lost - found
+    ).aggregate(total=Sum("amount"))["total"]
+    return total or Decimal("0")
 
 
-def _compute_lost_inventory_net(first_day, last_day) -> Decimal:
-    """
-    Lost items whose batch (LostInventoryRecord) was created this month,
-    net of each item's found_quantity AS OF right now. See MonthlyProfit's
-    docstring for the known limitation this implies.
-    """
+def _compute_lost_inventory(first_day, last_day) -> Decimal:
+    """Batches (LostInventoryRecord) created this month — the loss side, dated by when it was recorded."""
     from purchases.models import LostInventoryRecord
 
-    records = LostInventoryRecord.objects.filter(
+    total = LostInventoryRecord.objects.filter(
         is_deleted=False, created_at__date__gte=first_day, created_at__date__lte=last_day,
-    ).prefetch_related("items")
+    ).aggregate(total=Sum("total_lost_amount"))["total"]
+    return total or Decimal("0")
 
-    total_net = Decimal("0")
-    for record in records:
-        for item in record.items.all():
-            total_net += item.net_amount
-    return total_net
+
+def _compute_found_inventory(first_day, last_day) -> Decimal:
+    """Recoveries (LostInventoryRecovery) dated this month, regardless of which month the original loss was recorded in."""
+    from purchases.models import LostInventoryRecovery
+
+    total = LostInventoryRecovery.objects.filter(
+        recovered_at__gte=first_day, recovered_at__lte=last_day,
+    ).aggregate(total=Sum("recovered_amount"))["total"]
+    return total or Decimal("0")
 
 
 def _compute_depreciation(period: str) -> Decimal:
@@ -197,16 +204,18 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
     recurring_expenses_paid  = _compute_recurring_expenses_paid(first_day, last_day)
     gst_paid                  = _compute_gst_paid(first_day, last_day)
     wht_paid                  = _compute_wht_paid(first_day, last_day)
-    lost_inventory_net        = _compute_lost_inventory_net(first_day, last_day)
-    lost_cash_net             = _compute_lost_cash_net(first_day, last_day)
+    lost_cash                 = _compute_lost_cash(first_day, last_day)
+    found_cash                = _compute_found_cash(first_day, last_day)
+    lost_inventory             = _compute_lost_inventory(first_day, last_day)
+    found_inventory            = _compute_found_inventory(first_day, last_day)
     depreciation              = _compute_depreciation(period)
     disposal_gain_loss        = _compute_disposal_gain_loss(first_day, last_day)
 
     net_profit = (
         row["net_gross_profit"]
         - expenses_paid - recurring_expenses_paid - gst_paid - wht_paid
-        - lost_inventory_net - lost_cash_net - depreciation
-        + disposal_gain_loss
+        - lost_cash + found_cash - lost_inventory + found_inventory
+        - depreciation + disposal_gain_loss
     )
 
     mp = MonthlyProfit.objects.create(
@@ -215,7 +224,8 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
         net_revenue=row["net_revenue"], net_cogs=row["net_cogs"], net_gross_profit=row["net_gross_profit"],
         expenses_paid=expenses_paid, recurring_expenses_paid=recurring_expenses_paid,
         gst_paid=gst_paid, wht_paid=wht_paid,
-        lost_inventory_net=lost_inventory_net, lost_cash_net=lost_cash_net,
+        lost_cash=lost_cash, found_cash=found_cash,
+        lost_inventory=lost_inventory, found_inventory=found_inventory,
         depreciation=depreciation, disposal_gain_loss=disposal_gain_loss,
         net_profit=net_profit,
     )

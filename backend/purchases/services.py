@@ -4,9 +4,9 @@ from django.utils import timezone
 
 from .models import (
     Category, Inventory, LostInventoryFIFOConsumption, LostInventoryItem,
-    LostInventoryRecord, Product, ProductStockMovement, PurchaseItem,
-    PurchaseOrder, PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
-    Shelf, StockMovementFlow, Supplier, SupplierPayment,
+    LostInventoryRecord, LostInventoryRecovery, Product, ProductStockMovement,
+    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
+    SavedPurchaseOrderPDF, Shelf, StockMovementFlow, Supplier, SupplierPayment,
 )
 from .selectors import (
     get_available_purchase_items_for_fifo, get_category_by_id,
@@ -1188,5 +1188,16 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
     recovered_amount = lost_item.unit_cost * Decimal(str(quantity))
     from cash_flow.services import sync_lost_inventory_found
     sync_lost_inventory_found(amount=recovered_amount, user=user)
+
+    # Dated ledger for the Monthly Profit report — this is what lets a
+    # recovery be correctly attributed to the month it actually happened
+    # in, instead of the month the original loss was recorded in.
+    LostInventoryRecovery.objects.create(
+        lost_item=lost_item,
+        quantity=quantity,
+        recovered_amount=recovered_amount,
+        recovered_at=timezone.now().date(),
+        recovered_by=user,
+    )
 
     return lost_item

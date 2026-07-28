@@ -22,17 +22,21 @@ class MonthlyProfit(models.Model):
     row here — profits.selectors.get_current_month_profit() computes it
     live and marks it provisional.
 
-    net_profit = net_gross_profit minus every deduction below, plus
-    disposal_gain_loss (itself signed — a loss is already negative, so it's
-    ADDED, not subtracted). Not floored at 0 — a month with heavy losses can
-    legitimately show negative net profit, same "not floored" convention as
-    the Profit/Margin Report.
+    net_profit = net_gross_profit minus every deduction below, plus every
+    addition, plus disposal_gain_loss (itself signed — a loss is already
+    negative, so it's ADDED, not subtracted). Not floored at 0 — a month
+    with heavy losses can legitimately show negative net profit, same "not
+    floored" convention as the Profit/Margin Report.
 
-    Known limitation (flagged, not silently decided, same convention as
-    TaxFlow): lost_inventory_net uses each lost item's found_quantity AS OF
-    the moment this month is finalized. LostInventoryItem has no per-find
-    timestamp, so a recovery happening after finalization is never
-    retroactively credited to this or any other month.
+    Lost/found cash and lost/found inventory are stored as four SEPARATE
+    figures, not netted against each other before storage — each is an
+    honest, independently-dated fact for this specific month (mirrors how
+    CashAdjustment already tracks LOST/FOUND as two dated event types).
+    A June loss stays in June forever; a July recovery of that June loss
+    shows up as July's found_inventory and adds to July's profit — nothing
+    is silently absorbed into the month the original loss happened in.
+    See purchases.models.LostInventoryRecovery for the dated ledger this
+    relies on for the inventory side (CashAdjustment already had this for cash).
     """
 
     period = models.CharField(max_length=7, unique=True, db_index=True, help_text="YYYY-MM")
@@ -53,10 +57,14 @@ class MonthlyProfit(models.Model):
     recurring_expenses_paid = models.DecimalField(max_digits=20, decimal_places=4, default=0)
     gst_paid                 = models.DecimalField(max_digits=20, decimal_places=4, default=0)
     wht_paid                 = models.DecimalField(max_digits=20, decimal_places=4, default=0)
-    lost_inventory_net       = models.DecimalField(max_digits=20, decimal_places=4, default=0,
-                                    help_text="Lost this month minus found-as-of-finalization for those same items.")
-    lost_cash_net             = models.DecimalField(max_digits=20, decimal_places=4, default=0,
-                                    help_text="Cash lost this month minus cash found this month (both dated events).")
+    lost_cash        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                            help_text="Cash marked lost this month (CashAdjustment LOST events dated this month).")
+    found_cash        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                            help_text="Cash marked found this month (CashAdjustment FOUND events dated this month) — added to profit.")
+    lost_inventory     = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                            help_text="FIFO cost of inventory lost this month (LostInventoryRecord created this month).")
+    found_inventory    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                            help_text="Value of inventory recovered this month (LostInventoryRecovery dated this month, regardless of when originally lost) — added to profit.")
     depreciation              = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                     help_text="Sum of AssetValuationEntry depreciation posted for this period.")
     disposal_gain_loss        = models.DecimalField(max_digits=20, decimal_places=4, default=0,

@@ -138,8 +138,10 @@ const MonthlyProfitsPage = () => {
                                         (parseFloat(current?.recurring_expenses_paid || 0)) +
                                         (parseFloat(current?.gst_paid || 0)) +
                                         (parseFloat(current?.wht_paid || 0)) +
-                                        (parseFloat(current?.lost_inventory_net || 0)) +
-                                        (parseFloat(current?.lost_cash_net || 0)) +
+                                        (parseFloat(current?.lost_cash || 0)) -
+                                        (parseFloat(current?.found_cash || 0)) +
+                                        (parseFloat(current?.lost_inventory || 0)) -
+                                        (parseFloat(current?.found_inventory || 0)) +
                                         (parseFloat(current?.depreciation || 0)) -
                                         (parseFloat(current?.disposal_gain_loss || 0))
                                     )}

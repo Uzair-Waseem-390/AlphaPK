@@ -127,7 +127,8 @@ class MonthlyProfitDetailSerializer(serializers.ModelSerializer):
             "gross_revenue", "gross_cogs", "gross_profit",
             "net_revenue", "net_cogs", "net_gross_profit",
             "expenses_paid", "recurring_expenses_paid", "gst_paid", "wht_paid",
-            "lost_inventory_net", "lost_cash_net", "depreciation", "disposal_gain_loss",
+            "lost_cash", "found_cash", "lost_inventory", "found_inventory",
+            "depreciation", "disposal_gain_loss",
             "net_profit",
             "total_investor_share_percent", "total_investor_share_amount",
             "owner_share_percent", "owner_share_amount",
@@ -156,8 +157,10 @@ class CurrentMonthProfitSerializer(serializers.Serializer):
     recurring_expenses_paid      = serializers.DecimalField(max_digits=20, decimal_places=4)
     gst_paid                      = serializers.DecimalField(max_digits=20, decimal_places=4)
     wht_paid                      = serializers.DecimalField(max_digits=20, decimal_places=4)
-    lost_inventory_net            = serializers.DecimalField(max_digits=20, decimal_places=4)
-    lost_cash_net                 = serializers.DecimalField(max_digits=20, decimal_places=4)
+    lost_cash                      = serializers.DecimalField(max_digits=20, decimal_places=4)
+    found_cash                     = serializers.DecimalField(max_digits=20, decimal_places=4)
+    lost_inventory                 = serializers.DecimalField(max_digits=20, decimal_places=4)
+    found_inventory                = serializers.DecimalField(max_digits=20, decimal_places=4)
     depreciation                   = serializers.DecimalField(max_digits=20, decimal_places=4)
     disposal_gain_loss             = serializers.DecimalField(max_digits=20, decimal_places=4)
     net_profit                     = serializers.DecimalField(max_digits=20, decimal_places=4)

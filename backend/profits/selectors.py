@@ -148,7 +148,8 @@ def get_current_month_profit() -> dict:
     from django.utils import timezone
     from .services import (
         _compute_depreciation, _compute_disposal_gain_loss, _compute_expenses_paid,
-        _compute_gst_paid, _compute_lost_cash_net, _compute_lost_inventory_net,
+        _compute_found_cash, _compute_found_inventory, _compute_gst_paid,
+        _compute_lost_cash, _compute_lost_inventory,
         _compute_recurring_expenses_paid, _compute_wht_paid, _month_bounds,
     )
 
@@ -164,16 +165,18 @@ def get_current_month_profit() -> dict:
     recurring_expenses_paid = _compute_recurring_expenses_paid(first_day, last_day)
     gst_paid                 = _compute_gst_paid(first_day, last_day)
     wht_paid                 = _compute_wht_paid(first_day, last_day)
-    lost_inventory_net       = _compute_lost_inventory_net(first_day, last_day)
-    lost_cash_net            = _compute_lost_cash_net(first_day, last_day)
+    lost_cash                = _compute_lost_cash(first_day, last_day)
+    found_cash               = _compute_found_cash(first_day, last_day)
+    lost_inventory           = _compute_lost_inventory(first_day, last_day)
+    found_inventory          = _compute_found_inventory(first_day, last_day)
     depreciation             = _compute_depreciation(period)
     disposal_gain_loss       = _compute_disposal_gain_loss(first_day, last_day)
 
     net_profit = (
         row["net_gross_profit"]
         - expenses_paid - recurring_expenses_paid - gst_paid - wht_paid
-        - lost_inventory_net - lost_cash_net - depreciation
-        + disposal_gain_loss
+        - lost_cash + found_cash - lost_inventory + found_inventory
+        - depreciation + disposal_gain_loss
     )
 
     # Live preview only — informational, never stored, no settle actions
@@ -206,8 +209,10 @@ def get_current_month_profit() -> dict:
         "recurring_expenses_paid"   : recurring_expenses_paid,
         "gst_paid"                   : gst_paid,
         "wht_paid"                   : wht_paid,
-        "lost_inventory_net"         : lost_inventory_net,
-        "lost_cash_net"              : lost_cash_net,
+        "lost_cash"                   : lost_cash,
+        "found_cash"                  : found_cash,
+        "lost_inventory"              : lost_inventory,
+        "found_inventory"             : found_inventory,
         "depreciation"                : depreciation,
         "disposal_gain_loss"          : disposal_gain_loss,
         "net_profit"                  : net_profit,

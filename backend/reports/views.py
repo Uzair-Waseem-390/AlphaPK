@@ -841,8 +841,10 @@ class NetProfitReportPrintView(BaseReportPrintView):
         {"key": "period", "label": "Month"}, {"key": "gross_profit", "label": "Gross Profit"},
         {"key": "net_gross_profit", "label": "Net Gross Profit"}, {"key": "expenses_paid", "label": "Expenses"},
         {"key": "recurring_expenses_paid", "label": "Recurring Exp."}, {"key": "gst_paid", "label": "GST Paid"},
-        {"key": "wht_paid", "label": "WHT Paid"}, {"key": "lost_inventory_net", "label": "Lost Inventory"},
-        {"key": "lost_cash_net", "label": "Lost Cash"}, {"key": "depreciation", "label": "Depreciation"},
+        {"key": "wht_paid", "label": "WHT Paid"},
+        {"key": "lost_cash", "label": "Lost Cash"}, {"key": "found_cash", "label": "Found Cash"},
+        {"key": "lost_inventory", "label": "Lost Inventory"}, {"key": "found_inventory", "label": "Found Inventory"},
+        {"key": "depreciation", "label": "Depreciation"},
         {"key": "disposal_gain_loss", "label": "Disposal Gain/Loss"}, {"key": "net_profit", "label": "Net Profit"},
         {"key": "total_investor_share_amount", "label": "Investor Share"}, {"key": "owner_share_amount", "label": "Owner Share"},
     ]

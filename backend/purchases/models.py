@@ -407,6 +407,38 @@ class LostInventoryItem(models.Model):
         return f"{self.record.reference_number} — {self.product.name} x {self.quantity}"
 
 
+class LostInventoryRecovery(models.Model):
+    """
+    One row per "mark as found" action — the dated counterpart to
+    LostInventoryItem.found_quantity (which is just a running counter with
+    no timestamp). This is what lets the Monthly Profit report correctly
+    attribute a recovery to the month it ACTUALLY happened in, instead of
+    silently folding it into the month the original loss was recorded in
+    (which breaks once that month is already finalized/frozen).
+
+    recovered_amount is snapshotted at creation (unit_cost × quantity for
+    that specific find event) — immutable, same "snapshot at lock-in"
+    convention as everything else in this app.
+    """
+    lost_item        = models.ForeignKey(LostInventoryItem, on_delete=models.CASCADE, related_name="recoveries")
+    quantity          = models.PositiveIntegerField()
+    recovered_amount  = models.DecimalField(max_digits=18, decimal_places=4, editable=False)
+    recovered_at      = models.DateField(db_index=True)
+    recovered_by      = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="lost_inventory_recoveries",
+    )
+    created_at        = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Lost Inventory Recovery"
+        verbose_name_plural = "Lost Inventory Recoveries"
+        ordering            = ["-recovered_at", "-id"]
+
+    def __str__(self):
+        return f"{self.lost_item.product.name} — {self.quantity} recovered on {self.recovered_at}"
+
+
 class LostInventoryFIFOConsumption(models.Model):
     """
     Records exactly which purchase batch(es) a LostInventoryItem's quantity

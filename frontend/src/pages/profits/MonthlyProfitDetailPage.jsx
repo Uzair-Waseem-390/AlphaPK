@@ -39,6 +39,16 @@ const DeductionRow = ({ label, value, hint }) => (
     </div>
 );
 
+const AdditionRow = ({ label, value, hint }) => (
+    <div className="flex items-center justify-between py-2 border-b border-neutral-100 last:border-0">
+        <div>
+            <p className="text-sm text-neutral-700">{label}</p>
+            {hint && <p className="text-xs text-neutral-400">{hint}</p>}
+        </div>
+        <p className="text-sm font-medium text-success-600">+ Rs. {fmt(value)}</p>
+    </div>
+);
+
 const MonthlyProfitDetailPage = () => {
     const { period } = useParams();
     const { user } = useAuth();
@@ -219,8 +229,10 @@ const MonthlyProfitDetailPage = () => {
                     <DeductionRow label="Recurring Expenses Paid" value={mp.recurring_expenses_paid} hint="Rent, salaries, utilities, etc." />
                     <DeductionRow label="GST Paid" value={mp.gst_paid} />
                     <DeductionRow label="WHT Paid" value={mp.wht_paid} />
-                    <DeductionRow label="Lost Inventory (net)" value={mp.lost_inventory_net} />
-                    <DeductionRow label="Lost Cash (net)" value={mp.lost_cash_net} />
+                    <DeductionRow label="Lost Cash" value={mp.lost_cash} />
+                    <AdditionRow label="Found Cash" value={mp.found_cash} />
+                    <DeductionRow label="Lost Inventory" value={mp.lost_inventory} />
+                    <AdditionRow label="Found Inventory" value={mp.found_inventory} />
                     <DeductionRow label="Depreciation" value={mp.depreciation} />
                     <div className="flex items-center justify-between py-2">
                         <p className="text-sm text-neutral-700">Disposal Gain / Loss</p>

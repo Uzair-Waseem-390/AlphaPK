@@ -11,11 +11,16 @@ Net Profit =
   - recurring_expenses_paid   ← Recurring expense payments dated THIS month
   - gst_paid                  ← GST paid to FBR dated THIS month
   - wht_paid                  ← WHT deposited to FBR dated THIS month
-  - lost_inventory_net        ← Lost inventory CREATED THIS month (net of found)
-  - lost_cash_net             ← Lost cash dated THIS month (net of found)
+  - lost_cash                 ← Cash marked LOST, dated THIS month
+  + found_cash                ← Cash marked FOUND, dated THIS month
+  - lost_inventory            ← Inventory marked LOST, dated THIS month (batch created this month)
+  + found_inventory           ← Inventory recovered, dated THIS month (regardless of when originally lost)
   - depreciation              ← Depreciation entries FOR THIS month's period
   + disposal_gain_loss        ← Asset disposal gain/loss dated THIS month
 ```
+
+> [!NOTE]
+> Lost and found are **never netted before storage** — each of the four values is computed and stored independently, dated by when it actually happened. This is deliberate: a single "net" number was confusing (see the "Known Limitation" this replaced, below), and it broke for inventory recoveries that happened after the original loss's month was already finalized. See section 6/7 for exactly how each is dated.
 
 > [!IMPORTANT]
 > **Every single deduction below is scoped ONLY to that specific month's date range (`first_day` → `last_day`).
@@ -87,38 +92,33 @@ Net Profit =
 
 ---
 
-### 6. 🔴 `lost_inventory_net`
+### 6. `lost_inventory` / `found_inventory`
 
-**Source:** `_compute_lost_inventory_net()` — queries `LostInventoryRecord`
+**Sources:**
+- `_compute_lost_inventory()` — sums `total_lost_amount` for `LostInventoryRecord` rows whose `created_at__date` falls within this month.
+- `_compute_found_inventory()` — sums `recovered_amount` for `LostInventoryRecovery` rows whose `recovered_at` falls within this month.
 
-**Scope:** Only `LostInventoryRecord` rows whose `created_at__date` falls within this month.
+`LostInventoryRecovery` is a **dated ledger row created every time `mark_lost_inventory_found()` runs** — one row per "mark as found" action, storing `quantity`, `recovered_amount` (snapshotted `unit_cost × quantity` for that specific find), and `recovered_at` (the date it happened). It's the dated counterpart to `LostInventoryItem.found_quantity`, which is just a running counter with no timestamp of its own.
 
-**How `net_amount` is calculated per item:**
-```
-net_amount = total_cost - recovered_amount
-           = total_cost - (unit_cost × found_quantity)
-```
+**How this fixes the old limitation:** previously, "found" had no date — a recovery could only ever reduce the number in the month the *original loss* was recorded in, which broke silently once that month was already finalized/frozen. Now, a loss dated June and a recovery dated July show up exactly where they belong:
+- June: `lost_inventory` includes the full loss. `found_inventory` is 0 (nothing recovered yet in June).
+- July: `lost_inventory` is unaffected (no new loss batch created in July). `found_inventory` includes the July recovery, which **adds back to July's profit** — it does not reach back and change June's already-frozen number.
 
-> [!WARNING]
-> **Known Limitation:** The `found_quantity` used is the CURRENT live value at the moment the month is finalized (i.e., when you first view that month's data after the month is over).
->
-> Example: A record was created in June. June finalizes. At finalization, found_quantity = 0, so the full loss is recorded in June. If you later mark some units as "found" in July, June's stored number **does NOT change** (months are frozen once finalized). The recovery will instead show up as a reduction in July's `lost_inventory_net`.
+If July also has its own new losses, they add to `lost_inventory` independently — lost and found are never netted against each other before storage.
 
-✅ **Month-specific (creation date) — but with the above caveat.**
+✅ **Each side is independently month-specific, dated by when it actually happened.**
 
 ---
 
-### 7. 🔴 `lost_cash_net`
+### 7. `lost_cash` / `found_cash`
 
-**Source:** `_compute_lost_cash_net()` — queries `CashAdjustment`
+**Sources:**
+- `_compute_lost_cash()` — sums `CashAdjustment` LOST rows whose `adjustment_date` falls within this month.
+- `_compute_found_cash()` — sums `CashAdjustment` FOUND rows whose `adjustment_date` falls within this month.
 
-**Scope:** Only cash lost/found records whose `adjustment_date` falls within this month.
+Same shape as inventory above — each side computed and stored independently, never netted before storage. This was already date-symmetric before the redesign (cash adjustments always carried their own `adjustment_date`); the fields were simply renamed and un-netted to match the new inventory-side convention and the same "don't show a net, show both sides" UI requirement.
 
-```
-lost_cash_net = total LOST this month - total FOUND this month
-```
-
-✅ **Month-specific only. No accumulation.**
+✅ **Month-specific only, both sides. No accumulation.**
 
 ---
 
@@ -155,8 +155,10 @@ This is **added** (not subtracted) because a gain is positive, a loss is negativ
 | `recurring_expenses_paid` | `payment_date` in THIS month | ❌ No |
 | `gst_paid` | `payment_date` in THIS month | ❌ No |
 | `wht_paid` | `payment_date` in THIS month | ❌ No |
-| `lost_inventory_net` | Records **created** in THIS month (net of current found_qty) | ⚠️ Caveat above |
-| `lost_cash_net` | `adjustment_date` in THIS month | ❌ No |
+| `lost_inventory` | `LostInventoryRecord` **created** in THIS month | ❌ No |
+| `found_inventory` | `LostInventoryRecovery` **dated** in THIS month (regardless of loss month) | ❌ No |
+| `lost_cash` | `adjustment_date` in THIS month | ❌ No |
+| `found_cash` | `adjustment_date` in THIS month | ❌ No |
 | `depreciation` | `period == THIS month` | ❌ No |
 | `disposal_gain_loss` | `disposal_date` in THIS month | ❌ No |
 

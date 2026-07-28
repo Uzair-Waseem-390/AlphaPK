@@ -37,8 +37,10 @@ const columns = [
     { key: 'recurring_expenses_paid', label: 'Recurring Exp. (PKR)', render: fmt },
     { key: 'gst_paid', label: 'GST Paid (PKR)', render: fmt },
     { key: 'wht_paid', label: 'WHT Paid (PKR)', render: fmt },
-    { key: 'lost_inventory_net', label: 'Lost Inventory (PKR)', render: fmt },
-    { key: 'lost_cash_net', label: 'Lost Cash (PKR)', render: fmt },
+    { key: 'lost_cash', label: 'Lost Cash (PKR)', render: fmt },
+    { key: 'found_cash', label: 'Found Cash (PKR)', render: fmt },
+    { key: 'lost_inventory', label: 'Lost Inventory (PKR)', render: fmt },
+    { key: 'found_inventory', label: 'Found Inventory (PKR)', render: fmt },
     { key: 'depreciation', label: 'Depreciation (PKR)', render: fmt },
     {
         key: 'disposal_gain_loss',
