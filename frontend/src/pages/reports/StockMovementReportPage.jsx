@@ -80,7 +80,7 @@ const StockMovementReportPage = () => {
                 <Link to="/reports" className="text-sm text-primary-600 hover:text-primary-700">
                     ← Back to Reports
                 </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Stock Movement Report</h1>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Trading Stock Report</h1>
                 <p className="text-neutral-500 mt-1">
                     How much of each product was purchased, returned to suppliers, sold, and returned by customers.
                 </p>
