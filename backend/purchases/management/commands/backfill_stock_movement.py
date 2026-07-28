@@ -22,10 +22,13 @@ class Command(BaseCommand):
 
         zero = 0
 
+        # Opening stock (is_data_entry PurchaseOrders) DOES count here,
+        # unlike every other is_data_entry exclusion in this file — it's
+        # real physical quantity, already reflected in Inventory.quantity.
+        # Mirrors purchases.services.create_opening_stock_order's live sync.
         purchased_by_product = dict(
             PurchaseItem.objects.filter(
                 is_deleted=False, order__is_deleted=False, order__status="confirmed",
-                order__is_data_entry=False,
             ).values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)).values_list("product_id", "total")
         )
 

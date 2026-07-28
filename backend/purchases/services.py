@@ -714,6 +714,11 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
         pi.remaining_quantity = pi.quantity
         pi.save(update_fields=["remaining_quantity"])
         _sync_inventory(product=pi.product, quantity_delta=pi.quantity, user=user)
+        # Stock Movement Report — unlike the financial is_data_entry
+        # exclusions elsewhere, opening stock DOES move real physical
+        # quantity (Inventory.quantity is incremented above too), so it
+        # counts as "purchased" here on purpose.
+        _adjust_stock_movement(product_id=pi.product_id, purchased_delta=pi.quantity)
 
     _recalculate_order_totals(order)
     return order
