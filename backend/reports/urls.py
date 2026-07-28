@@ -27,6 +27,8 @@ from .views import (
     PurchaseReturnsReportView,
     RecurringExpensesReportPrintView,
     RecurringExpensesReportView,
+    StockMovementReportPrintView,
+    StockMovementReportView,
 )
 
 urlpatterns = [
@@ -68,4 +70,7 @@ urlpatterns = [
 
     path("asset-depreciation/", AssetDepreciationReportView.as_view(), name="report-asset-depreciation"),
     path("asset-depreciation/print/", AssetDepreciationReportPrintView.as_view(), name="report-asset-depreciation-print"),
+
+    path("stock-movement/", StockMovementReportView.as_view(), name="report-stock-movement"),
+    path("stock-movement/print/", StockMovementReportPrintView.as_view(), name="report-stock-movement-print"),
 ]

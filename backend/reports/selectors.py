@@ -746,3 +746,175 @@ def get_asset_depreciation_report_stats_all_time() -> dict:
         ).count(),
         "total_depreciation" : af.total_accumulated_depreciation,
     }
+
+
+# ---------------------------------------------------------------------------
+# Stock Movement report — quantities only (purchased/purchase-returned/
+# sold/sale-returned), per product and all-time. Unlike every other report
+# above, there's no single source queryset — this groups across FOUR
+# source tables (PurchaseItem, PurchaseReturnItem, InvoiceItem, ReturnItem),
+# so it can't reuse the queryset/stats(queryset) pattern directly.
+# ---------------------------------------------------------------------------
+
+def _stock_movement_date_filter(qs, *, field: str, date: str = None, date_from: str = None, date_to: str = None) -> QuerySet:
+    if _clean(date):
+        qs = qs.filter(**{f"{field}__date": _clean(date)})
+    if _clean(date_from):
+        qs = qs.filter(**{f"{field}__date__gte": _clean(date_from)})
+    if _clean(date_to):
+        qs = qs.filter(**{f"{field}__date__lte": _clean(date_to)})
+    return qs
+
+
+def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None, date_to: str = None) -> dict:
+    """
+    {product_id: {"total_purchased": x, "total_purchase_returned": x,
+    "total_sold": x, "total_sale_returned": x}} for every product with
+    ANY movement in the given window. Only called when a filter is
+    actually applied — the no-filter case reads ProductStockMovement
+    directly instead (O(1) per row, see get_stock_movement_report_rows).
+    """
+    zero = 0
+    totals = {}
+
+    def _add(product_id, field, amount):
+        row = totals.setdefault(product_id, {
+            "total_purchased": 0, "total_purchase_returned": 0,
+            "total_sold": 0, "total_sale_returned": 0,
+        })
+        row[field] += amount
+
+    purchased_qs = _stock_movement_date_filter(
+        PurchaseItem.objects.filter(
+            is_deleted=False, order__is_deleted=False, order__status="confirmed",
+            order__is_data_entry=False,
+        ),
+        field="order__confirmed_at", date=date, date_from=date_from, date_to=date_to,
+    )
+    for row in purchased_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["product_id"], "total_purchased", row["total"])
+
+    from purchases.models import PurchaseReturnItem
+    purchase_returned_qs = _stock_movement_date_filter(
+        PurchaseReturnItem.objects.filter(
+            return_record__is_deleted=False, return_record__status="accepted",
+            purchase_item__order__is_data_entry=False,
+        ),
+        field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
+    )
+    for row in purchase_returned_qs.values("purchase_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["purchase_item__product_id"], "total_purchase_returned", row["total"])
+
+    from billing.models import InvoiceItem, ReturnItem
+    sold_qs = _stock_movement_date_filter(
+        InvoiceItem.objects.filter(
+            invoice__is_deleted=False, invoice__is_data_entry=False,
+        ).exclude(invoice__status="draft"),
+        field="invoice__confirmed_at", date=date, date_from=date_from, date_to=date_to,
+    )
+    for row in sold_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["product_id"], "total_sold", row["total"])
+
+    sale_returned_qs = _stock_movement_date_filter(
+        ReturnItem.objects.filter(
+            return_record__is_deleted=False, return_record__status="accepted",
+            invoice_item__invoice__is_data_entry=False,
+        ),
+        field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
+    )
+    for row in sale_returned_qs.values("invoice_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["invoice_item__product_id"], "total_sale_returned", row["total"])
+
+    return totals
+
+
+def get_stock_movement_report_stats(_rows=None, *, date: str = None, date_from: str = None, date_to: str = None) -> dict:
+    """
+    Filtered case — live aggregation across all four source tables, all
+    products, ignores search. `_rows` is accepted-but-unused: it exists
+    only so this matches BaseReportPrintView's stats_needs_filters calling
+    convention (self.stats_fn(queryset, **filters)) — this function always
+    recomputes independently rather than deriving from the already-built
+    row list, since stats must ignore search while rows don't.
+    """
+    totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to)
+    stats = {"total_purchased": 0, "total_purchase_returned": 0, "total_sold": 0, "total_sale_returned": 0}
+    for row in totals.values():
+        for key in stats:
+            stats[key] += row[key]
+    return stats
+
+
+def get_stock_movement_report_stats_all_time() -> dict:
+    """No-filter case — reads the pre-synced StockMovementFlow totals, O(1)."""
+    from purchases.models import StockMovementFlow
+
+    flow = StockMovementFlow.get_instance()
+    return {
+        "total_purchased"         : flow.total_purchased,
+        "total_purchase_returned" : flow.total_purchase_returned,
+        "total_sold"               : flow.total_sold,
+        "total_sale_returned"      : flow.total_sale_returned,
+    }
+
+
+def get_stock_movement_report_rows(
+    *,
+    date      : str = None,
+    date_from : str = None,
+    date_to   : str = None,
+    search    : str = None,
+) -> list:
+    """
+    One row per product with at least one nonzero movement in scope.
+    No filter -> reads ProductStockMovement directly (O(1) per row, bounded
+    by today's product count — same exception Inventory Valuation uses).
+    Any date filter -> live aggregation for that window (see above).
+    `search` matches product name or code, applied either way.
+    """
+    from purchases.models import Product, ProductStockMovement
+
+    has_date_filter = bool(_clean(date) or _clean(date_from) or _clean(date_to))
+
+    if not has_date_filter:
+        qs = ProductStockMovement.objects.select_related("product").filter(
+            Q(total_purchased__gt=0) | Q(total_purchase_returned__gt=0) |
+            Q(total_sold__gt=0) | Q(total_sale_returned__gt=0)
+        )
+        if _clean(search):
+            qs = qs.filter(Q(product__name__icontains=_clean(search)) | Q(product__code__icontains=_clean(search)))
+        qs = qs.order_by("product__name")
+        return [
+            {
+                "product_id"              : row.product_id,
+                "product_name"            : row.product.name,
+                "product_code"            : row.product.code,
+                "total_purchased"         : row.total_purchased,
+                "total_purchase_returned" : row.total_purchase_returned,
+                "total_sold"               : row.total_sold,
+                "total_sale_returned"      : row.total_sale_returned,
+            }
+            for row in qs
+        ]
+
+    totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to)
+    if not totals:
+        return []
+
+    products = Product.objects.filter(id__in=totals.keys())
+    if _clean(search):
+        products = products.filter(Q(name__icontains=_clean(search)) | Q(code__icontains=_clean(search)))
+    products = products.order_by("name")
+
+    return [
+        {
+            "product_id"              : p.id,
+            "product_name"            : p.name,
+            "product_code"            : p.code,
+            "total_purchased"         : totals[p.id]["total_purchased"],
+            "total_purchase_returned" : totals[p.id]["total_purchase_returned"],
+            "total_sold"               : totals[p.id]["total_sold"],
+            "total_sale_returned"      : totals[p.id]["total_sale_returned"],
+        }
+        for p in products
+    ]

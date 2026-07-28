@@ -43,6 +43,9 @@ from .selectors import (
     get_recurring_expenses_report_queryset,
     get_recurring_expenses_report_stats,
     get_recurring_expenses_report_stats_all_time,
+    get_stock_movement_report_rows,
+    get_stock_movement_report_stats,
+    get_stock_movement_report_stats_all_time,
 )
 from .serializers import (
     AssetDepreciationReportItemSerializer,
@@ -59,6 +62,7 @@ from .serializers import (
     PurchaseReturnReportItemSerializer,
     RecurringExpenseReportItemSerializer,
     ReportDateFilterSerializer,
+    StockMovementReportItemSerializer,
 )
 
 
@@ -495,6 +499,51 @@ class RecurringExpensesReportView(generics.ListAPIView):
         return response
 
 
+class StockMovementReportView(generics.ListAPIView):
+    """
+    GET /reports/stock-movement/
+    One row per product: quantity purchased, purchase-returned, sold, and
+    sale-returned. Header stats are the same four totals summed across
+    every product.
+
+    Query params:
+        date      : YYYY-MM-DD — exact day
+        date_from : YYYY-MM-DD — range start
+        date_to   : YYYY-MM-DD — range end
+        search    : matches product name or code (does not affect the
+                    header stats — those are always all-products)
+
+    Response (paginated):
+        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
+         "stats": {"total_purchased": int, "total_purchase_returned": int,
+                    "total_sold": int, "total_sale_returned": int},
+         "results": [...]}
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = StockMovementReportItemSerializer
+
+    def get_queryset(self):
+        filters = ReportDateFilterSerializer(data=self.request.query_params)
+        filters.is_valid(raise_exception=True)
+        search = self.request.query_params.get("search")
+        return get_stock_movement_report_rows(**filters.validated_data, search=search)
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.get_queryset()
+        if _has_date_filter(request):
+            filters = ReportDateFilterSerializer(data=request.query_params)
+            filters.is_valid(raise_exception=True)
+            stats = get_stock_movement_report_stats(**filters.validated_data)
+        else:
+            stats = get_stock_movement_report_stats_all_time()
+
+        page = self.paginate_queryset(queryset)
+        serializer = self.get_serializer(page, many=True)
+        response = self.get_paginated_response(serializer.data)
+        response.data["stats"] = stats
+        return response
+
+
 class NetProfitReportView(generics.ListAPIView):
     """
     GET /reports/net-profit/
@@ -839,6 +888,51 @@ class InventoryValuationReportPrintView(APIView):
                 {"key": "product_name", "label": "Product"}, {"key": "product_code", "label": "Code"},
                 {"key": "category_name", "label": "Category"}, {"key": "quantity_on_hand", "label": "Qty on Hand"},
                 {"key": "avg_unit_cost", "label": "Avg Unit Cost"}, {"key": "total_value", "label": "Total Value"},
+            ],
+            rows=rows,
+            stats=[{"label": _humanize(k), "value": v} for k, v in stats.items()],
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
+class StockMovementReportPrintView(APIView):
+    """
+    GET /reports/stock-movement/print/?date=&date_from=&date_to=&search=
+    Rows are grouped across 4 source tables (not a single queryset), and
+    this report uniquely combines a date filter with a search box — doesn't
+    fit BaseReportPrintView's single-queryset_fn shape, so it's written
+    directly here (same as InventoryValuationReportPrintView above).
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        filters_serializer = ReportDateFilterSerializer(data=request.query_params)
+        filters_serializer.is_valid(raise_exception=True)
+        filters = filters_serializer.validated_data
+        search = request.query_params.get("search")
+
+        rows_data = get_stock_movement_report_rows(**filters, search=search)
+
+        if request.query_params.get("date") or request.query_params.get("date_from") or request.query_params.get("date_to"):
+            stats = get_stock_movement_report_stats(**filters)
+        else:
+            stats = get_stock_movement_report_stats_all_time()
+
+        rows = StockMovementReportItemSerializer(rows_data, many=True).data
+
+        filter_description = _describe_filters(request.query_params)
+        if search:
+            filter_description += f" — Search: {search}"
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title="Stock Movement Report",
+            filter_description=filter_description,
+            columns=[
+                {"key": "product_name", "label": "Product"}, {"key": "product_code", "label": "Code"},
+                {"key": "total_purchased", "label": "Purchased"}, {"key": "total_purchase_returned", "label": "Purchase Returned"},
+                {"key": "total_sold", "label": "Sold"}, {"key": "total_sale_returned", "label": "Sale Returned"},
             ],
             rows=rows,
             stats=[{"label": _humanize(k), "value": v} for k, v in stats.items()],

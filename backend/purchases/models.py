@@ -533,3 +533,52 @@ class Inventory(models.Model):
 
     def __str__(self):
         return f"{self.product.name} — qty: {self.quantity}"
+
+
+class ProductStockMovement(models.Model):
+    """
+    Per-product running quantity totals for the Stock Movement Report —
+    one row per product, updated live via _adjust_stock_movement() in
+    services.py. All four fields only ever increase: none of the four
+    source events (PO confirm, purchase return accept, invoice confirm,
+    customer return accept) are ever undone in this codebase.
+    """
+    product                 = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="stock_movement")
+    total_purchased         = models.PositiveIntegerField(default=0)
+    total_purchase_returned = models.PositiveIntegerField(default=0)
+    total_sold               = models.PositiveIntegerField(default=0)
+    total_sale_returned      = models.PositiveIntegerField(default=0)
+    last_updated_at          = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Product Stock Movement"
+        verbose_name_plural = "Product Stock Movement"
+
+    def __str__(self):
+        return f"{self.product.name} — purchased {self.total_purchased}, sold {self.total_sold}"
+
+
+class StockMovementFlow(models.Model):
+    """
+    Single live record — the all-time, all-product totals for the Stock
+    Movement Report header. Same four fields as ProductStockMovement,
+    summed across every product, kept in sync by the same
+    _adjust_stock_movement() calls.
+    """
+    total_purchased         = models.PositiveIntegerField(default=0)
+    total_purchase_returned = models.PositiveIntegerField(default=0)
+    total_sold               = models.PositiveIntegerField(default=0)
+    total_sale_returned      = models.PositiveIntegerField(default=0)
+    last_updated_at          = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Stock Movement Flow"
+        verbose_name_plural = "Stock Movement Flow"
+
+    def __str__(self):
+        return f"StockMovementFlow — purchased {self.total_purchased}, sold {self.total_sold}"
+
+    @classmethod
+    def get_instance(cls):
+        instance, _ = cls.objects.get_or_create(pk=1)
+        return instance

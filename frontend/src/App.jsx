@@ -71,6 +71,7 @@ import SalesTaxReportPage from './pages/reports/SalesTaxReportPage';
 import RecurringExpensesReportPage from './pages/reports/RecurringExpensesReportPage';
 import NetProfitReportPage from './pages/reports/NetProfitReportPage';
 import AssetDepreciationReportPage from './pages/reports/AssetDepreciationReportPage';
+import StockMovementReportPage from './pages/reports/StockMovementReportPage';
 
 // Taxes pages
 import TaxesPage from './pages/taxes/TaxesPage';
@@ -582,6 +583,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <AssetDepreciationReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/stock-movement" element={
+          <ProtectedRoute>
+            <Layout>
+              <StockMovementReportPage />
             </Layout>
           </ProtectedRoute>
         } />

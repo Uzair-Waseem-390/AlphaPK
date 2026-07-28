@@ -79,4 +79,10 @@ export const reportsApi = {
             return api.get(`/reports/asset-depreciation/${query ? `?${query}` : ''}`);
         },
     },
+    stockMovement: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/reports/stock-movement/${query ? `?${query}` : ''}`);
+        },
+    },
 };

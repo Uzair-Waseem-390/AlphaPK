@@ -4,9 +4,9 @@ from django.utils import timezone
 
 from .models import (
     Category, Inventory, LostInventoryFIFOConsumption, LostInventoryItem,
-    LostInventoryRecord, Product, PurchaseItem, PurchaseOrder,
-    PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF, Shelf,
-    Supplier, SupplierPayment,
+    LostInventoryRecord, Product, ProductStockMovement, PurchaseItem,
+    PurchaseOrder, PurchaseReturn, PurchaseReturnItem, SavedPurchaseOrderPDF,
+    Shelf, StockMovementFlow, Supplier, SupplierPayment,
 )
 from .selectors import (
     get_available_purchase_items_for_fifo, get_category_by_id,
@@ -27,6 +27,37 @@ def _soft_delete(instance, user) -> None:
     instance.deleted_at = timezone.now()
     instance.deleted_by = user
     instance.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
+def _adjust_stock_movement(
+    *, product_id: int,
+    purchased_delta: int = 0,
+    purchase_returned_delta: int = 0,
+    sold_delta: int = 0,
+    sale_returned_delta: int = 0,
+) -> None:
+    """
+    The ONLY function that writes to ProductStockMovement/StockMovementFlow
+    — called from purchases (PO confirm, purchase return accept) and
+    billing (invoice confirm, customer return accept) for the Stock
+    Movement Report. All four fields only ever increase (none of the four
+    source events are ever undone in this codebase), so no floor-at-0
+    logic is needed — plain PositiveIntegerField addition.
+    """
+    with transaction.atomic():
+        row, _ = ProductStockMovement.objects.select_for_update().get_or_create(product_id=product_id)
+        row.total_purchased         += purchased_delta
+        row.total_purchase_returned += purchase_returned_delta
+        row.total_sold               += sold_delta
+        row.total_sale_returned      += sale_returned_delta
+        row.save()
+
+        flow = StockMovementFlow.get_instance()
+        flow.total_purchased         += purchased_delta
+        flow.total_purchase_returned += purchase_returned_delta
+        flow.total_sold               += sold_delta
+        flow.total_sale_returned      += sale_returned_delta
+        flow.save()
 
 
 def _generate_order_number() -> str:
@@ -567,6 +598,11 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
         item.remaining_quantity = item.quantity
         item.save(update_fields=["remaining_quantity"])
         _sync_inventory(product=item.product, quantity_delta=item.quantity, user=user)
+        # Stock Movement Report — bootstrap opening-stock orders aren't
+        # real operating-period purchases, mirrors every other report's
+        # is_data_entry exclusion.
+        if not order.is_data_entry:
+            _adjust_stock_movement(product_id=item.product_id, purchased_delta=item.quantity)
 
     _recalculate_order_totals(order)
 
@@ -879,6 +915,10 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
 
         # Decrease inventory
         _sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)
+
+        # Stock Movement Report
+        if not purchase_item.order.is_data_entry:
+            _adjust_stock_movement(product_id=purchase_item.product_id, purchase_returned_delta=qty)
 
         total_gross  += calc["gross_amount"]
         total_gst    += calc["gst_amount"]

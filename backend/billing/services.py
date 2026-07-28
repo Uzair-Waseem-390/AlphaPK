@@ -550,6 +550,12 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         inventory.last_updated_by = user
         inventory.save(update_fields=["quantity", "last_updated_at", "last_updated_by"])
 
+        # Stock Movement Report — bootstrap opening-balance invoices aren't
+        # real sales, mirrors every other report's is_data_entry exclusion.
+        if not invoice.is_data_entry:
+            from purchases.services import _adjust_stock_movement
+            _adjust_stock_movement(product_id=item.product_id, sold_delta=item.quantity)
+
     _recalculate_invoice_totals(invoice)
 
     invoice.status       = Invoice.Status.CONFIRMED
@@ -769,6 +775,11 @@ def accept_return(*, return_id: int, user) -> Return:
         # Track returned quantity on invoice item
         invoice_item.returned_quantity += qty
         invoice_item.save(update_fields=["returned_quantity"])
+
+        # Stock Movement Report
+        if not invoice_item.invoice.is_data_entry:
+            from purchases.services import _adjust_stock_movement
+            _adjust_stock_movement(product_id=invoice_item.product_id, sale_returned_delta=qty)
 
         total_return_amount += line_total
         total_return_cogs   += line_cogs

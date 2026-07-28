@@ -75,6 +75,12 @@ const REPORTS = [
         icon: '📉',
         path: '/reports/asset-depreciation',
     },
+    {
+        title: 'Stock Movement Report',
+        description: 'How much of each product was purchased, returned to suppliers, sold, and returned by customers',
+        icon: '📦',
+        path: '/reports/stock-movement',
+    },
 ];
 
 const ReportsHomePage = () => {

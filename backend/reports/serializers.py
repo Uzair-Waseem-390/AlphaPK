@@ -258,3 +258,18 @@ class AssetDepreciationReportItemSerializer(serializers.ModelSerializer):
             "rate_applied", "worth_before", "worth_after", "amount", "created_at",
         ]
         read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
+# Stock movement report — rows are plain dicts (grouped across 4 source
+# tables), not a single model's instances, so this is a plain Serializer.
+# ---------------------------------------------------------------------------
+
+class StockMovementReportItemSerializer(serializers.Serializer):
+    product_id              = serializers.IntegerField()
+    product_name            = serializers.CharField()
+    product_code            = serializers.CharField()
+    total_purchased         = serializers.IntegerField()
+    total_purchase_returned = serializers.IntegerField()
+    total_sold               = serializers.IntegerField()
+    total_sale_returned      = serializers.IntegerField()
