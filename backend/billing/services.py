@@ -721,10 +721,17 @@ def create_return(*, invoice_id: int, items: list[dict], note: str = "", user) -
                 )
             })
 
+        qty           = item_data["quantity"]
+        selling_price = invoice_item.selling_price
+        cogs_per_unit = invoice_item.cogs_per_unit
         ReturnItem.objects.create(
             return_record=return_record,
             invoice_item=invoice_item,
-            quantity=item_data["quantity"],
+            quantity=qty,
+            selling_price=selling_price,
+            cogs_per_unit=cogs_per_unit,
+            line_total=selling_price * qty,
+            line_cogs=cogs_per_unit * qty,
         )
 
     return return_record

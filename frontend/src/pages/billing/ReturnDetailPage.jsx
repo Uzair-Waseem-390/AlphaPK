@@ -189,14 +189,10 @@ const ReturnDetailPage = () => {
                                         <td className="px-3 py-2 text-sm">{item.product_name}</td>
                                         <td className="px-3 py-2 text-sm">{item.quantity}</td>
                                         <td className="px-3 py-2 text-sm">
-                                            {typeof item.unit_price === 'string'
-                                                ? parseFloat(item.unit_price).toFixed(2)
-                                                : '0.00'}
+                                            {parseFloat(item.selling_price || 0).toFixed(2)}
                                         </td>
                                         <td className="px-3 py-2 text-sm text-right font-medium">
-                                            {typeof item.total_amount === 'string'
-                                                ? parseFloat(item.total_amount).toFixed(2)
-                                                : '0.00'}
+                                            {parseFloat(item.line_total || 0).toFixed(2)}
                                         </td>
                                     </tr>
                                 ))}
