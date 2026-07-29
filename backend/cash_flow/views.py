@@ -523,6 +523,9 @@ class ExpensesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
 
     def get_queryset(self):
         p = self.request.query_params
+        # This drawer shows created_at ordering (unlike the main Expenses
+        # page, which sorts by expense_date) — re-order after the shared
+        # selector's own default.
         return get_all_expenses(
             search      = p.get("search"),
             category_id = p.get("category"),
@@ -530,7 +533,7 @@ class ExpensesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
             date_to     = p.get("date_to"),
             min_amount  = p.get("min_amount"),
             max_amount  = p.get("max_amount"),
-        )
+        ).order_by("-created_at")
 
 
 class LostInventoryBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):

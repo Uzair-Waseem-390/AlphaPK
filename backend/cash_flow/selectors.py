@@ -182,7 +182,7 @@ def get_invoice_payments_breakdown(
     if _clean(method):
         qs = qs.filter(method=_clean(method))
 
-    return qs.order_by("-payment_date")
+    return qs.order_by("-created_at")
 
 
 def get_cash_in_hand_breakdown(
@@ -223,6 +223,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "inflow",
                 "type"       : "opening_cash",
                 "date"       : str(e.added_at.date()),
+                "created_at" : e.added_at,
                 "description": "Opening cash — data entry",
                 "reference"  : f"OCE-{e.id}",
                 "amount"     : e.amount,
@@ -247,6 +248,7 @@ def get_cash_in_hand_breakdown(
             "direction"  : "inflow",
             "type"       : "invoice_payment",
             "date"       : str(p.payment_date),
+            "created_at" : p.created_at,
             "description": f"Received from {p.invoice.customer.name} ({p.invoice.bill_number})",
             "reference"  : p.reference_number,
             "amount"     : p.amount,
@@ -265,6 +267,7 @@ def get_cash_in_hand_breakdown(
             "direction"  : "outflow",
             "type"       : "expense",
             "date"       : str(e.expense_date),
+            "created_at" : e.created_at,
             "description": f"Expense: {e.name} ({e.category.name})",
             "reference"  : f"EXP-{e.id}",
             "amount"     : e.amount,
@@ -286,6 +289,7 @@ def get_cash_in_hand_breakdown(
             "direction"  : "outflow",
             "type"       : ptype,
             "date"       : str(p.payment_date),
+            "created_at" : p.created_at,
             "description": f"Paid to {p.order.supplier.name} ({p.order.order_number})",
             "reference"  : p.reference_number,
             "amount"     : p.amount,
@@ -308,6 +312,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow",
                 "type"       : "tax_payment",
                 "date"       : str(tp.payment_date),
+                "created_at" : tp.created_at,
                 "description": f"Tax payment to FBR{f' — {tp.note}' if tp.note else ''}",
                 "reference"  : f"TAX-{tp.id}",
                 "amount"     : tp.amount,
@@ -330,6 +335,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow",
                 "type"       : "wht_payment",
                 "date"       : str(wp.payment_date),
+                "created_at" : wp.created_at,
                 "description": f"WHT payment to FBR{f' — {wp.note}' if wp.note else ''}",
                 "reference"  : f"WHT-{wp.id}",
                 "amount"     : wp.amount,
@@ -354,6 +360,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow",
                 "type"       : "investor_profit_payout",
                 "date"       : str(pp.payout_date),
+                "created_at" : pp.created_at,
                 "description": f"{pp.get_action_type_display()} — {pp.share.investor_name_snapshot} ({pp.share.monthly_profit.period})",
                 "reference"  : f"PROFIT-{pp.id}",
                 "amount"     : pp.amount,
@@ -380,6 +387,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow" if is_lost else "inflow",
                 "type"       : "cash_lost" if is_lost else "cash_found",
                 "date"       : str(a.adjustment_date),
+                "created_at" : a.created_at,
                 "description": f"Cash {'lost' if is_lost else 'found'}{f' — {a.reason}' if a.reason else ''}",
                 "reference"  : f"ADJ-{a.id}",
                 "amount"     : a.amount,
@@ -398,6 +406,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "inflow" if is_investment else "outflow",
                 "type"       : "investor_investment" if is_investment else "investor_withdrawal",
                 "date"       : str(t.transaction_date),
+                "created_at" : t.created_at,
                 "description": f"{'Investment from' if is_investment else 'Withdrawal by'} {t.investor.name}",
                 "reference"  : f"INV-{t.id}",
                 "amount"     : t.amount,
@@ -416,6 +425,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "inflow" if is_contribution else "outflow",
                 "type"       : "owner_contribution" if is_contribution else "owner_drawing",
                 "date"       : str(t.transaction_date),
+                "created_at" : t.created_at,
                 "description": f"Owner {'contribution' if is_contribution else 'drawing'}{f' — {t.note}' if t.note else ''}",
                 "reference"  : f"OWN-{t.id}",
                 "amount"     : t.amount,
@@ -441,6 +451,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow",
                 "type"       : "asset_purchase",
                 "date"       : str(a.acquisition_date),
+                "created_at" : a.created_at,
                 "description": f"Fixed asset purchased — {a.name}",
                 "reference"  : f"AST-{a.id}",
                 "amount"     : a.cost,
@@ -458,6 +469,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "inflow",
                 "type"       : "asset_sold",
                 "date"       : str(d.disposal_date),
+                "created_at" : d.created_at,
                 "description": f"Fixed asset sold — {d.asset.name}",
                 "reference"  : f"DIS-{d.id}",
                 "amount"     : d.sale_amount,
@@ -483,6 +495,7 @@ def get_cash_in_hand_breakdown(
                 "direction"  : "outflow",
                 "type"       : "recurring_expense_payment",
                 "date"       : str(p.payment_date),
+                "created_at" : p.created_at,
                 "description": f"{p.assignment.name_snapshot} — {p.assignment.period} ({p.assignment.category_name_snapshot})",
                 "reference"  : f"REP-{p.id}",
                 "amount"     : p.amount,
@@ -495,8 +508,10 @@ def get_cash_in_hand_breakdown(
     if _clean(movement_type):
         movements = [m for m in movements if m["direction"] == _clean(movement_type)]
 
-    # Sort newest first
-    movements.sort(key=lambda x: x["date"], reverse=True)
+    # Sort by created_at (record creation time), newest first — NOT by the
+    # business "date" field, which can differ from when the record was
+    # actually entered (e.g. a payment backdated to an earlier date).
+    movements.sort(key=lambda x: x["created_at"], reverse=True)
     return movements
 
 
@@ -704,7 +719,7 @@ def get_supplier_payments_breakdown(
     if _clean(method):
         qs = qs.filter(method=_clean(method))
 
-    return qs.order_by("-payment_date")
+    return qs.order_by("-created_at")
 
 
 def get_supplier_payable_outstanding_breakdown(
@@ -889,7 +904,7 @@ def get_purchase_returns_breakdown(
     if _clean(date_to):
         qs = qs.filter(accepted_at__date__lte=_clean(date_to))
 
-    return qs.order_by("-accepted_at")
+    return qs.order_by("-created_at")
 
 
 # ---------------------------------------------------------------------------
@@ -922,7 +937,7 @@ def get_customer_returns_breakdown(
     if _clean(date_to):
         qs = qs.filter(accepted_at__date__lte=_clean(date_to))
 
-    return qs.order_by("-accepted_at")
+    return qs.order_by("-created_at")
 
 
 # ---------------------------------------------------------------------------
@@ -955,7 +970,7 @@ def get_profit_breakdown(
     if _clean(date_to):
         qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
 
-    return qs.order_by("-confirmed_at")
+    return qs.order_by("-created_at")
 
 
 # ---------------------------------------------------------------------------
