@@ -220,6 +220,14 @@ const SuppliersPage = () => {
                     </div>
                 </form>
             </Modal>
+
+            <ConfirmDialog
+                isOpen={!!deleteConfirm}
+                onClose={() => setDeleteConfirm(null)}
+                onConfirm={() => handleDelete(deleteConfirm?.id)}
+                title="Delete Supplier"
+                message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
+            />
         </div>
     );
 };
