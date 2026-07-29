@@ -122,12 +122,20 @@ def get_ownership_split() -> dict:
 # pattern as assets/recurring_expenses (see services.catch_up_monthly_profits)
 # ---------------------------------------------------------------------------
 
-def get_all_monthly_profits():
+def get_all_monthly_profits(*, year: str = None):
+    """
+    Every finalized month, newest first. `year` (e.g. "2026") filters to
+    that calendar year's finalized months only — never touches the live,
+    separately-computed current-month view (get_current_month_profit()).
+    """
     from .models import MonthlyProfit
     from .services import catch_up_monthly_profits
 
     catch_up_monthly_profits()
-    return MonthlyProfit.objects.order_by("-period")
+    qs = MonthlyProfit.objects.order_by("-period")
+    if year and str(year).strip():
+        qs = qs.filter(period__startswith=f"{str(year).strip()}-")
+    return qs
 
 
 def get_monthly_profit_by_period(period: str):

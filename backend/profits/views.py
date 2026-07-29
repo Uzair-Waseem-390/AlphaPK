@@ -59,7 +59,7 @@ class MonthlyProfitListView(generics.ListAPIView):
     serializer_class   = MonthlyProfitListSerializer
 
     def get_queryset(self):
-        return get_all_monthly_profits()
+        return get_all_monthly_profits(year=self.request.query_params.get("year"))
 
 
 class CurrentMonthProfitView(APIView):

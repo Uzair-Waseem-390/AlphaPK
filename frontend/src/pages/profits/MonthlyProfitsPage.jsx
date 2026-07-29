@@ -1,9 +1,11 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useMonthlyProfits, useCurrentMonthProfit, useProfitFlowStats } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 
@@ -42,9 +44,13 @@ const MonthlyProfitsPage = () => {
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data: months, meta, page, setPage, loading } = useMonthlyProfits();
+    const { data: months, meta, page, setPage, loading, filters, setFilters } = useMonthlyProfits();
     const { data: current, loading: currentLoading } = useCurrentMonthProfit();
     const { data: stats, loading: statsLoading } = useProfitFlowStats();
+
+    // Local input state so typing doesn't refetch on every keystroke —
+    // only Apply/Clear actually change `filters` (and thus the query).
+    const [yearInput, setYearInput] = useState(filters.year || '');
 
     if (!isAdmin) {
         return (
@@ -165,7 +171,30 @@ const MonthlyProfitsPage = () => {
 
             {/* Finalized months */}
             <div>
-                <h2 className="text-lg font-semibold text-neutral-900 mb-3">Finalized Months</h2>
+                <div className="flex flex-wrap items-end justify-between gap-3 mb-3">
+                    <h2 className="text-lg font-semibold text-neutral-900">Finalized Months</h2>
+                    <div className="flex items-end gap-2">
+                        <Input
+                            label="Year"
+                            type="number"
+                            placeholder="e.g. 2026"
+                            value={yearInput}
+                            onChange={(e) => setYearInput(e.target.value)}
+                            className="w-32"
+                        />
+                        <Button size="sm" onClick={() => setFilters({ ...filters, year: yearInput || undefined })}>
+                            Apply
+                        </Button>
+                        {filters.year && (
+                            <Button size="sm" variant="secondary" onClick={() => { setYearInput(''); setFilters({}); }}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
+                </div>
+                <p className="text-xs text-neutral-400 -mt-2 mb-3">
+                    Filters only the finalized months list below — the current month card above is unaffected.
+                </p>
                 {loading ? (
                     <div className="flex items-center justify-center py-8">
                         <LoadingSpinner size="lg" />
