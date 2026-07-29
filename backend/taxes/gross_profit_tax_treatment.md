@@ -105,3 +105,18 @@ Only if one of these becomes true — otherwise leave the formula alone:
 - **A real example is found where cash-in-hand and net_profit disagree** for a fully-settled period (no outstanding tax) — that would mean the formula itself is wrong, not just lagged. Verify with the same worked-example method as §2 before changing any code.
 
 See also: `backend/profits/profit_calculation_breakdown.md` for the full Monthly Profit formula (expenses, lost/found inventory, depreciation, disposal gain/loss) — this note only covers the tax-inside-revenue/COGS piece.
+
+
+
+
+
+
+
+
+<!-- I traced this through the actual code rather than going from the formula as you described it, since what's implemented isn't quite "selling price − (COGS + taxes)":
+
+Currently: gross_profit = grand_total − COGS, where grand_total = subtotal + GST_collected − WHT_withheld_by_customer, and COGS (FIFO cost) = gross + GST_paid_to_supplier − WHT_withheld_from_supplier per purchase batch. Then separately, Monthly Profit subtracts gst_paid (net GST actually remitted to FBR) and wht_paid (WHT actually deposited, but only the supplier-side withholding — WHT withheld by your customers is never paid by you, per WHTPayment's own docstring).
+
+Does this double-count? I worked through the arithmetic and it doesn't — it's a pass-through: GST collected inflates revenue, GST paid-to-suppliers deflates COGS, and gst_paid (the net FBR remittance) brings the combined effect back to zero once actually paid. Same logic for supplier-side WHT: it's subtracted out of COGS at purchase time (since that portion goes to FBR, not the supplier), then wht_paid re-adds it as a real cost exactly when it's actually remitted — together they equal the true full cost. The only real effect is a timing lag (tax collected/embedded this month, remitted next month) — which is consistent with how you already wanted Lost/Found Inventory to work (recognize when cash actually moves), not a bug.
+
+My recommendation: leave the formula as-is — I don't think it needs adjusting. Is there a specific number that looked wrong to you, or a different real-world tax mechanic (e.g., GST not remitted monthly, or WHT working differently for your FBR filing) that's not matching what I described above? -->
