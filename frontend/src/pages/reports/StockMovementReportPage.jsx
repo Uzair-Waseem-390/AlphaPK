@@ -38,6 +38,8 @@ const columns = [
         label: 'Net Sold',
         render: (_v, row) => row.total_sold - row.total_sale_returned,
     },
+    { key: 'total_lost', label: 'Lost' },
+    { key: 'total_found', label: 'Found' },
 ];
 
 const StockMovementReportPage = () => {
@@ -80,9 +82,9 @@ const StockMovementReportPage = () => {
                 <Link to="/reports" className="text-sm text-primary-600 hover:text-primary-700">
                     ← Back to Reports
                 </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Trading Stock Report</h1>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Stock Movement Report</h1>
                 <p className="text-neutral-500 mt-1">
-                    How much of each product was purchased, returned to suppliers, sold, and returned by customers.
+                    How much of each product was purchased, returned to suppliers, sold, returned by customers, lost, and found.
                 </p>
             </div>
 
@@ -123,7 +125,7 @@ const StockMovementReportPage = () => {
             ) : (
                 <>
                     {stats && (
-                        <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+                        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
                             <Card className="p-4">
                                 <p className="text-sm text-neutral-500">Total Purchased</p>
                                 <p className="text-2xl font-bold text-neutral-900">{stats.total_purchased}</p>
@@ -139,6 +141,14 @@ const StockMovementReportPage = () => {
                             <Card className="p-4">
                                 <p className="text-sm text-neutral-500">Total Sale Returned</p>
                                 <p className="text-2xl font-bold text-error-600">{stats.total_sale_returned}</p>
+                            </Card>
+                            <Card className="p-4">
+                                <p className="text-sm text-neutral-500">Total Lost</p>
+                                <p className="text-2xl font-bold text-error-600">{stats.total_lost}</p>
+                            </Card>
+                            <Card className="p-4">
+                                <p className="text-sm text-neutral-500">Total Found</p>
+                                <p className="text-2xl font-bold text-success-600">{stats.total_found}</p>
                             </Card>
                         </div>
                     )}

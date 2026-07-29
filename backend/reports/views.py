@@ -935,6 +935,7 @@ class StockMovementReportPrintView(APIView):
                 {"key": "product_name", "label": "Product"}, {"key": "product_code", "label": "Code"},
                 {"key": "total_purchased", "label": "Purchased"}, {"key": "total_purchase_returned", "label": "Purchase Returned"},
                 {"key": "total_sold", "label": "Sold"}, {"key": "total_sale_returned", "label": "Sale Returned"},
+                {"key": "total_lost", "label": "Lost"}, {"key": "total_found", "label": "Found"},
             ],
             rows=rows,
             stats=[{"label": _humanize(k), "value": v} for k, v in stats.items()],

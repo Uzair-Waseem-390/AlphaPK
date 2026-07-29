@@ -173,7 +173,7 @@ const Layout = ({ children }) => {
         { name: 'Recurring Expenses Report', path: '/reports/recurring-expenses', icon: '🔁' },
         { name: 'Net Profit Report', path: '/reports/net-profit', icon: '📈' },
         { name: 'Asset Depreciation Report', path: '/reports/asset-depreciation', icon: '📉' },
-        { name: 'Trading Stock Report', path: '/reports/trading-stock', icon: '📦' },
+        { name: 'Stock Movement Report', path: '/reports/stock-movement', icon: '📦' },
     ];
 
     const taxesNavigation = [

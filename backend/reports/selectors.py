@@ -769,10 +769,11 @@ def _stock_movement_date_filter(qs, *, field: str, date: str = None, date_from: 
 def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None, date_to: str = None) -> dict:
     """
     {product_id: {"total_purchased": x, "total_purchase_returned": x,
-    "total_sold": x, "total_sale_returned": x}} for every product with
-    ANY movement in the given window. Only called when a filter is
-    actually applied — the no-filter case reads ProductStockMovement
-    directly instead (O(1) per row, see get_stock_movement_report_rows).
+    "total_sold": x, "total_sale_returned": x, "total_lost": x,
+    "total_found": x}} for every product with ANY movement in the given
+    window. Only called when a filter is actually applied — the no-filter
+    case reads ProductStockMovement directly instead (O(1) per row, see
+    get_stock_movement_report_rows).
     """
     zero = 0
     totals = {}
@@ -781,6 +782,7 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
         row = totals.setdefault(product_id, {
             "total_purchased": 0, "total_purchase_returned": 0,
             "total_sold": 0, "total_sale_returned": 0,
+            "total_lost": 0, "total_found": 0,
         })
         row[field] += amount
 
@@ -825,6 +827,26 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
     for row in sale_returned_qs.values("invoice_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["invoice_item__product_id"], "total_sale_returned", row["total"])
 
+    from purchases.models import LostInventoryItem, LostInventoryRecovery
+    lost_qs = _stock_movement_date_filter(
+        LostInventoryItem.objects.filter(record__is_deleted=False),
+        field="record__created_at", date=date, date_from=date_from, date_to=date_to,
+    )
+    for row in lost_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["product_id"], "total_lost", row["total"])
+
+    # recovered_at is a plain DateField (not DateTimeField) — no __date
+    # transform needed/supported, unlike the other four *_date_filter calls.
+    found_qs = LostInventoryRecovery.objects.all()
+    if _clean(date):
+        found_qs = found_qs.filter(recovered_at=_clean(date))
+    if _clean(date_from):
+        found_qs = found_qs.filter(recovered_at__gte=_clean(date_from))
+    if _clean(date_to):
+        found_qs = found_qs.filter(recovered_at__lte=_clean(date_to))
+    for row in found_qs.values("lost_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
+        _add(row["lost_item__product_id"], "total_found", row["total"])
+
     return totals
 
 
@@ -838,7 +860,11 @@ def get_stock_movement_report_stats(_rows=None, *, date: str = None, date_from: 
     row list, since stats must ignore search while rows don't.
     """
     totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to)
-    stats = {"total_purchased": 0, "total_purchase_returned": 0, "total_sold": 0, "total_sale_returned": 0}
+    stats = {
+        "total_purchased": 0, "total_purchase_returned": 0,
+        "total_sold": 0, "total_sale_returned": 0,
+        "total_lost": 0, "total_found": 0,
+    }
     for row in totals.values():
         for key in stats:
             stats[key] += row[key]
@@ -855,6 +881,8 @@ def get_stock_movement_report_stats_all_time() -> dict:
         "total_purchase_returned" : flow.total_purchase_returned,
         "total_sold"               : flow.total_sold,
         "total_sale_returned"      : flow.total_sale_returned,
+        "total_lost"                : flow.total_lost,
+        "total_found"               : flow.total_found,
     }
 
 
@@ -879,7 +907,8 @@ def get_stock_movement_report_rows(
     if not has_date_filter:
         qs = ProductStockMovement.objects.select_related("product").filter(
             Q(total_purchased__gt=0) | Q(total_purchase_returned__gt=0) |
-            Q(total_sold__gt=0) | Q(total_sale_returned__gt=0)
+            Q(total_sold__gt=0) | Q(total_sale_returned__gt=0) |
+            Q(total_lost__gt=0) | Q(total_found__gt=0)
         )
         if _clean(search):
             qs = qs.filter(Q(product__name__icontains=_clean(search)) | Q(product__code__icontains=_clean(search)))
@@ -893,6 +922,8 @@ def get_stock_movement_report_rows(
                 "total_purchase_returned" : row.total_purchase_returned,
                 "total_sold"               : row.total_sold,
                 "total_sale_returned"      : row.total_sale_returned,
+                "total_lost"               : row.total_lost,
+                "total_found"              : row.total_found,
             }
             for row in qs
         ]
@@ -915,6 +946,8 @@ def get_stock_movement_report_rows(
             "total_purchase_returned" : totals[p.id]["total_purchase_returned"],
             "total_sold"               : totals[p.id]["total_sold"],
             "total_sale_returned"      : totals[p.id]["total_sale_returned"],
+            "total_lost"               : totals[p.id]["total_lost"],
+            "total_found"              : totals[p.id]["total_found"],
         }
         for p in products
     ]

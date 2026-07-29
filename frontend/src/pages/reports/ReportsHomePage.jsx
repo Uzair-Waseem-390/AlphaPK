@@ -76,10 +76,10 @@ const REPORTS = [
         path: '/reports/asset-depreciation',
     },
     {
-        title: 'Trading Stock Report',
-        description: 'How much of each product was purchased, returned to suppliers, sold, and returned by customers',
+        title: 'Stock Movement Report',
+        description: 'How much of each product was purchased, returned to suppliers, sold, returned by customers, lost, and found',
         icon: '📦',
-        path: '/reports/trading-stock',
+        path: '/reports/stock-movement',
     },
 ];
 

@@ -571,15 +571,18 @@ class ProductStockMovement(models.Model):
     """
     Per-product running quantity totals for the Stock Movement Report —
     one row per product, updated live via _adjust_stock_movement() in
-    services.py. All four fields only ever increase: none of the four
+    services.py. All six fields only ever increase: none of the six
     source events (PO confirm, purchase return accept, invoice confirm,
-    customer return accept) are ever undone in this codebase.
+    customer return accept, lost inventory record, mark-as-found) are
+    ever undone in this codebase.
     """
     product                 = models.OneToOneField(Product, on_delete=models.CASCADE, related_name="stock_movement")
     total_purchased         = models.PositiveIntegerField(default=0)
     total_purchase_returned = models.PositiveIntegerField(default=0)
     total_sold               = models.PositiveIntegerField(default=0)
     total_sale_returned      = models.PositiveIntegerField(default=0)
+    total_lost                = models.PositiveIntegerField(default=0)
+    total_found               = models.PositiveIntegerField(default=0)
     last_updated_at          = models.DateTimeField(auto_now=True)
 
     class Meta:
@@ -593,7 +596,7 @@ class ProductStockMovement(models.Model):
 class StockMovementFlow(models.Model):
     """
     Single live record — the all-time, all-product totals for the Stock
-    Movement Report header. Same four fields as ProductStockMovement,
+    Movement Report header. Same six fields as ProductStockMovement,
     summed across every product, kept in sync by the same
     _adjust_stock_movement() calls.
     """
@@ -601,6 +604,8 @@ class StockMovementFlow(models.Model):
     total_purchase_returned = models.PositiveIntegerField(default=0)
     total_sold               = models.PositiveIntegerField(default=0)
     total_sale_returned      = models.PositiveIntegerField(default=0)
+    total_lost                = models.PositiveIntegerField(default=0)
+    total_found               = models.PositiveIntegerField(default=0)
     last_updated_at          = models.DateTimeField(auto_now=True)
 
     class Meta:

@@ -8,8 +8,8 @@ class Command(BaseCommand):
 
     def handle(self, *args, **kwargs):
         from purchases.models import (
-            Product, ProductStockMovement, PurchaseItem, PurchaseReturnItem,
-            StockMovementFlow,
+            LostInventoryItem, LostInventoryRecovery, Product, ProductStockMovement,
+            PurchaseItem, PurchaseReturnItem, StockMovementFlow,
         )
         from billing.models import Invoice, InvoiceItem, ReturnItem
 
@@ -53,10 +53,24 @@ class Command(BaseCommand):
         ).values("invoice_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
             sale_returned_by_product[row["invoice_item__product_id"]] = row["total"]
 
+        # Lost/found — no is_data_entry concept here (LostInventoryRecord has
+        # no such flag; every loss/recovery is a real operational event).
+        lost_by_product = dict(
+            LostInventoryItem.objects.filter(record__is_deleted=False)
+            .values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)).values_list("product_id", "total")
+        )
+        found_by_product = dict(
+            LostInventoryRecovery.objects.all()
+            .values("lost_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero))
+            .values_list("lost_item__product_id", "total")
+        )
+
         product_ids = set(purchased_by_product) | set(purchase_returned_by_product) \
-            | set(sold_by_product) | set(sale_returned_by_product)
+            | set(sold_by_product) | set(sale_returned_by_product) \
+            | set(lost_by_product) | set(found_by_product)
 
         flow_purchased = flow_purchase_returned = flow_sold = flow_sale_returned = 0
+        flow_lost = flow_found = 0
 
         rows = []
         for product_id in product_ids:
@@ -64,6 +78,8 @@ class Command(BaseCommand):
             purchase_returned = purchase_returned_by_product.get(product_id, 0)
             sold = sold_by_product.get(product_id, 0)
             sale_returned = sale_returned_by_product.get(product_id, 0)
+            lost = lost_by_product.get(product_id, 0)
+            found = found_by_product.get(product_id, 0)
 
             rows.append(ProductStockMovement(
                 product_id=product_id,
@@ -71,12 +87,16 @@ class Command(BaseCommand):
                 total_purchase_returned=purchase_returned,
                 total_sold=sold,
                 total_sale_returned=sale_returned,
+                total_lost=lost,
+                total_found=found,
             ))
 
             flow_purchased += purchased
             flow_purchase_returned += purchase_returned
             flow_sold += sold
             flow_sale_returned += sale_returned
+            flow_lost += lost
+            flow_found += found
 
         ProductStockMovement.objects.bulk_create(rows)
 
@@ -85,6 +105,8 @@ class Command(BaseCommand):
         flow.total_purchase_returned = flow_purchase_returned
         flow.total_sold = flow_sold
         flow.total_sale_returned = flow_sale_returned
+        flow.total_lost = flow_lost
+        flow.total_found = flow_found
         flow.save()
 
         self.stdout.write(f"  products with movement: {len(rows)}")
@@ -92,4 +114,6 @@ class Command(BaseCommand):
         self.stdout.write(f"  total_purchase_returned: {flow_purchase_returned}")
         self.stdout.write(f"  total_sold: {flow_sold}")
         self.stdout.write(f"  total_sale_returned: {flow_sale_returned}")
+        self.stdout.write(f"  total_lost: {flow_lost}")
+        self.stdout.write(f"  total_found: {flow_found}")
         self.stdout.write(self.style.SUCCESS("\nStock movement backfill complete."))

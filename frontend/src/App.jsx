@@ -587,7 +587,7 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
-        <Route path="/reports/trading-stock" element={
+        <Route path="/reports/stock-movement" element={
           <ProtectedRoute>
             <Layout>
               <StockMovementReportPage />

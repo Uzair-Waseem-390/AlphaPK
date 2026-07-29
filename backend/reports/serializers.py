@@ -274,3 +274,5 @@ class StockMovementReportItemSerializer(serializers.Serializer):
     total_purchase_returned = serializers.IntegerField()
     total_sold               = serializers.IntegerField()
     total_sale_returned      = serializers.IntegerField()
+    total_lost                = serializers.IntegerField()
+    total_found               = serializers.IntegerField()

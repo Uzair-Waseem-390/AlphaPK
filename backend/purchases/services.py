@@ -35,14 +35,17 @@ def _adjust_stock_movement(
     purchase_returned_delta: int = 0,
     sold_delta: int = 0,
     sale_returned_delta: int = 0,
+    lost_delta: int = 0,
+    found_delta: int = 0,
 ) -> None:
     """
     The ONLY function that writes to ProductStockMovement/StockMovementFlow
-    — called from purchases (PO confirm, purchase return accept) and
-    billing (invoice confirm, customer return accept) for the Stock
-    Movement Report. All four fields only ever increase (none of the four
-    source events are ever undone in this codebase), so no floor-at-0
-    logic is needed — plain PositiveIntegerField addition.
+    — called from purchases (PO confirm, purchase return accept, lost
+    inventory record, mark-as-found) and billing (invoice confirm, customer
+    return accept) for the Stock Movement Report. All six fields only ever
+    increase (none of the six source events are ever undone in this
+    codebase), so no floor-at-0 logic is needed — plain PositiveIntegerField
+    addition.
     """
     with transaction.atomic():
         row, _ = ProductStockMovement.objects.select_for_update().get_or_create(product_id=product_id)
@@ -50,6 +53,8 @@ def _adjust_stock_movement(
         row.total_purchase_returned += purchase_returned_delta
         row.total_sold               += sold_delta
         row.total_sale_returned      += sale_returned_delta
+        row.total_lost                += lost_delta
+        row.total_found               += found_delta
         row.save()
 
         flow = StockMovementFlow.get_instance()
@@ -57,6 +62,8 @@ def _adjust_stock_movement(
         flow.total_purchase_returned += purchase_returned_delta
         flow.total_sold               += sold_delta
         flow.total_sale_returned      += sale_returned_delta
+        flow.total_lost                += lost_delta
+        flow.total_found               += found_delta
         flow.save()
 
 
@@ -1106,6 +1113,9 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
 
         _sync_inventory(product=product, quantity_delta=-quantity, user=user)
 
+        # Stock Movement Report
+        _adjust_stock_movement(product_id=product.id, lost_delta=quantity)
+
         total_lost_amount += total_cost
 
     record.total_lost_amount = total_lost_amount
@@ -1184,6 +1194,9 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
     lost_item.save(update_fields=["found_quantity"])
 
     _sync_inventory(product=lost_item.product, quantity_delta=quantity, user=user)
+
+    # Stock Movement Report
+    _adjust_stock_movement(product_id=lost_item.product_id, found_delta=quantity)
 
     recovered_amount = lost_item.unit_cost * Decimal(str(quantity))
     from cash_flow.services import sync_lost_inventory_found
