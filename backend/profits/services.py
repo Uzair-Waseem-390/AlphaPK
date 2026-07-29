@@ -145,7 +145,11 @@ def _compute_share_status(share: MonthlyProfitInvestorShare) -> str:
     settled = share.amount_paid_out + share.amount_reinvested
     if settled <= 0:
         return MonthlyProfitInvestorShare.PaymentStatus.UNPAID
-    if settled >= share.share_amount:
+    # share_amount is stored at 4dp for exactness, but real PKR payments are
+    # only ever made to the nearest paisa (2dp) — a sub-paisa residual (e.g.
+    # Rs. 0.0014) can never actually be paid, so compare at 2dp to avoid a
+    # genuinely fully-paid investor being stuck at PARTIAL forever.
+    if settled.quantize(Decimal("0.01")) >= share.share_amount.quantize(Decimal("0.01")):
         return MonthlyProfitInvestorShare.PaymentStatus.PAID
     return MonthlyProfitInvestorShare.PaymentStatus.PARTIAL
 
