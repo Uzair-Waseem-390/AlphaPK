@@ -99,8 +99,10 @@ const BusinessWorthPage = () => {
             { name: 'Assets Worth', value: parseFloat(data.assets_current_worth), type: 'asset' },
             { name: 'Customer Outstanding', value: parseFloat(data.customer_outstanding), type: 'asset' },
             { name: 'Supplier Payable', value: -parseFloat(data.supplier_payable_outstanding), type: 'liability' },
-            { name: 'Sales Tax Outstanding', value: -parseFloat(data.sales_tax_outstanding), type: 'liability' },
-            { name: 'WHT Outstanding', value: -parseFloat(data.wht_outstanding), type: 'liability' },
+            // Sales Tax Outstanding and WHT Outstanding temporarily excluded — see
+            // backend/profits/how_to_restore_tax_outstanding_in_business_worth.md to reverse.
+            // { name: 'Sales Tax Outstanding', value: -parseFloat(data.sales_tax_outstanding), type: 'liability' },
+            // { name: 'WHT Outstanding', value: -parseFloat(data.wht_outstanding), type: 'liability' },
             { name: 'Recurring Exp. Pending', value: -parseFloat(data.recurring_expense_pending), type: 'liability' },
         ];
     }, [data]);
@@ -249,8 +251,10 @@ const BusinessWorthPage = () => {
                         <h2 className="text-lg font-semibold text-neutral-900 mb-3">Liabilities (subtracted)</h2>
                         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                             <StatBox label="Supplier Payable" value={data.supplier_payable_outstanding} tone="red" sign="−" subtitle="Owed to suppliers (payable)" />
-                            <StatBox label="Sales Tax Outstanding" value={data.sales_tax_outstanding} tone="red" sign="−" subtitle="GST still owed to FBR" />
-                            <StatBox label="WHT Outstanding" value={data.wht_outstanding} tone="red" sign="−" subtitle="Withheld from suppliers, not deposited" />
+                            {/* Sales Tax Outstanding and WHT Outstanding temporarily excluded — see
+                                backend/profits/how_to_restore_tax_outstanding_in_business_worth.md to reverse. */}
+                            {/* <StatBox label="Sales Tax Outstanding" value={data.sales_tax_outstanding} tone="red" sign="−" subtitle="GST still owed to FBR" /> */}
+                            {/* <StatBox label="WHT Outstanding" value={data.wht_outstanding} tone="red" sign="−" subtitle="Withheld from suppliers, not deposited" /> */}
                             <StatBox label="Recurring Exp. Pending" value={data.recurring_expense_pending} tone="red" sign="−" subtitle="Assigned dues, not yet paid" />
                         </div>
                     </div>

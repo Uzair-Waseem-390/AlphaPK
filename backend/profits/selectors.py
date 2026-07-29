@@ -44,14 +44,17 @@ def get_business_worth() -> dict:
     wht_outstanding              = tf.wht_outstanding
     recurring_expense_pending    = ref.total_pending_amount
 
+    # 2026-07-29: Sales Tax Outstanding and WHT Outstanding temporarily
+    # excluded from the total per explicit request — see
+    # profits/how_to_restore_tax_outstanding_in_business_worth.md to reverse.
     total_business_worth = (
         cash_in_hand
         + inventory_value
         + assets_current_worth
         + customer_outstanding
         - supplier_payable_outstanding
-        - sales_tax_outstanding
-        - wht_outstanding
+        # - sales_tax_outstanding
+        # - wht_outstanding
         - recurring_expense_pending
     )
 
