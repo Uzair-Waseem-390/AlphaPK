@@ -6,12 +6,14 @@ import SupplierOpeningBalancePanel from '../../components/dataentry/SupplierOpen
 import CustomerOpeningBalancePanel from '../../components/dataentry/CustomerOpeningBalancePanel';
 import OpeningCashPanel from '../../components/dataentry/OpeningCashPanel';
 import OpeningStockPanel from '../../components/dataentry/OpeningStockPanel';
+import OpeningInvestorInvestmentPanel from '../../components/dataentry/OpeningInvestorInvestmentPanel';
 
 const TABS = [
     { value: 'supplier', label: 'Supplier Opening Balance' },
     { value: 'customer', label: 'Customer Opening Balance' },
     { value: 'cash', label: 'Opening Cash' },
     { value: 'stock', label: 'Opening Stock' },
+    { value: 'investor', label: 'Investor Investment' },
 ];
 
 const DataEntryPage = () => {
@@ -47,6 +49,7 @@ const DataEntryPage = () => {
             {activeTab === 'customer' && <CustomerOpeningBalancePanel />}
             {activeTab === 'cash' && <OpeningCashPanel />}
             {activeTab === 'stock' && <OpeningStockPanel />}
+            {activeTab === 'investor' && <OpeningInvestorInvestmentPanel />}
         </div>
     );
 };

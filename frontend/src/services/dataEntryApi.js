@@ -33,4 +33,8 @@ export const dataEntryApi = {
         getAll: (params = {}) => api.get(`/data-entry/opening-stock/${buildQuery(params)}`),
         create: (data) => api.post('/data-entry/opening-stock/', data),
     },
+    openingInvestorInvestment: {
+        getAll: (params = {}) => api.get(`/data-entry/opening-investor-investment/${buildQuery(params)}`),
+        create: (data) => api.post('/data-entry/opening-investor-investment/', data),
+    },
 };

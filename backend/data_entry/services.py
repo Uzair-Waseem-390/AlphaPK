@@ -154,3 +154,41 @@ def create_opening_stock(*, items: list, user):
             raise ValidationError({"unit_price": "Unit price must be greater than zero."})
 
     return create_opening_stock_order(supplier=system_supplier, items=items, user=user)
+
+
+# ---------------------------------------------------------------------------
+# Feature 5 — Opening Investor Investment
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_opening_investor_investment(*, investor_id: int, amount: Decimal, note: str = "", user):
+    """
+    Records capital an investor put in BEFORE this system existed — the cash
+    isn't sitting in the till (already spent, or never tracked here), so
+    unlike a normal investment it must NOT move CashFlow.cash_in_hand.
+    Can be called multiple times per investor (no uniqueness constraint,
+    same as Opening Cash / Opening Stock).
+        - Investor            : total_invested/net_stake/current_worth += amount
+        - CashManagementFlow  : total_investor_capital/net_worth += amount
+        - InvestorTransaction : type=investment, is_data_entry=True
+        - CashFlow            : NO change (not a real cash movement)
+
+    Stored as a flagged InvestorTransaction in cash_management (not a
+    data_entry-owned model) so the record survives if this app is ever
+    removed post-go-live — same reasoning as Feature 4 (Opening Stock).
+    """
+    from cash_management.models import InvestorTransaction
+    from cash_management.services import create_investor_transaction
+
+    if amount is None or amount <= 0:
+        raise ValidationError({"amount": "Amount must be greater than zero."})
+
+    return create_investor_transaction(
+        investor_id=investor_id,
+        transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
+        amount=amount,
+        transaction_date=timezone.localtime(timezone.now()).date(),
+        note=note or "Opening investor investment (data entry)",
+        user=user,
+        is_data_entry=True,
+    )

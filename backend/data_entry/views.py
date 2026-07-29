@@ -5,6 +5,7 @@ from .permissions import IsSuperuser
 from .selectors import (
     get_all_customer_opening_balances,
     get_all_opening_cash_entries,
+    get_all_opening_investor_investments,
     get_all_opening_stock_orders,
     get_all_supplier_opening_balances,
 )
@@ -13,6 +14,8 @@ from .serializers import (
     CustomerOpeningBalanceWriteSerializer,
     OpeningCashReadSerializer,
     OpeningCashWriteSerializer,
+    OpeningInvestorInvestmentReadSerializer,
+    OpeningInvestorInvestmentWriteSerializer,
     OpeningStockOrderReadSerializer,
     OpeningStockWriteSerializer,
     SupplierOpeningBalanceReadSerializer,
@@ -21,6 +24,7 @@ from .serializers import (
 from .services import (
     create_customer_opening_balance,
     create_opening_cash,
+    create_opening_investor_investment,
     create_opening_stock,
     create_supplier_opening_balance,
 )
@@ -122,3 +126,28 @@ class OpeningStockListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         order = create_opening_stock(items=serializer.validated_data["items"], user=request.user)
         return Response(OpeningStockOrderReadSerializer(order).data, status=status.HTTP_201_CREATED)
+
+
+# ---------------------------------------------------------------------------
+# Feature 5 — Opening Investor Investment
+# ---------------------------------------------------------------------------
+
+class OpeningInvestorInvestmentListCreateView(generics.ListCreateAPIView):
+    """
+    GET  /api/data-entry/opening-investor-investment/   list all (audit)
+    POST /api/data-entry/opening-investor-investment/   record investor capital (no cash impact)
+    """
+    permission_classes = [IsSuperuser]
+
+    def get_serializer_class(self):
+        return (OpeningInvestorInvestmentWriteSerializer if self.request.method == "POST"
+                else OpeningInvestorInvestmentReadSerializer)
+
+    def get_queryset(self):
+        return get_all_opening_investor_investments()
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        txn = create_opening_investor_investment(**serializer.validated_data, user=request.user)
+        return Response(OpeningInvestorInvestmentReadSerializer(txn).data, status=status.HTTP_201_CREATED)

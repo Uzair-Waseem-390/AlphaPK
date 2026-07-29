@@ -117,7 +117,7 @@ class InvestorTransactionReadSerializer(serializers.ModelSerializer):
         model  = InvestorTransaction
         fields = [
             "id", "investor", "investor_name", "transaction_type", "amount",
-            "worth_delta", "transaction_date", "note",
+            "worth_delta", "transaction_date", "note", "is_data_entry",
             "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields

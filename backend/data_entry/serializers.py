@@ -109,3 +109,24 @@ class OpeningStockOrderReadSerializer(serializers.Serializer):
     net_payable  = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
     created_at   = serializers.DateTimeField(read_only=True)
     items        = _OpeningStockItemReadSerializer(many=True, read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Feature 5 — Opening Investor Investment
+# ---------------------------------------------------------------------------
+
+class OpeningInvestorInvestmentWriteSerializer(serializers.Serializer):
+    investor_id = serializers.IntegerField()
+    amount      = serializers.DecimalField(max_digits=18, decimal_places=4, min_value=0)
+    note        = serializers.CharField(required=False, allow_blank=True, default="")
+
+
+class OpeningInvestorInvestmentReadSerializer(serializers.Serializer):
+    id                = serializers.IntegerField(read_only=True)
+    investor          = serializers.IntegerField(source="investor_id", read_only=True)
+    investor_name     = serializers.CharField(source="investor.name", read_only=True)
+    amount            = serializers.DecimalField(max_digits=18, decimal_places=4, read_only=True)
+    note              = serializers.CharField(read_only=True)
+    transaction_date  = serializers.DateField(read_only=True)
+    created_by        = serializers.CharField(source="created_by.email", read_only=True, default=None)
+    created_at        = serializers.DateTimeField(read_only=True)

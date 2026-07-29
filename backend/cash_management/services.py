@@ -302,7 +302,7 @@ def delete_investor(*, pk: int, user) -> None:
 @transaction.atomic
 def create_investor_transaction(
     *, investor_id: int, transaction_type: str, amount: Decimal,
-    transaction_date, note: str = "", user,
+    transaction_date, note: str = "", user, is_data_entry: bool = False,
 ) -> InvestorTransaction:
     """
     Records an investment or withdrawal for an investor. Investment adds to
@@ -316,6 +316,12 @@ def create_investor_transaction(
     residual theoretical growth, not just the withdrawn amount. The exact
     change is stored on the transaction as worth_delta so deletion can
     reverse it precisely either way.
+
+    is_data_entry=True (only ever set by data_entry.services, for capital an
+    investor put in before this system existed): still updates the
+    investor's own totals and CashManagementFlow exactly like a real
+    transaction, but skips the CashFlow.cash_in_hand sync — the cash isn't
+    actually sitting in the till, so it must not be counted as an inflow.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -352,7 +358,8 @@ def create_investor_transaction(
             total_investor_net_worth_delta=+worth_delta,
             user=user,
         )
-        sync_investor_investment(amount=amount, user=user)
+        if not is_data_entry:
+            sync_investor_investment(amount=amount, user=user)
     else:
         investor.total_withdrawn += amount
         investor.net_stake       -= amount
@@ -372,7 +379,8 @@ def create_investor_transaction(
             total_investor_net_worth_delta=+worth_delta,
             user=user,
         )
-        sync_investor_withdrawal(amount=amount, user=user)
+        if not is_data_entry:
+            sync_investor_withdrawal(amount=amount, user=user)
 
     txn = InvestorTransaction.objects.create(
         investor=investor,
@@ -381,6 +389,7 @@ def create_investor_transaction(
         worth_delta=worth_delta,
         transaction_date=transaction_date,
         note=note,
+        is_data_entry=is_data_entry,
         created_by=user,
         updated_by=user,
     )
@@ -425,7 +434,8 @@ def delete_investor_transaction(*, pk: int, user) -> None:
             total_investor_net_worth_delta=-txn.worth_delta,
             user=user,
         )
-        sync_investor_withdrawal(amount=amount, user=user)  # reverse: remove cash_in_hand again
+        if not txn.is_data_entry:
+            sync_investor_withdrawal(amount=amount, user=user)  # reverse: remove cash_in_hand again
     else:
         investor.total_withdrawn -= amount
         investor.net_stake       += amount
@@ -436,7 +446,8 @@ def delete_investor_transaction(*, pk: int, user) -> None:
             total_investor_net_worth_delta=-txn.worth_delta,
             user=user,
         )
-        sync_investor_investment(amount=amount, user=user)  # reverse: restore cash_in_hand
+        if not txn.is_data_entry:
+            sync_investor_investment(amount=amount, user=user)  # reverse: restore cash_in_hand
 
     txn.is_deleted = True
     txn.deleted_at = timezone.now()

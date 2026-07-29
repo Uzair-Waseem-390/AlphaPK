@@ -155,6 +155,9 @@ class InvestorTransaction(models.Model):
                             help_text="Exact change applied to current_worth by this transaction — stored so deletion can reverse it precisely.")
     transaction_date = models.DateField(db_index=True)
     note             = models.TextField(blank=True, default="")
+    is_data_entry    = models.BooleanField(default=False,
+                            help_text="True for pre-go-live investor capital recorded via the Data Entry "
+                                       "app — does NOT move CashFlow.cash_in_hand (see data_entry.services).")
 
     created_by  = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,

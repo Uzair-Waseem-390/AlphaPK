@@ -32,3 +32,13 @@ def get_all_opening_stock_orders():
         .prefetch_related("items__product")
         .order_by("-created_at")
     )
+
+
+def get_all_opening_investor_investments():
+    from cash_management.models import InvestorTransaction
+    return (
+        InvestorTransaction.objects
+        .filter(is_data_entry=True, is_deleted=False)
+        .select_related("investor", "created_by")
+        .order_by("-created_at")
+    )
