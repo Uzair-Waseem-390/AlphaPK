@@ -140,6 +140,11 @@ class PurchaseOrder(AuditMixin):
 
     order_number = models.CharField(max_length=30, unique=True, editable=False)
     supplier     = models.ForeignKey(Supplier, on_delete=models.PROTECT, related_name="purchase_orders")
+    # Overrides AuditMixin.created_at to add an index — every order list view
+    # sorts by -created_at and filters by date range, so without this the DB
+    # re-sorts the whole table on each request. Same pattern as
+    # LostInventoryRecord.created_at.
+    created_at   = models.DateTimeField(auto_now_add=True, db_index=True)
     is_data_entry = models.BooleanField(
         default=False, db_index=True,
         help_text="True for bootstrap opening-balance / opening-stock orders. Hidden from normal list views.",
@@ -278,6 +283,9 @@ class PurchaseReturn(AuditMixin):
         related_name="accepted_purchase_returns",
     )
     accepted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Overrides AuditMixin.created_at to add an index — the returns list sorts
+    # by -created_at and filters by date range. Same pattern as PurchaseOrder.
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
 
     # Totals — computed on acceptance
     total_return_gross  = models.DecimalField(max_digits=18, decimal_places=4, default=0)
@@ -348,9 +356,9 @@ class LostInventoryRecord(AuditMixin):
     total_lost_amount = models.DecimalField(max_digits=18, decimal_places=4, default=0)
 
     # Overrides AuditMixin.created_at to add an index — this is the field the
-    # Lost Inventory report filters/orders by. Scoped to this model only, so
-    # AuditMixin's other users (Category, Shelf, Supplier, Product,
-    # PurchaseOrder, PurchaseReturn, SupplierPayment) are unaffected.
+    # Lost Inventory report filters/orders by. PurchaseOrder and PurchaseReturn
+    # carry the same override; AuditMixin's other users (Category, Shelf,
+    # Supplier, Product, SupplierPayment) stay unindexed on purpose.
     created_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     class Meta:
@@ -551,7 +559,9 @@ class SavedPurchaseOrderPDF(models.Model):
 
 class Inventory(models.Model):
     product         = models.OneToOneField(Product, on_delete=models.PROTECT, related_name="inventory")
-    quantity        = models.PositiveIntegerField(default=0)
+    # Indexed — the low-stock / out-of-stock breakdown endpoints filter on
+    # quantity thresholds.
+    quantity        = models.PositiveIntegerField(default=0, db_index=True)
     last_updated_at = models.DateTimeField(auto_now=True)
     last_updated_by = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
@@ -619,3 +629,67 @@ class StockMovementFlow(models.Model):
     def get_instance(cls):
         instance, _ = cls.objects.get_or_create(pk=1)
         return instance
+
+
+# Products with 0 < quantity <= LOW_STOCK_THRESHOLD count as "low stock";
+# quantity <= 0 counts as "out of stock". Single source of truth for the
+# stats singleton, the breakdown selectors, and the backfill command.
+LOW_STOCK_THRESHOLD = 5
+
+
+class InventoryStatsFlow(models.Model):
+    """
+    Single live record — O(1) inventory stats for the Inventory page cards
+    (total products, low stock, out of stock). Counts cover inventory rows
+    of non-deleted products only, matching what the inventory list shows.
+    Kept in sync by services.sync_inventory() (the ONLY quantity writer,
+    used by purchases AND billing) and services.delete_product(); rebuilt
+    from live data by backfill_inventory_stats.
+    """
+    total_products     = models.PositiveIntegerField(default=0)
+    low_stock_count    = models.PositiveIntegerField(default=0)
+    out_of_stock_count = models.PositiveIntegerField(default=0)
+    last_updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Inventory Stats Flow"
+        verbose_name_plural = "Inventory Stats Flow"
+
+    def __str__(self):
+        return (
+            f"InventoryStatsFlow — total {self.total_products}, "
+            f"low {self.low_stock_count}, out {self.out_of_stock_count}"
+        )
+
+    @classmethod
+    def get_instance(cls):
+        instance, _ = cls.objects.get_or_create(pk=1)
+        return instance
+
+
+# ---------------------------------------------------------------------------
+# Document reference counters
+# ---------------------------------------------------------------------------
+
+class DocumentCounter(models.Model):
+    """
+    One row per document type per year holding the last sequence number used
+    (PO-2026-#### / SPY / RTN / LOSS). Reference generation locks this row
+    (select_for_update), increments, and formats — O(1) and race-safe, unlike
+    the old "sort existing references as text" approach, which was O(N) per
+    create, collided under concurrency, and broke permanently at sequence
+    10000 (text sort puts '9999' after '10000'). Seeded lazily from the
+    numeric max of existing references the first time a (doc_type, year)
+    is used.
+    """
+    doc_type    = models.CharField(max_length=10)
+    year        = models.PositiveIntegerField()
+    last_number = models.PositiveIntegerField(default=0)
+
+    class Meta:
+        verbose_name        = "Document Counter"
+        verbose_name_plural = "Document Counters"
+        unique_together     = [("doc_type", "year")]
+
+    def __str__(self):
+        return f"{self.doc_type}-{self.year} — last {self.last_number}"

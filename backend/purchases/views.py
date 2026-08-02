@@ -16,9 +16,10 @@ from .selectors import (
     get_all_products, get_all_purchase_orders, get_all_returns,
     get_all_shelves, get_all_suppliers, get_category_by_id,
     get_confirmed_purchase_orders, get_draft_purchase_orders,
-    get_fifo_cost_preview, get_inventory_by_product_id,
+    get_fifo_cost_preview, get_inventory_by_product_id, get_inventory_stats,
     get_lost_inventory_item_by_id, get_lost_inventory_record_by_id,
-    get_order_payment_summary,
+    get_low_stock_inventory, get_order_payment_summary,
+    get_out_of_stock_inventory,
     get_payments_for_order, get_purchase_order_by_id,
     get_purchase_return_by_id, get_returns_for_order, get_shelf_by_id,
     get_supplier_by_id, get_supplier_payable_summary,
@@ -26,7 +27,8 @@ from .selectors import (
 )
 from .serializers import (
     CategoryReadSerializer, CategoryWriteSerializer,
-    InventoryReadSerializer, LostInventoryCreateSerializer,
+    InventoryReadSerializer, InventoryStatsSerializer,
+    LostInventoryCreateSerializer,
     LostInventoryFifoPreviewQuerySerializer,
     LostInventoryFifoPreviewSerializer, LostInventoryItemReadSerializer,
     LostInventoryReadSerializer, MarkLostInventoryFoundSerializer,
@@ -605,10 +607,9 @@ class InventoryListView(generics.ListAPIView):
         category    : category id
         shelf       : shelf id
 
-    Response (paginated):
-        {"count": int, "total_pages": int, "current_page": int, "page_size": int,
-         "stats": {"total_products": int, "low_stock": int, "out_of_stock": int},
-         "results": [...]}
+    Stats cards moved to GET /purchases/inventory/stats/ (O(1) singleton
+    read) — the old embedded stats re-scanned the filtered queryset three
+    extra times on every page load.
     """
     permission_classes = [IsAdminOrSuperuserOrReadOnly]
     serializer_class   = InventoryReadSerializer
@@ -621,22 +622,55 @@ class InventoryListView(generics.ListAPIView):
             shelf_id    = p.get("shelf"),
         )
 
-    def list(self, request, *args, **kwargs):
-        queryset = self.get_queryset()
-        # stats are computed over the FULL filtered queryset, before pagination
-        # slices it down to one page — used by the Inventory page and the
-        # Normal User Dashboard summary cards.
-        stats = {
-            "total_products": queryset.count(),
-            "low_stock": queryset.filter(quantity__gt=0, quantity__lte=5).count(),
-            "out_of_stock": queryset.filter(quantity__lte=0).count(),
-        }
 
-        page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(page, many=True)
-        response = self.get_paginated_response(serializer.data)
-        response.data["stats"] = stats
-        return response
+class InventoryStatsView(APIView):
+    """
+    GET /purchases/inventory/stats/
+    O(1) whole-inventory stats for the Inventory page cards — reads the
+    InventoryStatsFlow singleton (kept in sync at write time). Global
+    numbers by design: cards always show the full picture; the breakdown
+    endpoints handle filtered drill-downs.
+    """
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+
+    def get(self, request):
+        return Response(InventoryStatsSerializer(get_inventory_stats()).data)
+
+
+class LowStockInventoryListView(generics.ListAPIView):
+    """
+    GET /purchases/inventory/low-stock/
+    Breakdown behind the "Low Stock" card (0 < quantity <= threshold).
+    Same filters as the main inventory list: search, category, shelf.
+    """
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+    serializer_class   = InventoryReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_low_stock_inventory(
+            search      = p.get("search"),
+            category_id = p.get("category"),
+            shelf_id    = p.get("shelf"),
+        )
+
+
+class OutOfStockInventoryListView(generics.ListAPIView):
+    """
+    GET /purchases/inventory/out-of-stock/
+    Breakdown behind the "Out of Stock" card (quantity <= 0).
+    Same filters as the main inventory list: search, category, shelf.
+    """
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+    serializer_class   = InventoryReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_out_of_stock_inventory(
+            search      = p.get("search"),
+            category_id = p.get("category"),
+            shelf_id    = p.get("shelf"),
+        )
 
 
 class InventoryRetrieveView(generics.RetrieveAPIView):

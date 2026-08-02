@@ -24,6 +24,11 @@ const InventoryPage = () => {
     const [shelves, setShelves] = useState([]);
     const [showFilters, setShowFilters] = useState(false);
     const [totalStock, setTotalStock] = useState(0);
+    const [stats, setStats] = useState(null);
+    // Which list the table shows: 'all' | 'low' | 'out'. Driven by clicking
+    // the Low Stock / Out of Stock cards — each maps to its own backend
+    // breakdown endpoint.
+    const [stockView, setStockView] = useState('all');
 
     // Detail modal state
     const [showDetailModal, setShowDetailModal] = useState(false);
@@ -32,21 +37,43 @@ const InventoryPage = () => {
     const [detailLoading, setDetailLoading] = useState(false);
 
     // Search is routed through the same query params as category/shelf
-    // filters — the backend supports search/category/shelf on this endpoint.
+    // filters — the backend supports search/category/shelf on all three
+    // inventory list endpoints (all / low-stock / out-of-stock).
     const fetchInventoryPage = (params) => {
         const p = { ...params };
         if (searchTerm) p.search = searchTerm;
+        if (stockView === 'low') return purchasesApi.inventory.getLowStock(p);
+        if (stockView === 'out') return purchasesApi.inventory.getOutOfStock(p);
         return purchasesApi.inventory.getAll(p);
     };
 
     const {
-        data: inventory, meta, extra, page, setPage, loading,
+        data: inventory, meta, page, setPage, loading,
         filters, setFilters,
-    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm]);
+    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm, stockView]);
 
     useEffect(() => {
         loadLookups();
+        loadStats();
     }, []);
+
+    // O(1) stats read off the backend singleton — always whole-inventory
+    // numbers, independent of the active search/filters/breakdown view.
+    const loadStats = async () => {
+        try {
+            const data = await purchasesApi.inventory.getStats();
+            setStats(data);
+        } catch (error) {
+            console.error('Failed to load inventory stats:', error);
+        }
+    };
+
+    // Toggle a breakdown view: click again (or click Total Products) to
+    // return to the full list.
+    const handleCardClick = (view) => {
+        setStockView(current => (current === view ? 'all' : view));
+        setPage(1);
+    };
 
     // "Total Stock" (sum of quantity across the full filtered set) has no
     // backend stats equivalent (the stats block only has total_products /
@@ -136,11 +163,11 @@ const InventoryPage = () => {
         }
     };
 
-    // Summary stats are computed server-side over the full filtered set
-    // (not just the current page) and passed through as an extra field.
-    const totalProducts = extra?.stats?.total_products ?? 0;
-    const lowStockItems = extra?.stats?.low_stock ?? 0;
-    const outOfStockItems = extra?.stats?.out_of_stock ?? 0;
+    // Summary stats come from the dedicated O(1) stats endpoint (stored
+    // counters), not from scanning the list — global numbers by design.
+    const totalProducts = stats?.total_products ?? 0;
+    const lowStockItems = stats?.low_stock_count ?? 0;
+    const outOfStockItems = stats?.out_of_stock_count ?? 0;
 
     const columns = [
         {
@@ -225,9 +252,14 @@ const InventoryPage = () => {
                 )}
             </div>
 
-            {/* Summary Cards */}
+            {/* Summary Cards — Low Stock / Out of Stock are clickable and
+                switch the table to that breakdown list; click again (or
+                Total Products) to go back to the full list. */}
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                <Card className="p-4">
+                <Card
+                    className={`p-4 cursor-pointer transition-shadow hover:shadow-md ${stockView === 'all' ? 'ring-2 ring-primary-500' : ''}`}
+                    onClick={() => handleCardClick('all')}
+                >
                     <p className="text-sm text-neutral-500">Total Products</p>
                     <p className="text-2xl font-bold text-neutral-900">{totalProducts}</p>
                 </Card>
@@ -235,15 +267,37 @@ const InventoryPage = () => {
                     <p className="text-sm text-neutral-500">Total Stock</p>
                     <p className="text-2xl font-bold text-neutral-900">{totalStock}</p>
                 </Card>
-                <Card className="p-4">
+                <Card
+                    className={`p-4 cursor-pointer transition-shadow hover:shadow-md ${stockView === 'low' ? 'ring-2 ring-warning-500' : ''}`}
+                    onClick={() => handleCardClick('low')}
+                >
                     <p className="text-sm text-neutral-500">Low Stock (≤ 5)</p>
                     <p className="text-2xl font-bold text-warning-600">{lowStockItems}</p>
+                    <p className="text-xs text-neutral-400 mt-1">Click to view breakdown</p>
                 </Card>
-                <Card className="p-4">
+                <Card
+                    className={`p-4 cursor-pointer transition-shadow hover:shadow-md ${stockView === 'out' ? 'ring-2 ring-error-500' : ''}`}
+                    onClick={() => handleCardClick('out')}
+                >
                     <p className="text-sm text-neutral-500">Out of Stock</p>
                     <p className="text-2xl font-bold text-error-600">{outOfStockItems}</p>
+                    <p className="text-xs text-neutral-400 mt-1">Click to view breakdown</p>
                 </Card>
             </div>
+
+            {stockView !== 'all' && (
+                <div className={`flex items-center justify-between rounded-lg px-4 py-2 ${stockView === 'low' ? 'bg-warning-50 text-warning-700' : 'bg-error-50 text-error-700'}`}>
+                    <p className="text-sm font-medium">
+                        Showing {stockView === 'low' ? 'low stock' : 'out of stock'} products only
+                    </p>
+                    <button
+                        className="text-sm font-semibold underline"
+                        onClick={() => handleCardClick(stockView)}
+                    >
+                        Show all
+                    </button>
+                </div>
+            )}
 
             {/* Filters */}
             <div className="space-y-4">

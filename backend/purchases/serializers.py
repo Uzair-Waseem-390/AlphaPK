@@ -242,7 +242,10 @@ class PurchaseOrderReadSerializer(serializers.ModelSerializer):
         total_wht   = Decimal("0")
         total_net   = Decimal("0")
 
-        for item in obj.items.filter(is_deleted=False):
+        # .all() reuses the selector's prefetch cache (already filtered to
+        # live items via SoftDeleteManager) — .filter() here would throw the
+        # cache away and re-query per order AND per item (N+1).
+        for item in obj.items.all():
             calc = calculate_total_price(
                 quantity=item.quantity,
                 unit_price=item.unit_price,
@@ -568,3 +571,11 @@ class InventoryReadSerializer(serializers.ModelSerializer):
         model  = Inventory
         fields = ["id", "product", "quantity", "last_updated_at", "last_updated_by"]
         read_only_fields = fields
+
+
+class InventoryStatsSerializer(serializers.Serializer):
+    """O(1) stats cards — read straight off the InventoryStatsFlow singleton."""
+    total_products     = serializers.IntegerField(read_only=True)
+    low_stock_count    = serializers.IntegerField(read_only=True)
+    out_of_stock_count = serializers.IntegerField(read_only=True)
+    last_updated_at    = serializers.DateTimeField(read_only=True)

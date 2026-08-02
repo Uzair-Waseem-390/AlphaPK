@@ -1,14 +1,44 @@
+from datetime import datetime, time, timedelta
 from decimal import Decimal
 
-from django.db.models import Q, QuerySet, Sum
+from django.db.models import Prefetch, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 from django.db.models import DecimalField, Value
 from django.shortcuts import get_object_or_404
+from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from .models import (
-    Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
-    PurchaseItem, PurchaseOrder, PurchaseReturn, Shelf, Supplier,
+    LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow,
+    LostInventoryItem, LostInventoryRecord, Product, PurchaseItem,
+    PurchaseOrder, PurchaseReturn, Shelf, Supplier,
 )
+
+
+# ---------------------------------------------------------------------------
+# Date-range helpers
+# ---------------------------------------------------------------------------
+# `created_at__date=...` wraps the column in a date-conversion, which stops
+# PostgreSQL from using the created_at index. These convert a YYYY-MM-DD
+# string into aware datetime bounds in the current timezone (the same
+# boundaries __date uses), so filters become plain index-friendly range
+# comparisons. On an unparseable value callers fall back to the original
+# __date lookup — identical behavior to before.
+
+def _day_start(value):
+    """Aware datetime at local midnight of the given date string, or None."""
+    day = parse_date(str(value))
+    if day is None:
+        return None
+    return timezone.make_aware(datetime.combine(day, time.min))
+
+
+def _next_day_start(value):
+    """Aware datetime at local midnight of the day AFTER the given date, or None."""
+    day = parse_date(str(value))
+    if day is None:
+        return None
+    return timezone.make_aware(datetime.combine(day + timedelta(days=1), time.min))
 
 
 # ---------------------------------------------------------------------------
@@ -16,7 +46,9 @@ from .models import (
 # ---------------------------------------------------------------------------
 
 def get_all_categories():
-    return Category.objects.filter(is_deleted=False)
+    # created_by/updated_by are serialized on every row — select_related
+    # avoids 2 extra queries per category (N+1).
+    return Category.objects.select_related("created_by", "updated_by").filter(is_deleted=False)
 
 def get_category_by_id(pk: int) -> Category:
     return get_object_or_404(Category, pk=pk, is_deleted=False)
@@ -27,7 +59,7 @@ def get_category_by_id(pk: int) -> Category:
 # ---------------------------------------------------------------------------
 
 def get_all_shelves():
-    return Shelf.objects.filter(is_deleted=False)
+    return Shelf.objects.select_related("created_by", "updated_by").filter(is_deleted=False)
 
 def get_shelf_by_id(pk: int) -> Shelf:
     return get_object_or_404(Shelf, pk=pk, is_deleted=False)
@@ -39,7 +71,9 @@ def get_shelf_by_id(pk: int) -> Shelf:
 
 def get_all_suppliers(*, search: str = None) -> QuerySet:
     # SYS-OPENING is the internal system supplier for opening stock — never shown to users.
-    qs = Supplier.objects.filter(is_deleted=False).exclude(code="SYS-OPENING")
+    qs = Supplier.objects.select_related("created_by", "updated_by").filter(
+        is_deleted=False,
+    ).exclude(code="SYS-OPENING")
     if search:
         qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
     return qs
@@ -52,12 +86,21 @@ def get_supplier_by_id(pk: int) -> Supplier:
 # Product
 # ---------------------------------------------------------------------------
 
+# ProductReadSerializer nests full category/shelf (with their own audit
+# users) plus the product's own audit users — everything here is serialized,
+# nothing extra.
+_PRODUCT_RELATED = (
+    "category", "shelf", "created_by", "updated_by",
+    "category__created_by", "category__updated_by",
+    "shelf__created_by", "shelf__updated_by",
+)
+
 def get_all_products():
-    return Product.objects.select_related("category", "shelf").filter(is_deleted=False)
+    return Product.objects.select_related(*_PRODUCT_RELATED).filter(is_deleted=False)
 
 def get_product_by_id(pk: int) -> Product:
     return get_object_or_404(
-        Product.objects.select_related("category", "shelf"),
+        Product.objects.select_related(*_PRODUCT_RELATED),
         pk=pk, is_deleted=False,
     )
 
@@ -67,14 +110,18 @@ def get_product_by_id(pk: int) -> Product:
 # ---------------------------------------------------------------------------
 
 def _order_qs():
+    # Exactly what PurchaseOrderReadSerializer outputs — nothing more:
+    #  - supplier's own audit users (SupplierReadSerializer serializes them)
+    #  - live items with their product (PurchaseItem.objects already filters
+    #    is_deleted=False via SoftDeleteManager), so serializers and
+    #    draft_preview can iterate .all() straight from the prefetch cache
+    # The old payments / returns / item-category prefetches were never
+    # serialized here — each was a wasted query on every list request.
     return PurchaseOrder.objects.select_related(
-        "supplier", "created_by", "updated_by", "confirmed_by", "deleted_by",
+        "supplier", "supplier__created_by", "supplier__updated_by",
+        "created_by", "updated_by", "confirmed_by", "deleted_by",
     ).prefetch_related(
-        "items__product",
-        "items__product__category",
-        "items__product__shelf",
-        "payments",
-        "returns__items__purchase_item__product",
+        Prefetch("items", queryset=PurchaseItem.objects.select_related("product")),
     )
 
 
@@ -119,11 +166,18 @@ def get_all_purchase_orders(
     if _clean(order_number):
         qs = qs.filter(order_number__icontains=_clean(order_number))
     if _clean(date):
-        qs = qs.filter(created_at__date=_clean(date))
+        start = _day_start(_clean(date))
+        end   = _next_day_start(_clean(date))
+        if start and end:
+            qs = qs.filter(created_at__gte=start, created_at__lt=end)
+        else:
+            qs = qs.filter(created_at__date=_clean(date))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(payment_type):
@@ -200,9 +254,11 @@ def get_available_purchase_items_for_fifo(product_id: int) -> QuerySet:
 # ---------------------------------------------------------------------------
 
 def get_returns_for_order(order_id: int) -> QuerySet:
+    # order__supplier: the read serializer outputs order_number and
+    # supplier_name for every return — without this it's 2 queries per row.
     return PurchaseReturn.objects.filter(
         order_id=order_id, is_deleted=False,
-    ).select_related("created_by", "accepted_by").prefetch_related(
+    ).select_related("order__supplier", "created_by", "accepted_by").prefetch_related(
         "items__purchase_item__product",
     )
 
@@ -238,9 +294,11 @@ def get_all_returns(
     if _clean(order_number):
         qs = qs.filter(order__order_number__icontains=_clean(order_number))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
 
     return qs.order_by("-created_at")
 
@@ -373,8 +431,15 @@ def get_suppliers_with_outstanding(
 
 def get_order_payment_summary(order_id: int) -> PurchaseOrder:
     """Full payment breakdown for a single purchase order."""
+    from .models import SupplierPayment
+    # payments prefetched with their created_by (serialized per payment).
+    # SupplierPayment.objects is the SoftDeleteManager — same filtering the
+    # old bare "payments" prefetch applied via the related manager. The old
+    # items__product prefetch was never serialized here — dropped.
     return get_object_or_404(
-        PurchaseOrder.objects.select_related("supplier").prefetch_related("payments", "items__product"),
+        PurchaseOrder.objects.select_related("supplier").prefetch_related(
+            Prefetch("payments", queryset=SupplierPayment.objects.select_related("created_by")),
+        ),
         pk=order_id, is_deleted=False,
     )
 
@@ -395,8 +460,14 @@ def get_all_inventory(
         category_id : filter by category id
         shelf_id    : filter by shelf id
     """
+    # InventoryReadSerializer nests the full ProductReadSerializer (which in
+    # turn nests category/shelf with their audit users) — without all of
+    # these, each row costs up to 6 extra queries (N+1).
     qs = Inventory.objects.select_related(
         "product", "product__category", "product__shelf", "last_updated_by",
+        "product__created_by", "product__updated_by",
+        "product__category__created_by", "product__category__updated_by",
+        "product__shelf__created_by", "product__shelf__updated_by",
     ).filter(product__is_deleted=False)
 
     if _clean(search):
@@ -417,6 +488,36 @@ def get_inventory_by_product_id(product_id: int) -> Inventory:
         Inventory.objects.select_related("product"),
         product_id=product_id,
     )
+
+
+def get_inventory_stats() -> InventoryStatsFlow:
+    """
+    O(1) inventory stats for the Inventory page cards — reads the stored
+    singleton instead of counting rows. Kept in sync at write time by
+    services.sync_inventory()/delete_product(); rebuilt by
+    backfill_inventory_stats.
+    """
+    return InventoryStatsFlow.get_instance()
+
+
+def get_low_stock_inventory(*, search: str = None, category_id: str = None, shelf_id: str = None) -> QuerySet:
+    """
+    Breakdown behind the "Low Stock" card: 0 < quantity <= LOW_STOCK_THRESHOLD.
+    Same filters as the main inventory list; quantity is indexed.
+    """
+    return get_all_inventory(
+        search=search, category_id=category_id, shelf_id=shelf_id,
+    ).filter(quantity__gt=0, quantity__lte=LOW_STOCK_THRESHOLD)
+
+
+def get_out_of_stock_inventory(*, search: str = None, category_id: str = None, shelf_id: str = None) -> QuerySet:
+    """
+    Breakdown behind the "Out of Stock" card: quantity <= 0.
+    Same filters as the main inventory list; quantity is indexed.
+    """
+    return get_all_inventory(
+        search=search, category_id=category_id, shelf_id=shelf_id,
+    ).filter(quantity__lte=0)
 
 
 def get_outstanding_orders_for_supplier(supplier_id: int) -> QuerySet:
@@ -478,11 +579,18 @@ def get_all_lost_inventory_records(
     if _clean(reason):
         qs = qs.filter(items__reason__icontains=_clean(reason))
     if _clean(date):
-        qs = qs.filter(created_at__date=_clean(date))
+        start = _day_start(_clean(date))
+        end   = _next_day_start(_clean(date))
+        if start and end:
+            qs = qs.filter(created_at__gte=start, created_at__lt=end)
+        else:
+            qs = qs.filter(created_at__date=_clean(date))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
     if _clean(min_amount):
         qs = qs.filter(total_lost_amount__gte=_clean(min_amount))
     if _clean(max_amount):
@@ -495,10 +603,12 @@ def get_all_lost_inventory_records(
 
 
 def get_lost_inventory_record_by_id(pk: int) -> LostInventoryRecord:
+    # fifo_consumptions are not serialized by LostInventoryReadSerializer —
+    # prefetching them was wasted work on every detail request.
     return get_object_or_404(
         LostInventoryRecord.objects.select_related(
             "created_by", "updated_by",
-        ).prefetch_related("items__product", "items__fifo_consumptions__purchase_item"),
+        ).prefetch_related("items__product"),
         pk=pk, is_deleted=False,
     )
 

@@ -17,7 +17,9 @@ def _get_pdf_dir(year: int) -> Path:
 
 def _build_item_context(order: PurchaseOrder) -> list[dict]:
     items = []
-    for item in order.items.filter(is_deleted=False):
+    # .all() hits the selector's prefetch cache (live items only via
+    # SoftDeleteManager) instead of re-querying per item.
+    for item in order.items.all():
         items.append({
             "product_name" : item.product.name,
             "product_code" : item.product.code,

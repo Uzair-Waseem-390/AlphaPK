@@ -46,6 +46,9 @@ from .views import (
     # Inventory
     InventoryListView,
     InventoryRetrieveView,
+    InventoryStatsView,
+    LowStockInventoryListView,
+    OutOfStockInventoryListView,
 
     # Lost Inventory
     LostInventoryFifoPreviewView,
@@ -182,6 +185,18 @@ urlpatterns = [
     path("inventory/",
          InventoryListView.as_view(),
          name="inventory-list"),
+
+    path("inventory/stats/",
+         InventoryStatsView.as_view(),
+         name="inventory-stats"),
+
+    path("inventory/low-stock/",
+         LowStockInventoryListView.as_view(),
+         name="inventory-low-stock"),
+
+    path("inventory/out-of-stock/",
+         OutOfStockInventoryListView.as_view(),
+         name="inventory-out-of-stock"),
 
     path("inventory/<int:product_id>/",
          InventoryRetrieveView.as_view(),

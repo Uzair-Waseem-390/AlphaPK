@@ -141,6 +141,20 @@ export const purchasesApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/inventory/${query ? `?${query}` : ''}`);
         },
+        // O(1) whole-inventory stats for the summary cards — served off a
+        // stored counter, not a live count, so it's always global (not
+        // affected by search/category/shelf filters).
+        getStats: () => api.get('/inventory/stats/'),
+        // Breakdown lists behind the Low Stock / Out of Stock cards.
+        // Same search/category/shelf params as getAll, paginated.
+        getLowStock: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/inventory/low-stock/${query ? `?${query}` : ''}`);
+        },
+        getOutOfStock: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/inventory/out-of-stock/${query ? `?${query}` : ''}`);
+        },
         getByProduct: (productId) => api.get(`/inventory/${productId}/`),
     },
 

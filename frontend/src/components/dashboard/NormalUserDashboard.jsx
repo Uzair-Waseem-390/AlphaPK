@@ -23,6 +23,7 @@ const NormalUserDashboard = () => {
     const [shelfFilter, setShelfFilter] = useState('');
     const [categories, setCategories] = useState([]);
     const [shelves, setShelves] = useState([]);
+    const [invStats, setInvStats] = useState(null);
     const [activeTab, setActiveTab] = useState('inventory');
 
     // Search/category/shelf are routed through query params — the backend
@@ -37,7 +38,7 @@ const NormalUserDashboard = () => {
     };
 
     const {
-        data: inventory, meta, extra, page, setPage, loading: inventoryLoading,
+        data: inventory, meta, page, setPage, loading: inventoryLoading,
     } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm, categoryFilter, shelfFilter]);
 
     useEffect(() => {
@@ -51,12 +52,14 @@ const NormalUserDashboard = () => {
             // filter options are derived from a full (page_size:500) inventory
             // fetch rather than calling purchasesApi.categories/shelves
             // (admin-only) — kept separate from the paginated table fetch.
-            const [fullInventoryData, ratesData] = await Promise.all([
+            const [fullInventoryData, ratesData, statsData] = await Promise.all([
                 purchasesApi.inventory.getAll({ page_size: 500 }),
                 ratesApi.getAll(),
+                purchasesApi.inventory.getStats(),
             ]);
             const fullInventory = fullInventoryData?.results || fullInventoryData || [];
             setRates(ratesData?.results || ratesData || []);
+            setInvStats(statsData);
 
             const categoryMap = new Map();
             const shelfMap = new Map();
@@ -75,11 +78,11 @@ const NormalUserDashboard = () => {
         }
     };
 
-    // Summary stats are computed server-side over the full filtered set
-    // (not just the current page) and passed through as an extra field.
-    const totalProducts = extra?.stats?.total_products ?? 0;
-    const lowStockItems = extra?.stats?.low_stock ?? 0;
-    const outOfStockItems = extra?.stats?.out_of_stock ?? 0;
+    // Summary stats come from the dedicated O(1) stats endpoint (stored
+    // counters on the backend) — whole-inventory numbers by design.
+    const totalProducts = invStats?.total_products ?? 0;
+    const lowStockItems = invStats?.low_stock_count ?? 0;
+    const outOfStockItems = invStats?.out_of_stock_count ?? 0;
 
     const loading = ratesLoading || inventoryLoading;
 

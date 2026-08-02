@@ -2,7 +2,6 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from purchases.models import Inventory
 from rates.selectors import get_price_at_date
 
 from .models import (
@@ -282,10 +281,11 @@ def _reverse_fifo(*, invoice_item: InvoiceItem, return_quantity: int) -> None:
 
         remaining_to_restore -= restore
 
-    # Increment inventory
-    inventory, _ = Inventory.objects.get_or_create(product=product)
-    inventory.quantity += return_quantity
-    inventory.save(update_fields=["quantity", "last_updated_at"])
+    # Increment inventory — through the shared writer so the inventory
+    # stats counters stay in sync (user=None: this path never recorded
+    # last_updated_by, and the writer preserves that).
+    from purchases.services import sync_inventory
+    sync_inventory(product=product, quantity_delta=return_quantity, user=None)
 
 
 def _recalculate_invoice_totals(invoice: Invoice) -> None:
@@ -544,11 +544,10 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
             "line_total", "line_cogs", "line_profit",
         ])
 
-        # Deduct from inventory
-        inventory, _ = Inventory.objects.get_or_create(product=product)
-        inventory.quantity = max(0, inventory.quantity - item.quantity)
-        inventory.last_updated_by = user
-        inventory.save(update_fields=["quantity", "last_updated_at", "last_updated_by"])
+        # Deduct from inventory — through the shared writer so the
+        # inventory stats counters stay in sync.
+        from purchases.services import sync_inventory
+        sync_inventory(product=product, quantity_delta=-item.quantity, user=user)
 
         # Stock Movement Report — bootstrap opening-balance invoices aren't
         # real sales, mirrors every other report's is_data_entry exclusion.

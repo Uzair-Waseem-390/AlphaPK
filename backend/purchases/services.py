@@ -1,9 +1,11 @@
 from decimal import Decimal
 from django.db import transaction
+from django.db.models import F
 from django.utils import timezone
 
 from .models import (
-    Category, Inventory, LostInventoryFIFOConsumption, LostInventoryItem,
+    LOW_STOCK_THRESHOLD, Category, DocumentCounter, Inventory,
+    InventoryStatsFlow, LostInventoryFIFOConsumption, LostInventoryItem,
     LostInventoryRecord, LostInventoryRecovery, Product, ProductStockMovement,
     PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
     SavedPurchaseOrderPDF, Shelf, StockMovementFlow, Supplier, SupplierPayment,
@@ -67,63 +69,75 @@ def _adjust_stock_movement(
         flow.save()
 
 
-def _generate_order_number() -> str:
+# Model + reference field that each counter doc_type seeds its legacy max from.
+_DOC_TYPE_SOURCES = {
+    "PO"  : (PurchaseOrder,       "order_number"),
+    "SPY" : (SupplierPayment,     "reference_number"),
+    "RTN" : (PurchaseReturn,      "reference_number"),
+    "LOSS": (LostInventoryRecord, "reference_number"),
+}
+
+
+def _legacy_max_sequence(doc_type: str, prefix: str) -> int:
     """
-    Generates sequential PO number: PO-2026-0001.
-    Race-condition safe inside @transaction.atomic.
+    Numeric max of the sequence part of existing references for this
+    prefix — parsed as integers, NOT text-sorted (text sort is the bug that
+    broke the old generators at 10000). O(N) but runs only once per
+    (doc_type, year), when its counter row is first created.
+    """
+    model, field = _DOC_TYPE_SOURCES[doc_type]
+    refs = model.all_objects.filter(
+        **{f"{field}__startswith": prefix}
+    ).values_list(field, flat=True)
+    max_seq = 0
+    for ref in refs:
+        try:
+            max_seq = max(max_seq, int(ref.rsplit("-", 1)[-1]))
+        except (TypeError, ValueError):
+            continue
+    return max_seq
+
+
+def _next_reference(doc_type: str) -> str:
+    """
+    Returns the next sequential reference (e.g. PO-2026-0001) by locking the
+    (doc_type, year) DocumentCounter row and incrementing it — O(1) and
+    race-safe regardless of how many documents exist. Numbers below 10000
+    keep the historical 4-digit padding; beyond that the number simply grows
+    (PO-2026-10000) since ordering no longer relies on text sort.
     """
     year   = timezone.now().year
-    prefix = f"PO-{year}-"
-    last   = (
-        PurchaseOrder.all_objects
-        .filter(order_number__startswith=prefix)
-        .order_by("-order_number")
-        .first()
-    )
-    seq = int(last.order_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    prefix = f"{doc_type}-{year}-"
+    with transaction.atomic():
+        counter, created = (
+            DocumentCounter.objects.select_for_update()
+            .get_or_create(doc_type=doc_type, year=year)
+        )
+        if created:
+            counter.last_number = _legacy_max_sequence(doc_type, prefix)
+        counter.last_number += 1
+        counter.save(update_fields=["last_number"])
+        return f"{prefix}{counter.last_number:04d}"
+
+
+def _generate_order_number() -> str:
+    """Sequential PO number: PO-2026-0001."""
+    return _next_reference("PO")
 
 
 def _generate_supplier_payment_reference() -> str:
-    """Generates sequential supplier payment reference: SPY-2026-0001."""
-    year   = timezone.now().year
-    prefix = f"SPY-{year}-"
-    last   = (
-        SupplierPayment.all_objects
-        .filter(reference_number__startswith=prefix)
-        .order_by("-reference_number")
-        .first()
-    )
-    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    """Sequential supplier payment reference: SPY-2026-0001."""
+    return _next_reference("SPY")
 
 
 def _generate_purchase_return_reference() -> str:
-    """Generates sequential purchase return reference: RTN-2026-0001."""
-    year   = timezone.now().year
-    prefix = f"RTN-{year}-"
-    last   = (
-        PurchaseReturn.all_objects
-        .filter(reference_number__startswith=prefix)
-        .order_by("-reference_number")
-        .first()
-    )
-    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    """Sequential purchase return reference: RTN-2026-0001."""
+    return _next_reference("RTN")
 
 
 def _generate_lost_inventory_reference() -> str:
-    """Generates sequential lost inventory reference: LOSS-2026-0001."""
-    year   = timezone.now().year
-    prefix = f"LOSS-{year}-"
-    last   = (
-        LostInventoryRecord.all_objects
-        .filter(reference_number__startswith=prefix)
-        .order_by("-reference_number")
-        .first()
-    )
-    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    """Sequential lost inventory reference: LOSS-2026-0001."""
+    return _next_reference("LOSS")
 
 
 def _recalculate_order_totals(order: PurchaseOrder) -> None:
@@ -189,15 +203,87 @@ def _sync_order_payable(order: PurchaseOrder) -> None:
     order.save(update_fields=["payable_outstanding", "total_paid", "payment_status"])
 
 
-def _sync_inventory(*, product: Product, quantity_delta: int, user) -> None:
+def _stock_bucket(quantity: int) -> str:
+    """Maps a quantity to its stats bucket: 'out' / 'low' / 'ok'."""
+    if quantity <= 0:
+        return "out"
+    if quantity <= LOW_STOCK_THRESHOLD:
+        return "low"
+    return "ok"
+
+
+def _apply_inventory_stats_deltas(*, total_delta: int = 0, low_delta: int = 0, out_delta: int = 0) -> None:
     """
-    Adjusts inventory quantity. delta > 0 = increase, delta < 0 = decrease.
-    Floored at 0 — inventory never goes negative.
+    Adjusts the InventoryStatsFlow singleton with F() expressions so the
+    arithmetic happens inside the database — concurrent stock movements can
+    never overwrite each other's counter updates.
     """
-    inventory, _ = Inventory.objects.get_or_create(product=product)
-    inventory.quantity      = max(0, inventory.quantity + quantity_delta)
-    inventory.last_updated_by = user
-    inventory.save(update_fields=["quantity", "last_updated_at", "last_updated_by"])
+    if not (total_delta or low_delta or out_delta):
+        return
+    InventoryStatsFlow.get_instance()  # ensure the singleton row exists
+    InventoryStatsFlow.objects.filter(pk=1).update(
+        total_products     = F("total_products") + total_delta,
+        low_stock_count    = F("low_stock_count") + low_delta,
+        out_of_stock_count = F("out_of_stock_count") + out_delta,
+        last_updated_at    = timezone.now(),
+    )
+
+
+_BUCKET_FIELD_DELTAS = {
+    "out": {"out_delta": 1},
+    "low": {"low_delta": 1},
+    "ok" : {},
+}
+
+
+def _stats_deltas_for_transition(old_bucket: str | None, new_bucket: str) -> dict:
+    """
+    Counter deltas for a bucket transition. old_bucket=None means the
+    inventory row was just created (also counts toward total_products).
+    """
+    deltas = {"total_delta": 0, "low_delta": 0, "out_delta": 0}
+    if old_bucket == new_bucket:
+        return deltas
+    if old_bucket is None:
+        deltas["total_delta"] = 1
+    else:
+        for key, value in _BUCKET_FIELD_DELTAS[old_bucket].items():
+            deltas[key] -= value
+    for key, value in _BUCKET_FIELD_DELTAS[new_bucket].items():
+        deltas[key] += value
+    return deltas
+
+
+def sync_inventory(*, product: Product, quantity_delta: int, user=None) -> None:
+    """
+    THE single writer for Inventory.quantity — purchases AND billing must go
+    through here (billing used to write quantity directly, which would let
+    the stats counters drift). delta > 0 = increase, delta < 0 = decrease.
+    Floored at 0 — inventory never goes negative. user=None leaves
+    last_updated_by untouched (matches billing's return path, which never
+    recorded a user).
+
+    Also keeps InventoryStatsFlow in sync: when the new quantity crosses a
+    low-stock/out-of-stock threshold, the singleton counters are adjusted in
+    the same transaction. The row lock makes old_quantity trustworthy under
+    concurrency, so a transition is never counted twice.
+    """
+    with transaction.atomic():
+        inventory, created = (
+            Inventory.objects.select_for_update().get_or_create(product=product)
+        )
+        old_bucket = None if created else _stock_bucket(inventory.quantity)
+
+        inventory.quantity = max(0, inventory.quantity + quantity_delta)
+        update_fields = ["quantity", "last_updated_at"]
+        if user is not None:
+            inventory.last_updated_by = user
+            update_fields.append("last_updated_by")
+        inventory.save(update_fields=update_fields)
+
+        _apply_inventory_stats_deltas(
+            **_stats_deltas_for_transition(old_bucket, _stock_bucket(inventory.quantity))
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -314,8 +400,21 @@ def update_product(
     return product
 
 
+@transaction.atomic
 def delete_product(*, pk: int, user) -> None:
-    _soft_delete(get_product_by_id(pk), user)
+    product = get_product_by_id(pk)
+    _soft_delete(product, user)
+    # Stats count inventory rows of NON-deleted products only (mirrors the
+    # inventory list's product__is_deleted=False filter), so a soft-deleted
+    # product leaves the totals and its current bucket.
+    inventory = Inventory.objects.filter(product=product).first()
+    if inventory is not None:
+        bucket = _stock_bucket(inventory.quantity)
+        _apply_inventory_stats_deltas(
+            total_delta=-1,
+            low_delta=-1 if bucket == "low" else 0,
+            out_delta=-1 if bucket == "out" else 0,
+        )
 
 
 # ---------------------------------------------------------------------------
@@ -604,7 +703,7 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
     for item in items:
         item.remaining_quantity = item.quantity
         item.save(update_fields=["remaining_quantity"])
-        _sync_inventory(product=item.product, quantity_delta=item.quantity, user=user)
+        sync_inventory(product=item.product, quantity_delta=item.quantity, user=user)
         # Stock Movement Report — bootstrap opening-stock orders aren't
         # real operating-period purchases, mirrors every other report's
         # is_data_entry exclusion.
@@ -720,7 +819,7 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
         )  # .save() auto-computes gross/gst/wht/total
         pi.remaining_quantity = pi.quantity
         pi.save(update_fields=["remaining_quantity"])
-        _sync_inventory(product=pi.product, quantity_delta=pi.quantity, user=user)
+        sync_inventory(product=pi.product, quantity_delta=pi.quantity, user=user)
         # Stock Movement Report — unlike the financial is_data_entry
         # exclusions elsewhere, opening stock DOES move real physical
         # quantity (Inventory.quantity is incremented above too), so it
@@ -735,6 +834,7 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
 # Supplier Payment services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_supplier_payment(
     *, order_id: int, amount: Decimal, method: str,
     payment_date, note: str = "", user,
@@ -783,6 +883,7 @@ def create_supplier_payment(
     return payment
 
 
+@transaction.atomic
 def delete_supplier_payment(*, payment_id: int, user) -> None:
     payment = get_supplier_payment_by_id(payment_id)
     order   = payment.order
@@ -926,7 +1027,7 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         purchase_item.save(update_fields=["returned_quantity"])
 
         # Decrease inventory
-        _sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)
+        sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)
 
         # Stock Movement Report
         if not purchase_item.order.is_data_entry:
@@ -1111,7 +1212,7 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
             for c in consumptions
         ])
 
-        _sync_inventory(product=product, quantity_delta=-quantity, user=user)
+        sync_inventory(product=product, quantity_delta=-quantity, user=user)
 
         # Stock Movement Report
         _adjust_stock_movement(product_id=product.id, lost_delta=quantity)
@@ -1193,7 +1294,7 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
     lost_item.found_quantity += quantity
     lost_item.save(update_fields=["found_quantity"])
 
-    _sync_inventory(product=lost_item.product, quantity_delta=quantity, user=user)
+    sync_inventory(product=lost_item.product, quantity_delta=quantity, user=user)
 
     # Stock Movement Report
     _adjust_stock_movement(product_id=lost_item.product_id, found_delta=quantity)
