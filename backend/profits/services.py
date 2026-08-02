@@ -5,7 +5,10 @@ from django.db import transaction
 from django.db.models import Sum
 from django.utils import timezone
 
-from .models import InvestorProfitPayout, MonthlyProfit, MonthlyProfitInvestorShare, ProfitFlow
+from .models import (
+    InvestorProfitPayout, MonthlyProfit, MonthlyProfitInvestorShare,
+    MonthlyProfitOwnerShare, OwnerProfitPayout, ProfitFlow,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -167,6 +170,8 @@ def _adjust_profitflow(
     total_owner_profit_share_delta       : Decimal = Decimal("0"),
     total_paid_out_to_investors_delta    : Decimal = Decimal("0"),
     total_reinvested_by_investors_delta  : Decimal = Decimal("0"),
+    total_paid_out_to_owner_delta        : Decimal = Decimal("0"),
+    total_reinvested_by_owner_delta      : Decimal = Decimal("0"),
     months_finalized_count_delta         : int = 0,
     user,
 ) -> ProfitFlow:
@@ -181,6 +186,8 @@ def _adjust_profitflow(
         pf.total_owner_profit_share     += total_owner_profit_share_delta
         pf.total_paid_out_to_investors   = max(Decimal("0"), pf.total_paid_out_to_investors + total_paid_out_to_investors_delta)
         pf.total_reinvested_by_investors = max(Decimal("0"), pf.total_reinvested_by_investors + total_reinvested_by_investors_delta)
+        pf.total_paid_out_to_owner       = max(Decimal("0"), pf.total_paid_out_to_owner + total_paid_out_to_owner_delta)
+        pf.total_reinvested_by_owner     = max(Decimal("0"), pf.total_reinvested_by_owner + total_reinvested_by_owner_delta)
         pf.months_finalized_count        = max(0, pf.months_finalized_count + months_finalized_count_delta)
 
         pf.last_updated_by = user
@@ -270,6 +277,8 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
         "owner_share_percent", "owner_share_amount",
     ])
 
+    MonthlyProfitOwnerShare.objects.create(monthly_profit=mp, share_amount=owner_share_amount)
+
     _adjust_profitflow(
         total_gross_profit_delta=row["gross_profit"],
         total_net_gross_profit_delta=row["net_gross_profit"],
@@ -293,6 +302,14 @@ def catch_up_monthly_profits(user=None) -> None:
     """
     today = timezone.localdate()
     current_period = f"{today.year:04d}-{today.month:02d}"
+
+    # Self-healing backfill: any MonthlyProfit row that predates
+    # MonthlyProfitOwnerShare (introduced after this app already had data)
+    # gets one created from its own already-stored owner_share_amount — no
+    # recomputation, no drift, same "catch-up on read, no cron" idiom as
+    # everything else here.
+    for mp in MonthlyProfit.objects.filter(owner_share__isnull=True):
+        MonthlyProfitOwnerShare.objects.create(monthly_profit=mp, share_amount=mp.owner_share_amount)
 
     last_row = MonthlyProfit.objects.order_by("-period").first()
     if last_row:
@@ -414,3 +431,98 @@ def delete_investor_profit_payout(*, pk: int, user) -> None:
 
     share.payment_status = _compute_share_status(share)
     share.save(update_fields=["amount_paid_out", "amount_reinvested", "payment_status"])
+
+
+# ---------------------------------------------------------------------------
+# OwnerProfitPayout services — exact mirror of InvestorProfitPayout services
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def create_owner_profit_payout(
+    *, owner_share_id: int, amount: Decimal, action_type: str, payout_date, note: str = "", user,
+) -> OwnerProfitPayout:
+    from django.shortcuts import get_object_or_404
+    from rest_framework.exceptions import ValidationError
+
+    if amount <= 0:
+        raise ValidationError({"amount": "Amount must be greater than zero."})
+    if action_type not in (OwnerProfitPayout.ActionType.PAYOUT, OwnerProfitPayout.ActionType.REINVEST):
+        raise ValidationError({"action_type": "Must be 'payout' or 'reinvest'."})
+
+    owner_share = get_object_or_404(
+        MonthlyProfitOwnerShare.objects.select_for_update().select_related("monthly_profit"),
+        pk=owner_share_id,
+    )
+
+    remaining = owner_share.amount_remaining
+    if amount > remaining:
+        raise ValidationError({
+            "amount": f"Amount exceeds the owner's remaining share balance. Remaining: {remaining}."
+        })
+
+    payout = OwnerProfitPayout.objects.create(
+        owner_share=owner_share, amount=amount, payout_date=payout_date, action_type=action_type,
+        note=note, created_by=user, updated_by=user,
+    )
+
+    # Always: real cash leaves for this share, regardless of what happens next.
+    from cash_flow.services import sync_owner_profit_payout_made
+    sync_owner_profit_payout_made(amount=amount, user=user)
+
+    if action_type == OwnerProfitPayout.ActionType.PAYOUT:
+        owner_share.amount_paid_out += amount
+        _adjust_profitflow(total_paid_out_to_owner_delta=+amount, user=user)
+    else:
+        # Reinvest: the same amount immediately comes back in as a genuine
+        # owner contribution — real capital, not a payout-in-disguise.
+        from cash_management.models import OwnerTransaction
+        from cash_management.services import create_owner_transaction
+
+        txn = create_owner_transaction(
+            transaction_type=OwnerTransaction.TransactionType.CONTRIBUTION,
+            amount=amount,
+            transaction_date=payout_date,
+            note=f"Reinvested profit share — {owner_share.monthly_profit.period} (payout #{payout.id})",
+            user=user,
+        )
+        payout.linked_owner_transaction = txn
+        payout.save(update_fields=["linked_owner_transaction"])
+
+        owner_share.amount_reinvested += amount
+        _adjust_profitflow(total_reinvested_by_owner_delta=+amount, user=user)
+
+    owner_share.payment_status = _compute_share_status(owner_share)
+    owner_share.save(update_fields=["amount_paid_out", "amount_reinvested", "payment_status"])
+
+    return payout
+
+
+@transaction.atomic
+def delete_owner_profit_payout(*, pk: int, user) -> None:
+    from django.shortcuts import get_object_or_404
+
+    payout      = get_object_or_404(OwnerProfitPayout, pk=pk, is_deleted=False)
+    owner_share = MonthlyProfitOwnerShare.objects.select_for_update().get(pk=payout.owner_share_id)
+    amount      = payout.amount
+
+    payout.is_deleted = True
+    payout.deleted_at = timezone.now()
+    payout.deleted_by = user
+    payout.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    # Reverse the outflow every payout action performed, regardless of type.
+    from cash_flow.services import sync_owner_profit_payout_reversed
+    sync_owner_profit_payout_reversed(amount=amount, user=user)
+
+    if payout.action_type == OwnerProfitPayout.ActionType.PAYOUT:
+        owner_share.amount_paid_out = max(Decimal("0"), owner_share.amount_paid_out - amount)
+        _adjust_profitflow(total_paid_out_to_owner_delta=-amount, user=user)
+    else:
+        if payout.linked_owner_transaction_id:
+            from cash_management.services import delete_owner_transaction
+            delete_owner_transaction(pk=payout.linked_owner_transaction_id, user=user)
+        owner_share.amount_reinvested = max(Decimal("0"), owner_share.amount_reinvested - amount)
+        _adjust_profitflow(total_reinvested_by_owner_delta=-amount, user=user)
+
+    owner_share.payment_status = _compute_share_status(owner_share)
+    owner_share.save(update_fields=["amount_paid_out", "amount_reinvested", "payment_status"])

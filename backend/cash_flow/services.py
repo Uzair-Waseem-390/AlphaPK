@@ -556,6 +556,35 @@ def sync_investor_profit_payout_reversed(*, amount: Decimal, user) -> None:
     )
 
 
+def sync_owner_profit_payout_made(*, amount: Decimal, user) -> None:
+    """
+    Called by profits.services.create_owner_profit_payout for EVERY
+    settlement action (payout or reinvest) — real cash leaves the till
+    either way. For a reinvest, cash_management.services.create_owner_transaction
+    brings the same amount back in via its own separate sync call
+    immediately after this one, netting to zero — two honest ledger entries,
+    not a single no-op. Exact mirror of sync_investor_profit_payout_made.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta       = -amount,
+        total_cash_outflow_delta = +amount,
+        user=user,
+    )
+
+
+def sync_owner_profit_payout_reversed(*, amount: Decimal, user) -> None:
+    """
+    Called by profits.services.delete_owner_profit_payout. Restores the
+    amount to cash_in_hand — for a reinvest, the linked OwnerTransaction is
+    reversed separately by cash_management.services.delete_owner_transaction.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta       = +amount,
+        total_cash_outflow_delta = -amount,
+        user=user,
+    )
+
+
 def sync_cash_lost(*, amount: Decimal, user) -> None:
     """
     Called by cash_management.services when cash is recorded as lost

@@ -78,7 +78,8 @@ class MonthlyProfit(models.Model):
     total_investor_share_amount  = models.DecimalField(max_digits=20, decimal_places=4, default=0)
     owner_share_percent           = models.DecimalField(max_digits=10, decimal_places=4, default=0)
     owner_share_amount            = models.DecimalField(max_digits=20, decimal_places=4, default=0,
-                                        help_text="Informational only — the owner never gets a settle-share flow.")
+                                        help_text="The exact remainder: net_profit - total_investor_share_amount. "
+                                                   "Settled the same way as an investor share — see MonthlyProfitOwnerShare.")
 
     computed_at = models.DateTimeField(auto_now_add=True)
 
@@ -148,6 +149,56 @@ class MonthlyProfitInvestorShare(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# MonthlyProfitOwnerShare  (one row per finished month — mirrors MonthlyProfitInvestorShare)
+# ---------------------------------------------------------------------------
+
+class MonthlyProfitOwnerShare(models.Model):
+    """
+    The owner's slice of one month's net_profit — structurally identical to
+    MonthlyProfitInvestorShare (same amount_paid_out/amount_reinvested/
+    payment_status shape, settled via OwnerProfitPayout the same way an
+    investor share is settled via InvestorProfitPayout), except there's
+    exactly one per month (OneToOne, not FK — only one owner, unlike
+    investors) and no percent snapshot of its own (owner_share_percent
+    already lives on MonthlyProfit).
+
+    Created automatically — either inside _finalize_month for new months, or
+    self-healing backfilled by catch_up_monthly_profits() for any existing
+    MonthlyProfit row that predates this model (from its own already-stored
+    owner_share_amount, so no recomputation, no drift).
+    """
+
+    class PaymentStatus(models.TextChoices):
+        UNPAID  = "unpaid", "Unpaid"
+        PARTIAL = "partial", "Partial"
+        PAID    = "paid", "Paid"
+
+    monthly_profit = models.OneToOneField(MonthlyProfit, on_delete=models.CASCADE, related_name="owner_share")
+
+    share_amount = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+
+    amount_paid_out   = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    amount_reinvested = models.DecimalField(max_digits=20, decimal_places=4, default=0)
+    payment_status    = models.CharField(max_length=10, choices=PaymentStatus.choices, default=PaymentStatus.UNPAID, db_index=True)
+
+    class Meta:
+        verbose_name        = "Monthly Profit Owner Share"
+        verbose_name_plural  = "Monthly Profit Owner Shares"
+        ordering             = ["-monthly_profit__period"]
+
+    @property
+    def amount_settled(self):
+        return self.amount_paid_out + self.amount_reinvested
+
+    @property
+    def amount_remaining(self):
+        return self.share_amount - self.amount_settled
+
+    def __str__(self):
+        return f"{self.monthly_profit.period} — Owner: {self.share_amount}"
+
+
+# ---------------------------------------------------------------------------
 # InvestorProfitPayout  (ledger — mirrors taxes.TaxPayment / purchases.SupplierPayment)
 # ---------------------------------------------------------------------------
 
@@ -210,6 +261,65 @@ class InvestorProfitPayout(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# OwnerProfitPayout  (ledger — mirrors InvestorProfitPayout)
+# ---------------------------------------------------------------------------
+
+class OwnerProfitPayout(models.Model):
+    """
+    One settlement action against the owner's monthly profit share. Exact
+    mirror of InvestorProfitPayout: PAYOUT moves cash_in_hand out only.
+    REINVEST does the same cash-out, then immediately creates a real
+    cash_management.OwnerTransaction (CONTRIBUTION) that brings the cash
+    back in — linked_owner_transaction points at that row so the two are
+    never orphaned. Net cash_in_hand effect for a reinvest is zero, but as
+    two honest, separately reversible ledger entries.
+    """
+
+    class ActionType(models.TextChoices):
+        PAYOUT   = "payout", "Payout"
+        REINVEST = "reinvest", "Reinvest"
+
+    owner_share = models.ForeignKey(MonthlyProfitOwnerShare, on_delete=models.PROTECT, related_name="payouts")
+    amount      = models.DecimalField(max_digits=18, decimal_places=4)
+    payout_date = models.DateField(db_index=True)
+    action_type = models.CharField(max_length=10, choices=ActionType.choices)
+    note        = models.TextField(blank=True, default="")
+
+    linked_owner_transaction = models.ForeignKey(
+        "cash_management.OwnerTransaction", null=True, blank=True,
+        on_delete=models.SET_NULL, related_name="linked_profit_payout",
+        help_text="Set only when action_type='reinvest' — the OwnerTransaction that brought the cash back in.",
+    )
+
+    created_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="owner_profit_payouts_created",
+    )
+    updated_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="owner_profit_payouts_updated",
+    )
+    deleted_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="owner_profit_payouts_deleted",
+    )
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+    deleted_at  = models.DateTimeField(null=True, blank=True)
+    is_deleted  = models.BooleanField(default=False, db_index=True)
+
+    objects     = models.Manager()
+
+    class Meta:
+        verbose_name        = "Owner Profit Payout"
+        verbose_name_plural  = "Owner Profit Payouts"
+        ordering             = ["-payout_date", "-created_at"]
+
+    def __str__(self):
+        return f"{self.get_action_type_display()} — {self.amount} on {self.payout_date}"
+
+
+# ---------------------------------------------------------------------------
 # ProfitFlow  (singleton — mirrors CashFlow/TaxFlow/AssetFlow/RecurringExpenseFlow)
 # ---------------------------------------------------------------------------
 
@@ -233,6 +343,10 @@ class ProfitFlow(models.Model):
     total_paid_out_to_investors    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                           help_text="All-time, gross, only ever increases.")
     total_reinvested_by_investors  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="All-time, gross, only ever increases.")
+    total_paid_out_to_owner        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                          help_text="All-time, gross, only ever increases.")
+    total_reinvested_by_owner      = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                           help_text="All-time, gross, only ever increases.")
     months_finalized_count        = models.PositiveIntegerField(default=0)
 

@@ -6,11 +6,13 @@ from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_investor_profit_payouts,
     get_all_monthly_profits,
+    get_all_owner_profit_payouts,
     get_current_month_profit,
     get_investor_monthly_shares,
     get_investor_profit_payout_by_id,
     get_monthly_profit_by_period,
     get_net_profit_trend,
+    get_owner_profit_payout_by_id,
     get_ownership_split,
     get_profit_flow_stats,
 )
@@ -23,10 +25,18 @@ from .serializers import (
     MonthlyProfitDetailSerializer,
     MonthlyProfitListSerializer,
     NetProfitTrendItemSerializer,
+    OwnerProfitPayoutListItemSerializer,
+    OwnerProfitPayoutReadSerializer,
+    OwnerProfitPayoutWriteSerializer,
     OwnershipSplitSerializer,
     ProfitFlowStatsSerializer,
 )
-from .services import create_investor_profit_payout, delete_investor_profit_payout
+from .services import (
+    create_investor_profit_payout,
+    create_owner_profit_payout,
+    delete_investor_profit_payout,
+    delete_owner_profit_payout,
+)
 
 
 class BusinessWorthView(APIView):
@@ -179,6 +189,63 @@ class InvestorProfitPayoutListView(generics.ListAPIView):
 
     def get_queryset(self):
         return get_all_investor_profit_payouts()
+
+
+# ---------------------------------------------------------------------------
+# OwnerProfitPayout — exact mirror of InvestorProfitPayout views
+# ---------------------------------------------------------------------------
+
+class OwnerProfitPayoutCreateView(APIView):
+    """
+    POST /profits/monthly/owner-share/<owner_share_id>/payouts/
+    Settles part or all of the owner's share for one month — either a real
+    payout (cash out) or a reinvest (cash out then immediately back in as a
+    genuine owner contribution).
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request, owner_share_id):
+        serializer = OwnerProfitPayoutWriteSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        payout = create_owner_profit_payout(
+            owner_share_id=owner_share_id,
+            amount=d["amount"],
+            action_type=d["action_type"],
+            payout_date=d["payout_date"],
+            note=d.get("note", ""),
+            user=request.user,
+        )
+        return Response(OwnerProfitPayoutReadSerializer(payout).data, status=status.HTTP_201_CREATED)
+
+
+class OwnerProfitPayoutRetrieveDestroyView(generics.RetrieveDestroyAPIView):
+    """
+    GET    /profits/owner-payouts/<pk>/
+    DELETE /profits/owner-payouts/<pk>/ — reverses cash_in_hand, the share's
+    settled amounts, and (for a reinvest) the linked OwnerTransaction too.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = OwnerProfitPayoutReadSerializer
+
+    def get_object(self):
+        return get_owner_profit_payout_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_owner_profit_payout(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Payout reversed and cash in hand restored."}, status=status.HTTP_200_OK)
+
+
+class OwnerProfitPayoutListView(generics.ListAPIView):
+    """
+    GET /profits/owner-payouts/
+    Every owner profit settlement ever recorded, newest-created first.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = OwnerProfitPayoutListItemSerializer
+
+    def get_queryset(self):
+        return get_all_owner_profit_payouts()
 
 
 # ---------------------------------------------------------------------------

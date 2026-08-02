@@ -1,6 +1,9 @@
 from rest_framework import serializers
 
-from .models import InvestorProfitPayout, MonthlyProfit, MonthlyProfitInvestorShare
+from .models import (
+    InvestorProfitPayout, MonthlyProfit, MonthlyProfitInvestorShare,
+    MonthlyProfitOwnerShare, OwnerProfitPayout,
+)
 
 
 class InvestorShareSerializer(serializers.Serializer):
@@ -95,6 +98,64 @@ class MonthlyProfitInvestorShareSerializer(serializers.ModelSerializer):
         return rep
 
 
+class OwnerProfitPayoutReadSerializer(serializers.ModelSerializer):
+    created_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = OwnerProfitPayout
+        fields = [
+            "id", "amount", "payout_date", "action_type", "note",
+            "linked_owner_transaction", "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class OwnerProfitPayoutListItemSerializer(serializers.ModelSerializer):
+    period     = serializers.CharField(source="owner_share.monthly_profit.period", read_only=True)
+    created_by = serializers.StringRelatedField(read_only=True)
+
+    class Meta:
+        model  = OwnerProfitPayout
+        fields = [
+            "id", "period", "amount", "payout_date",
+            "action_type", "note", "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+
+class OwnerProfitPayoutWriteSerializer(serializers.Serializer):
+    amount       = serializers.DecimalField(max_digits=18, decimal_places=4)
+    action_type  = serializers.ChoiceField(choices=OwnerProfitPayout.ActionType.choices)
+    payout_date  = serializers.DateField()
+    note         = serializers.CharField(required=False, allow_blank=True, default="")
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+
+class MonthlyProfitOwnerShareSerializer(serializers.ModelSerializer):
+    amount_settled   = serializers.DecimalField(max_digits=20, decimal_places=4, read_only=True)
+    amount_remaining = serializers.DecimalField(max_digits=20, decimal_places=4, read_only=True)
+    payouts          = OwnerProfitPayoutReadSerializer(many=True, read_only=True)
+
+    class Meta:
+        model  = MonthlyProfitOwnerShare
+        fields = [
+            "id", "share_amount", "amount_paid_out", "amount_reinvested",
+            "amount_settled", "amount_remaining", "payment_status", "payouts",
+        ]
+        read_only_fields = fields
+
+    def to_representation(self, instance):
+        rep = super().to_representation(instance)
+        rep["payouts"] = OwnerProfitPayoutReadSerializer(
+            instance.payouts.filter(is_deleted=False).order_by("-payout_date", "-created_at"), many=True,
+        ).data
+        return rep
+
+
 class InvestorMonthlyShareListItemSerializer(serializers.ModelSerializer):
     period            = serializers.CharField(source="monthly_profit.period", read_only=True)
     amount_settled    = serializers.DecimalField(max_digits=20, decimal_places=4, read_only=True)
@@ -119,6 +180,7 @@ class MonthlyProfitListSerializer(serializers.ModelSerializer):
 
 class MonthlyProfitDetailSerializer(serializers.ModelSerializer):
     investor_shares = MonthlyProfitInvestorShareSerializer(many=True, read_only=True)
+    owner_share     = MonthlyProfitOwnerShareSerializer(read_only=True)
 
     class Meta:
         model  = MonthlyProfit
@@ -132,7 +194,7 @@ class MonthlyProfitDetailSerializer(serializers.ModelSerializer):
             "net_profit",
             "total_investor_share_percent", "total_investor_share_amount",
             "owner_share_percent", "owner_share_amount",
-            "computed_at", "investor_shares",
+            "computed_at", "investor_shares", "owner_share",
         ]
         read_only_fields = fields
 
@@ -187,4 +249,6 @@ class ProfitFlowStatsSerializer(serializers.Serializer):
     total_owner_profit_share       = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_paid_out_to_investors    = serializers.DecimalField(max_digits=20, decimal_places=4)
     total_reinvested_by_investors  = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_paid_out_to_owner        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total_reinvested_by_owner      = serializers.DecimalField(max_digits=20, decimal_places=4)
     months_finalized_count         = serializers.IntegerField()

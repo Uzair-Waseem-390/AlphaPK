@@ -269,6 +269,8 @@ def get_profit_flow_stats() -> dict:
         "total_owner_profit_share"      : pf.total_owner_profit_share,
         "total_paid_out_to_investors"   : pf.total_paid_out_to_investors,
         "total_reinvested_by_investors" : pf.total_reinvested_by_investors,
+        "total_paid_out_to_owner"       : pf.total_paid_out_to_owner,
+        "total_reinvested_by_owner"     : pf.total_reinvested_by_owner,
         "months_finalized_count"        : pf.months_finalized_count,
     }
 
@@ -296,6 +298,25 @@ def get_all_investor_profit_payouts():
 
     return InvestorProfitPayout.objects.filter(is_deleted=False).select_related(
         "share__investor", "share__monthly_profit", "created_by",
+    ).order_by("-created_at")
+
+
+def get_owner_profit_payout_by_id(pk: int):
+    from django.shortcuts import get_object_or_404
+    from .models import OwnerProfitPayout
+
+    return get_object_or_404(
+        OwnerProfitPayout.objects.select_related("owner_share__monthly_profit"),
+        pk=pk, is_deleted=False,
+    )
+
+
+def get_all_owner_profit_payouts():
+    """Every owner profit settlement ever recorded, newest-created first. Mirrors get_all_investor_profit_payouts."""
+    from .models import OwnerProfitPayout
+
+    return OwnerProfitPayout.objects.filter(is_deleted=False).select_related(
+        "owner_share__monthly_profit", "created_by",
     ).order_by("-created_at")
 
 
