@@ -1,8 +1,10 @@
+from datetime import date as date_cls
 from decimal import Decimal
 from itertools import accumulate
 
 from django.db import transaction
 from django.utils import timezone
+from django.utils.dateparse import parse_date
 
 from .models import SavedLedgerPDF, SupplierLedger, SupplierLedgerEntry, SupplierLedgerSnapshot
 
@@ -14,6 +16,31 @@ from .models import SavedLedgerPDF, SupplierLedger, SupplierLedgerEntry, Supplie
 def _get_year_month(date) -> str:
     """Returns 'YYYY-MM' string from a date or datetime."""
     return date.strftime("%Y-%m")
+
+
+def _as_date(value):
+    """
+    Normalizes a YYYY-MM-DD query-param string to a date (dates/None pass
+    through; unparseable strings become None → filter skipped). The view
+    layer hands strings straight to the balance code, which previously
+    crashed on .strftime for any string date_from.
+    """
+    if value is None or isinstance(value, date_cls):
+        return value
+    return parse_date(str(value))
+
+
+def _month_bounds(year_month: str) -> tuple:
+    """
+    (first day of month, first day of NEXT month) for a 'YYYY-MM' string —
+    lets month filters be real date ranges that use the (ledger, date)
+    index, instead of date__startswith, which casts the date column to text
+    for a LIKE and forces a sequential scan.
+    """
+    year, month = map(int, year_month.split("-"))
+    start = date_cls(year, month, 1)
+    end = date_cls(year + 1, 1, 1) if month == 12 else date_cls(year, month + 1, 1)
+    return start, end
 
 
 def _get_previous_snapshot_balance(ledger: SupplierLedger, year_month: str) -> Decimal:
@@ -54,10 +81,13 @@ def _recalculate_snapshots_from(ledger: SupplierLedger, from_year_month: str) ->
     for ym in months_to_process:
         prior_balance = _get_previous_snapshot_balance(ledger, ym)
 
-        # Sum all entries in this month
+        # Sum all entries in this month — real date range so the
+        # (ledger, date) index is used (date__startswith could not use it).
+        month_start, month_end = _month_bounds(ym)
         agg = SupplierLedgerEntry.objects.filter(
             ledger=ledger,
-            date__startswith=ym,
+            date__gte=month_start,
+            date__lt=month_end,
         ).aggregate(
             total_credit=Sum("credit"),
             total_debit=Sum("debit"),
@@ -102,7 +132,11 @@ def add_purchase_entry(
     *, supplier, purchase_order, amount: Decimal, date, user,
 ) -> SupplierLedgerEntry:
     """Purchase confirmed → Credit entry (we owe supplier more)."""
-    ledger = SupplierLedger.objects.get(supplier=supplier)
+    # Lock the ledger row: two entries for the same supplier written
+    # concurrently would each recalculate the month snapshot without seeing
+    # the other's uncommitted entry — last writer would store a balance
+    # missing one entry. The lock serializes writes per supplier only.
+    ledger = SupplierLedger.objects.select_for_update().get(supplier=supplier)
     entry  = SupplierLedgerEntry.objects.create(
         ledger          = ledger,
         entry_type      = SupplierLedgerEntry.EntryType.PURCHASE,
@@ -127,7 +161,11 @@ def add_opening_balance_entry(
     Data-entry bootstrap: one-time opening balance for a supplier.
     Credit entry (we owe supplier from before go-live).
     """
-    ledger = SupplierLedger.objects.get(supplier=supplier)
+    # Lock the ledger row: two entries for the same supplier written
+    # concurrently would each recalculate the month snapshot without seeing
+    # the other's uncommitted entry — last writer would store a balance
+    # missing one entry. The lock serializes writes per supplier only.
+    ledger = SupplierLedger.objects.select_for_update().get(supplier=supplier)
     entry  = SupplierLedgerEntry.objects.create(
         ledger     = ledger,
         entry_type = SupplierLedgerEntry.EntryType.OPENING_BALANCE,
@@ -147,7 +185,11 @@ def add_payment_entry(
     *, supplier, supplier_payment, amount: Decimal, date, user,
 ) -> SupplierLedgerEntry:
     """Supplier payment made → Debit entry (we paid them)."""
-    ledger = SupplierLedger.objects.get(supplier=supplier)
+    # Lock the ledger row: two entries for the same supplier written
+    # concurrently would each recalculate the month snapshot without seeing
+    # the other's uncommitted entry — last writer would store a balance
+    # missing one entry. The lock serializes writes per supplier only.
+    ledger = SupplierLedger.objects.select_for_update().get(supplier=supplier)
     entry  = SupplierLedgerEntry.objects.create(
         ledger           = ledger,
         entry_type       = SupplierLedgerEntry.EntryType.PAYMENT,
@@ -168,7 +210,11 @@ def add_advance_entry(
     *, supplier, supplier_payment, amount: Decimal, date, user,
 ) -> SupplierLedgerEntry:
     """Advance payment on draft PO → Debit entry."""
-    ledger = SupplierLedger.objects.get(supplier=supplier)
+    # Lock the ledger row: two entries for the same supplier written
+    # concurrently would each recalculate the month snapshot without seeing
+    # the other's uncommitted entry — last writer would store a balance
+    # missing one entry. The lock serializes writes per supplier only.
+    ledger = SupplierLedger.objects.select_for_update().get(supplier=supplier)
     entry  = SupplierLedgerEntry.objects.create(
         ledger           = ledger,
         entry_type       = SupplierLedgerEntry.EntryType.ADVANCE,
@@ -189,7 +235,11 @@ def add_return_entry(
     *, supplier, purchase_return, amount: Decimal, date, user,
 ) -> SupplierLedgerEntry:
     """Purchase return accepted → Debit entry (supplier owes us back)."""
-    ledger = SupplierLedger.objects.get(supplier=supplier)
+    # Lock the ledger row: two entries for the same supplier written
+    # concurrently would each recalculate the month snapshot without seeing
+    # the other's uncommitted entry — last writer would store a balance
+    # missing one entry. The lock serializes writes per supplier only.
+    ledger = SupplierLedger.objects.select_for_update().get(supplier=supplier)
     entry  = SupplierLedgerEntry.objects.create(
         ledger          = ledger,
         entry_type      = SupplierLedgerEntry.EntryType.RETURN,
@@ -218,7 +268,8 @@ def remove_ledger_entry_for_payment(*, supplier_payment) -> None:
     entry = SupplierLedgerEntry.objects.filter(supplier_payment=supplier_payment).first()
     if not entry:
         return
-    ledger    = entry.ledger
+    # Same per-supplier write lock as the add-entry services.
+    ledger    = SupplierLedger.objects.select_for_update().get(pk=entry.ledger_id)
     from_ym   = _get_year_month(entry.date)
     entry.delete()
     _recalculate_snapshots_from(ledger, from_ym)
@@ -230,7 +281,8 @@ def remove_ledger_entry_for_return(*, purchase_return) -> None:
     entry = SupplierLedgerEntry.objects.filter(purchase_return=purchase_return).first()
     if not entry:
         return
-    ledger  = entry.ledger
+    # Same per-supplier write lock as the add-entry services.
+    ledger  = SupplierLedger.objects.select_for_update().get(pk=entry.ledger_id)
     from_ym = _get_year_month(entry.date)
     entry.delete()
     _recalculate_snapshots_from(ledger, from_ym)
@@ -340,16 +392,23 @@ def _get_entries_with_running_balance(
     Returns list of entry dicts with running_balance computed using hybrid method.
     Hybrid: grab last snapshot before date_from (or start), then accumulate current entries.
     """
+    # Normalize view-layer query-param strings to dates (crash-free and
+    # required for the index-friendly range filters below).
+    date_from = _as_date(date_from)
+    date_to   = _as_date(date_to)
+
     # Determine opening balance using last snapshot before the query window
     opening_balance = Decimal("0")
     if date_from:
         ym_start = _get_year_month(date_from)
         opening_balance = _get_previous_snapshot_balance(ledger, ym_start)
-        # Add entries from that month before date_from
+        # Add entries from that month before date_from — range filter so the
+        # (ledger, date) index is used (date__startswith could not use it).
         from django.db.models import Sum
+        month_start, _month_end = _month_bounds(ym_start)
         pre_month_agg = SupplierLedgerEntry.objects.filter(
             ledger=ledger,
-            date__startswith=ym_start,
+            date__gte=month_start,
             date__lt=date_from,
         ).aggregate(total_credit=Sum("credit"), total_debit=Sum("debit"))
         opening_balance += (pre_month_agg["total_credit"] or Decimal("0"))

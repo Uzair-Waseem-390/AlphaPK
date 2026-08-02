@@ -8,6 +8,8 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from django.utils.dateparse import parse_date
 
+from backend.search import search_q
+
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow,
     LostInventoryItem, LostInventoryRecord, Product, PurchaseItem,
@@ -75,7 +77,7 @@ def get_all_suppliers(*, search: str = None) -> QuerySet:
         is_deleted=False,
     ).exclude(code="SYS-OPENING")
     if search:
-        qs = qs.filter(Q(name__icontains=search) | Q(code__icontains=search))
+        qs = qs.filter(search_q(search, "name", "code"))
     return qs
 
 def get_supplier_by_id(pk: int) -> Supplier:
@@ -160,11 +162,11 @@ def get_all_purchase_orders(
     if _clean(status):
         qs = qs.filter(status=_clean(status))
     if _clean(supplier_name):
-        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "supplier__code"))
     if _clean(order_number):
-        qs = qs.filter(order_number__icontains=_clean(order_number))
+        qs = qs.filter(search_q(_clean(order_number), "order_number"))
     if _clean(date):
         start = _day_start(_clean(date))
         end   = _next_day_start(_clean(date))
@@ -299,11 +301,11 @@ def get_all_returns(
     if _clean(status):
         qs = qs.filter(status=_clean(status))
     if _clean(supplier_name):
-        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "order__supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "order__supplier__code"))
     if _clean(order_number):
-        qs = qs.filter(order__order_number__icontains=_clean(order_number))
+        qs = qs.filter(search_q(_clean(order_number), "order__order_number"))
     if _clean(date_from):
         start = _day_start(_clean(date_from))
         qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
@@ -324,7 +326,7 @@ def get_payments_for_order(order_id: int, *, reference: str = None) -> QuerySet:
         order_id=order_id, is_deleted=False,
     ).select_related("created_by").order_by("-payment_date")
     if _clean(reference):
-        qs = qs.filter(reference_number__icontains=_clean(reference))
+        qs = qs.filter(search_q(_clean(reference), "reference_number"))
     return qs
 
 
@@ -343,11 +345,11 @@ def get_all_supplier_payments(
         is_deleted=False, amount__gt=0,
     ).select_related("order__supplier", "created_by").order_by("-payment_date")
     if _clean(reference):
-        qs = qs.filter(reference_number__icontains=_clean(reference))
+        qs = qs.filter(search_q(_clean(reference), "reference_number"))
     if _clean(supplier_name):
-        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "order__supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "order__supplier__code"))
     if _clean(method):
         qs = qs.filter(method=_clean(method))
     if _clean(date_from):
@@ -428,10 +430,7 @@ def get_suppliers_with_outstanding(
     ).filter(outstanding__gt=0)
 
     if _clean(search):
-        qs = qs.filter(
-            Q(name__icontains=_clean(search)) |
-            Q(code__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "name", "code"))
     if _clean(min_outstanding):
         qs = qs.filter(outstanding__gte=_clean(min_outstanding))
     if _clean(max_outstanding):
@@ -482,10 +481,7 @@ def get_all_inventory(
     ).filter(product__is_deleted=False)
 
     if _clean(search):
-        qs = qs.filter(
-            Q(product__name__icontains=_clean(search)) |
-            Q(product__code__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
     if _clean(category_id):
         qs = qs.filter(product__category_id=_clean(category_id))
     if _clean(shelf_id):
@@ -580,15 +576,15 @@ def get_all_lost_inventory_records(
     ).prefetch_related("items__product")
 
     if _clean(search):
-        qs = qs.filter(reference_number__icontains=_clean(search))
+        qs = qs.filter(search_q(_clean(search), "reference_number"))
     if _clean(product_id):
         qs = qs.filter(items__product_id=_clean(product_id))
     if _clean(product_name):
-        qs = qs.filter(items__product__name__icontains=_clean(product_name))
+        qs = qs.filter(search_q(_clean(product_name), "items__product__name"))
     if _clean(product_code):
-        qs = qs.filter(items__product__code__icontains=_clean(product_code))
+        qs = qs.filter(search_q(_clean(product_code), "items__product__code"))
     if _clean(reason):
-        qs = qs.filter(items__reason__icontains=_clean(reason))
+        qs = qs.filter(search_q(_clean(reason), "items__reason"))
     if _clean(date):
         start = _day_start(_clean(date))
         end   = _next_day_start(_clean(date))
@@ -693,9 +689,9 @@ def get_all_outstanding_orders(
     )
 
     if _clean(supplier_name):
-        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "supplier__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(date_from):

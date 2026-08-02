@@ -1,5 +1,7 @@
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+
+from backend.search import search_q
 
 from .models import SavedLedgerPDF, SupplierLedger, SupplierLedgerEntry
 from .services import _get_entries_with_running_balance
@@ -16,10 +18,7 @@ def get_all_ledgers(*, search: str = None) -> QuerySet:
     # Hide the internal SYS-OPENING system supplier's ledger from users.
     qs = SupplierLedger.objects.select_related("supplier").exclude(supplier_code="SYS-OPENING")
     if _clean(search):
-        qs = qs.filter(
-            Q(supplier_name__icontains=_clean(search)) |
-            Q(supplier_code__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "supplier_name", "supplier_code"))
     return qs
 
 
@@ -33,7 +32,7 @@ def get_ledger_by_supplier_id(supplier_id: int) -> SupplierLedger:
 
 def get_ledger_entries(
     *,
-    ledger_id      : int,
+    ledger         : SupplierLedger,
     date_from      : str = None,
     date_to        : str = None,
     entry_type     : str = None,
@@ -45,9 +44,11 @@ def get_ledger_entries(
     Returns (entries_with_running_balance, closing_balance).
     Filters are applied before balance computation where possible.
     Note: running balance always reflects full history up to each entry.
-    """
-    ledger = get_object_or_404(SupplierLedger, pk=ledger_id)
 
+    Takes the ledger OBJECT — every caller has already fetched it (for the
+    header of the response), so re-fetching by id here was a wasted query
+    per request.
+    """
     # Get full running balance entries (hybrid method)
     entries, _opening_balance, closing_balance = _get_entries_with_running_balance(
         ledger=ledger,

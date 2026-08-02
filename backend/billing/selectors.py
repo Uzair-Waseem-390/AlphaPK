@@ -1,6 +1,8 @@
 from django.db.models import Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
 
+from backend.search import search_q
+
 # Shared index-friendly date-range helpers (identical day boundaries to the
 # __date lookups they replace, but able to use the created_at indexes).
 from purchases.selectors import _day_start, _next_day_start
@@ -15,11 +17,7 @@ from .models import Customer, Invoice, InvoiceItem, Payment, Return
 def get_all_customers(*, search: str = None) -> QuerySet:
     qs = Customer.objects.filter(is_deleted=False)
     if search:
-        qs = qs.filter(
-            Q(name__icontains=search) |
-            Q(code__icontains=search) |
-            Q(mobile__icontains=search)
-        )
+        qs = qs.filter(search_q(search, "name", "code", "mobile"))
     return qs
 
 
@@ -80,7 +78,7 @@ def get_payments_for_invoice(invoice_id: int, *, reference: str = None) -> Query
         invoice_id=invoice_id, is_deleted=False
     ).select_related("created_by")
     if reference:
-        qs = qs.filter(reference_number__icontains=reference.strip())
+        qs = qs.filter(search_q(reference, "reference_number"))
     return qs
 
 
@@ -98,11 +96,11 @@ def get_all_invoice_payments(
         is_deleted=False, amount__gt=0,
     ).select_related("invoice__customer", "created_by").order_by("-payment_date")
     if _clean(reference):
-        qs = qs.filter(reference_number__icontains=_clean(reference))
+        qs = qs.filter(search_q(_clean(reference), "reference_number"))
     if _clean(customer_name):
-        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "invoice__customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(invoice__customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "invoice__customer__code"))
     if _clean(method):
         qs = qs.filter(method=_clean(method))
     if _clean(date_from):
@@ -147,11 +145,11 @@ def get_all_returns(
     ).order_by("-created_at")
 
     if _clean(reference):
-        qs = qs.filter(reference_number__icontains=_clean(reference))
+        qs = qs.filter(search_q(_clean(reference), "reference_number"))
     if _clean(bill_number):
-        qs = qs.filter(invoice__bill_number__icontains=_clean(bill_number))
+        qs = qs.filter(search_q(_clean(bill_number), "invoice__bill_number"))
     if _clean(customer_name):
-        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "invoice__customer__name"))
     if _clean(status):
         qs = qs.filter(status=_clean(status))
     if _clean(date_from):
@@ -295,14 +293,11 @@ def get_customers_with_outstanding(
 
     # Apply name/code filters AFTER annotation so outstanding is still correct
     if _clean(search):
-        qs = qs.filter(
-            Q(name__icontains=_clean(search)) |
-            Q(code__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "name", "code"))
     if _clean(customer_name):
-        qs = qs.filter(name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "name"))
     if _clean(customer_code):
-        qs = qs.filter(code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "code"))
     if _clean(min_outstanding):
         qs = qs.filter(outstanding__gte=_clean(min_outstanding))
     if _clean(max_outstanding):
@@ -349,11 +344,11 @@ def get_filtered_invoices(
     if _clean(customer_id):
         qs = qs.filter(customer_id=_clean(customer_id))
     if _clean(customer_name):
-        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "customer__code"))
     if _clean(bill_number):
-        qs = qs.filter(bill_number__icontains=_clean(bill_number))
+        qs = qs.filter(search_q(_clean(bill_number), "bill_number"))
     if _clean(date):
         start = _day_start(_clean(date))
         end   = _next_day_start(_clean(date))
@@ -406,9 +401,9 @@ def get_all_outstanding_invoices(
     ).exclude(status=Invoice.Status.DRAFT)
 
     if _clean(customer_name):
-        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "customer__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(date_from):

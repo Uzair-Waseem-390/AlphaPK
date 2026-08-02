@@ -487,9 +487,10 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
         if ledger_entry:
             ledger_entry.debit = new_amount
             ledger_entry.save(update_fields=["debit"])
-            # Recalculate snapshots from this entry's month forward
+            # Recalculate snapshots from this entry's month forward — same
+            # per-supplier write lock as ledger.services' entry services.
             from ledger.models import SupplierLedger
-            ledger = ledger_entry.ledger
+            ledger = SupplierLedger.objects.select_for_update().get(pk=ledger_entry.ledger_id)
             _recalculate_snapshots_from(ledger, _get_year_month(ledger_entry.date))
     else:
         # No existing advance payment — create one with reference number + ledger entry

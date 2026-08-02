@@ -46,17 +46,14 @@ def get_all_rates(
     Search  : product name or product code (case-insensitive, partial match)
     Filters : category id, shelf id, min/max selling price
     """
-    from django.db.models import Q
+    from backend.search import search_q
 
     qs = ProductRate.objects.select_related(*_RATE_RELATED).filter(
         product__is_deleted=False,
     )
 
     if _clean(search):
-        qs = qs.filter(
-            Q(product__name__icontains=_clean(search)) |
-            Q(product__code__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
     if _clean(category_id):
         qs = qs.filter(product__category_id=_clean(category_id))
     if _clean(shelf_id):

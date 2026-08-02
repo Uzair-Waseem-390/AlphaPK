@@ -86,7 +86,7 @@ class SupplierLedgerDetailView(APIView):
         p         = request.query_params
         ledger    = get_ledger_by_id(pk)
         entries, closing_balance = get_ledger_entries(
-            ledger_id  = pk,
+            ledger     = ledger,
             date_from  = p.get("date_from"),
             date_to    = p.get("date_to"),
             entry_type = p.get("entry_type"),
@@ -118,7 +118,7 @@ class SupplierLedgerBySupplierView(APIView):
         p      = request.query_params
         ledger = get_ledger_by_supplier_id(supplier_id)
         entries, closing_balance = get_ledger_entries(
-            ledger_id  = ledger.pk,
+            ledger     = ledger,
             date_from  = p.get("date_from"),
             date_to    = p.get("date_to"),
             entry_type = p.get("entry_type"),
