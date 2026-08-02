@@ -1,5 +1,9 @@
-from django.db.models import Q, QuerySet
+from django.db.models import Prefetch, Q, QuerySet
 from django.shortcuts import get_object_or_404
+
+# Shared index-friendly date-range helpers (identical day boundaries to the
+# __date lookups they replace, but able to use the created_at indexes).
+from purchases.selectors import _day_start, _next_day_start
 
 from .models import Customer, Invoice, InvoiceItem, Payment, Return
 
@@ -28,14 +32,21 @@ def get_customer_by_id(pk: int) -> Customer:
 # ---------------------------------------------------------------------------
 
 def _invoice_qs():
+    # Exactly what InvoiceReadSerializer outputs — nothing more:
+    #  - customer's audit users (CustomerReadSerializer serializes them)
+    #  - items with product (name/code) and product__rate, which the draft
+    #    preview reads per item (was a query per item before)
+    # Dropped as never-serialized dead weight: items__fifo_layers__purchase
+    # (loaded the ENTIRE ever-growing FIFO ledger on every list request),
+    # payments, and item category/shelf.
     return Invoice.objects.select_related(
-        "customer", "created_by", "updated_by", "confirmed_by", "deleted_by",
+        "customer", "customer__created_by", "customer__updated_by",
+        "created_by", "updated_by", "confirmed_by", "deleted_by",
     ).prefetch_related(
-        "items__product",
-        "items__product__category",
-        "items__product__shelf",
-        "items__fifo_layers__purchase",
-        "payments",
+        Prefetch(
+            "items",
+            queryset=InvoiceItem.objects.select_related("product", "product__rate"),
+        ),
     )
 
 
@@ -110,9 +121,11 @@ def get_payment_by_id(pk: int) -> Payment:
 # ---------------------------------------------------------------------------
 
 def get_returns_for_invoice(invoice_id: int) -> QuerySet:
+    # invoice__customer: the read serializer outputs bill number and
+    # customer name on every return — without this it's 2 queries per row.
     return Return.objects.filter(
         invoice_id=invoice_id, is_deleted=False,
-    ).select_related("created_by", "accepted_by").prefetch_related(
+    ).select_related("invoice__customer", "created_by", "accepted_by").prefetch_related(
         "items__invoice_item__product",
     )
 
@@ -142,17 +155,19 @@ def get_all_returns(
     if _clean(status):
         qs = qs.filter(status=_clean(status))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
-        
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
+
     return qs
 
 
 def get_return_by_id(pk: int) -> Return:
     return get_object_or_404(
         Return.objects.select_related(
-            "invoice", "created_by", "accepted_by",
+            "invoice__customer", "created_by", "accepted_by",
         ).prefetch_related("items__invoice_item__product"),
         pk=pk,
         is_deleted=False,
@@ -163,14 +178,17 @@ def get_return_by_id(pk: int) -> Return:
 # FIFO helper — used exclusively by services
 # ---------------------------------------------------------------------------
 
-def get_available_purchase_batches(product_id: int) -> QuerySet:
+def get_available_purchase_batches(product_id: int, *, for_update: bool = False) -> QuerySet:
     """
     Returns confirmed PurchaseItems for a product that still have remaining stock,
     ordered oldest-confirmed first (FIFO order). Excludes soft-deleted items.
     Uses PurchaseItem (renamed from Purchase) from the purchases app.
+
+    for_update=True locks the batch rows — required for paths that decrement
+    remaining_quantity (invoice confirm); read-only checks must not pass it.
     """
     from purchases.selectors import get_available_purchase_items_for_fifo
-    return get_available_purchase_items_for_fifo(product_id)
+    return get_available_purchase_items_for_fifo(product_id, for_update=for_update)
 
 
 # ---------------------------------------------------------------------------
@@ -183,9 +201,13 @@ def get_invoice_payment_summary(invoice_id: int) -> Invoice:
     cash_received, credit_outstanding, total_paid, remaining_amount
     are stored fields updated on every payment event.
     """
+    # payments prefetched with their created_by (serialized per payment).
+    # Payment.objects is the SoftDeleteManager — same filtering the bare
+    # "payments" prefetch applied via the related manager. The old
+    # items__product prefetch was never serialized here — dropped.
     return get_object_or_404(
         Invoice.objects.select_related("customer").prefetch_related(
-            "payments", "items__product",
+            Prefetch("payments", queryset=Payment.objects.select_related("created_by")),
         ),
         pk=invoice_id,
         is_deleted=False,
@@ -333,11 +355,18 @@ def get_filtered_invoices(
     if _clean(bill_number):
         qs = qs.filter(bill_number__icontains=_clean(bill_number))
     if _clean(date):
-        qs = qs.filter(created_at__date=_clean(date))
+        start = _day_start(_clean(date))
+        end   = _next_day_start(_clean(date))
+        if start and end:
+            qs = qs.filter(created_at__gte=start, created_at__lt=end)
+        else:
+            qs = qs.filter(created_at__date=_clean(date))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(min_amount):
@@ -383,9 +412,11 @@ def get_all_outstanding_invoices(
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
+        start = _day_start(_clean(date_from))
+        qs = qs.filter(created_at__gte=start) if start else qs.filter(created_at__date__gte=_clean(date_from))
     if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+        end = _next_day_start(_clean(date_to))
+        qs = qs.filter(created_at__lt=end) if end else qs.filter(created_at__date__lte=_clean(date_to))
     if _clean(min_outstanding):
         qs = qs.filter(credit_outstanding__gte=_clean(min_outstanding))
     if _clean(max_outstanding):

@@ -78,15 +78,17 @@ _DOC_TYPE_SOURCES = {
 }
 
 
-def _legacy_max_sequence(doc_type: str, prefix: str) -> int:
+def _legacy_max_sequence(model, field: str, prefix: str) -> int:
     """
     Numeric max of the sequence part of existing references for this
     prefix — parsed as integers, NOT text-sorted (text sort is the bug that
-    broke the old generators at 10000). O(N) but runs only once per
-    (doc_type, year), when its counter row is first created.
+    broke the old generators at 10000). Scans ALL rows including
+    soft-deleted ones (a soft-deleted document still owns its unique
+    reference). O(N) but runs only once per counter, when its row is first
+    created.
     """
-    model, field = _DOC_TYPE_SOURCES[doc_type]
-    refs = model.all_objects.filter(
+    manager = getattr(model, "all_objects", model._default_manager)
+    refs = manager.filter(
         **{f"{field}__startswith": prefix}
     ).values_list(field, flat=True)
     max_seq = 0
@@ -98,26 +100,37 @@ def _legacy_max_sequence(doc_type: str, prefix: str) -> int:
     return max_seq
 
 
-def _next_reference(doc_type: str) -> str:
+def next_reference(*, counter_key: str, prefix_label: str, model, field: str) -> str:
     """
     Returns the next sequential reference (e.g. PO-2026-0001) by locking the
-    (doc_type, year) DocumentCounter row and incrementing it — O(1) and
+    (counter_key, year) DocumentCounter row and incrementing it — O(1) and
     race-safe regardless of how many documents exist. Numbers below 10000
     keep the historical 4-digit padding; beyond that the number simply grows
     (PO-2026-10000) since ordering no longer relies on text sort.
+
+    counter_key and prefix_label are separate because two apps can share a
+    display prefix while keeping independent sequences: purchase returns and
+    billing returns both format as RTN-<year>-#### (unique per table), so
+    billing uses counter_key="BILL-RTN" with prefix_label="RTN".
     """
     year   = timezone.now().year
-    prefix = f"{doc_type}-{year}-"
+    prefix = f"{prefix_label}-{year}-"
     with transaction.atomic():
         counter, created = (
             DocumentCounter.objects.select_for_update()
-            .get_or_create(doc_type=doc_type, year=year)
+            .get_or_create(doc_type=counter_key, year=year)
         )
         if created:
-            counter.last_number = _legacy_max_sequence(doc_type, prefix)
+            counter.last_number = _legacy_max_sequence(model, field, prefix)
         counter.last_number += 1
         counter.save(update_fields=["last_number"])
         return f"{prefix}{counter.last_number:04d}"
+
+
+def _next_reference(doc_type: str) -> str:
+    """Purchases-app wrapper: counter key and prefix are the same string."""
+    model, field = _DOC_TYPE_SOURCES[doc_type]
+    return next_reference(counter_key=doc_type, prefix_label=doc_type, model=model, field=field)
 
 
 def _generate_order_number() -> str:
@@ -1004,8 +1017,12 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         ])
 
         # FIFO reversal: restore remaining_quantity (oldest batch restored last)
+        # select_for_update: these rows' remaining_quantity is read-then-
+        # written (capped at original quantity), so they must be locked
+        # against concurrent FIFO consumers. Inside accept_purchase_return's
+        # transaction.
         remaining_to_restore = qty
-        fifo_items = PurchaseItem.objects.filter(
+        fifo_items = PurchaseItem.objects.select_for_update().filter(
             order=purchase_item.order,
             product=purchase_item.product,
             is_deleted=False,
@@ -1104,7 +1121,10 @@ def _consume_fifo_for_loss(*, product: Product, quantity: int) -> tuple[Decimal,
     remaining_to_consume = quantity
     total_cost = Decimal("0")
     consumptions = []
-    batches = get_available_purchase_items_for_fifo(product.id)
+    # for_update: this path decrements remaining_quantity — the batch rows
+    # must be locked so a concurrent invoice confirm can't consume the same
+    # units (runs inside create_lost_inventory_record's transaction).
+    batches = get_available_purchase_items_for_fifo(product.id, for_update=True)
 
     for batch in batches:
         if remaining_to_consume <= 0:
@@ -1260,8 +1280,13 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
             )
         })
 
+    # select_for_update locks both the consumption rows and (via the join)
+    # their purchase batches — restored_quantity and remaining_quantity are
+    # read-then-written here, so concurrent "mark found" calls or FIFO
+    # consumers must queue. Inside mark_lost_inventory_found's transaction.
     consumptions = list(
-        lost_item.fifo_consumptions.select_related("purchase_item").order_by("id")
+        lost_item.fifo_consumptions.select_related("purchase_item")
+        .select_for_update().order_by("id")
     )
 
     remaining_to_restore = quantity

@@ -27,7 +27,26 @@ def _build_draft_preview(invoice: Invoice) -> dict | None:
     has_missing_rate  = False
     has_missing_stock = False
 
-    for item in invoice.items.all():
+    items = list(invoice.items.all())
+
+    # One batches query for the whole invoice instead of one per line item,
+    # grouped per product in Python. Same filter and created_at ordering as
+    # the old per-item query, so per-product batch order (and therefore the
+    # peeked cost) is identical.
+    batches_by_product = {}
+    all_batches = (
+        PurchaseItem.objects
+        .filter(
+            product_id__in=[item.product_id for item in items],
+            is_deleted=False,
+            remaining_quantity__gt=0,
+        )
+        .order_by("created_at")
+    )
+    for batch in all_batches:
+        batches_by_product.setdefault(batch.product_id, []).append(batch)
+
+    for item in items:
         product = item.product
 
         # --- Selling price from rate list ---
@@ -38,11 +57,7 @@ def _build_draft_preview(invoice: Invoice) -> dict | None:
             has_missing_rate = True
 
         # --- FIFO peek: blended cost from oldest batches (read-only) ---
-        batches = (
-            PurchaseItem.objects
-            .filter(product=product, is_deleted=False, remaining_quantity__gt=0)
-            .order_by("created_at")
-        )
+        batches = batches_by_product.get(product.id, [])
         available_qty  = sum(b.remaining_quantity for b in batches)
         qty_to_consume = item.quantity
         remaining      = qty_to_consume

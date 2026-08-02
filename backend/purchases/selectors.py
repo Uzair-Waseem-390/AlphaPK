@@ -232,12 +232,20 @@ def get_purchase_item_by_id(pk: int) -> PurchaseItem:
     )
 
 
-def get_available_purchase_items_for_fifo(product_id: int) -> QuerySet:
+def get_available_purchase_items_for_fifo(product_id: int, *, for_update: bool = False) -> QuerySet:
     """
     Returns confirmed purchase items with remaining stock, oldest first (FIFO).
     Used by billing app to consume stock.
+
+    for_update=True locks the batch rows (select_for_update) — REQUIRED for
+    every path that decrements remaining_quantity, so two concurrent stock
+    consumers (invoice confirm, lost-inventory record, ...) can never sell
+    the same physical units twice. Must run inside a transaction. Read-only
+    paths (previews, draft validation) must NOT pass it. No-op on SQLite
+    (dev); real row locks on PostgreSQL, acquired in FIFO order so
+    same-product consumers can't deadlock each other.
     """
-    return (
+    qs = (
         PurchaseItem.objects
         .filter(
             product_id=product_id,
@@ -247,6 +255,9 @@ def get_available_purchase_items_for_fifo(product_id: int) -> QuerySet:
         )
         .order_by("order__confirmed_at")
     )
+    if for_update:
+        qs = qs.select_for_update()
+    return qs
 
 
 # ---------------------------------------------------------------------------

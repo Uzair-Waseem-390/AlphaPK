@@ -49,21 +49,19 @@ def _sync_invoice_payment_summary(invoice) -> None:
             unpaid  -> credit_outstanding == grand_total (no payments at all)
     """
     from decimal import Decimal
+    from django.db.models import Q, Sum
     from .models import Payment
 
-    payments = Payment.objects.filter(invoice=invoice, is_deleted=False)
-
-    # Sum all actual cash/digital payments received (positive amounts)
-    cash_received = Decimal("0")
-    for p in payments:
-        if p.amount > 0:
-            cash_received += p.amount
-
-    # Sum return credit notes (negative amounts) — reduce what customer owes
-    return_credits = Decimal("0")
-    for p in payments:
-        if p.amount < 0:
-            return_credits += abs(p.amount)
+    # One conditional aggregate instead of loading every payment row into
+    # Python and looping twice — same numbers, one query.
+    agg = Payment.objects.filter(invoice=invoice, is_deleted=False).aggregate(
+        cash=Sum("amount", filter=Q(amount__gt=0)),
+        credits=Sum("amount", filter=Q(amount__lt=0)),
+    )
+    # Actual cash/digital payments received (positive amounts)
+    cash_received = agg["cash"] or Decimal("0")
+    # Return credit notes (negative amounts) — reduce what customer owes
+    return_credits = abs(agg["credits"] or Decimal("0"))
 
     # credit_outstanding = how much customer still owes on credit
     # Starts at grand_total, reduced by payments received and return credits
@@ -96,57 +94,33 @@ def _sync_invoice_payment_summary(invoice) -> None:
     ])
 
 
+# Reference generation is counter-based (purchases.DocumentCounter): O(1),
+# race-safe, immune to the text-sort rollover at 10000, and seeded from the
+# numeric max of ALL existing rows including soft-deleted ones — the old
+# generators here queried through the soft-delete manager, so soft-deleting
+# the highest-numbered payment/return made the next create collide with the
+# deleted row's unique reference (500).
+
 def _generate_bill_number() -> str:
-    """
-    Generates sequential bill number: BILL-2026-0001.
-    Reads the highest existing number for the current year and increments.
-    Uses select_for_update inside a transaction to prevent race conditions
-    under concurrent requests.
-    """
-    year = timezone.now().year
-    prefix = f"BILL-{year}-"
-    last = (
-        Invoice.all_objects
-        .filter(bill_number__startswith=prefix)
-        .order_by("-bill_number")
-        .first()
-    )
-    if last:
-        last_seq = int(last.bill_number.split("-")[-1])
-        seq = last_seq + 1
-    else:
-        seq = 1
-    return f"{prefix}{seq:04d}"
+    """Sequential bill number: BILL-2026-0001."""
+    from purchases.services import next_reference
+    return next_reference(counter_key="BILL", prefix_label="BILL", model=Invoice, field="bill_number")
 
 
 def _generate_payment_reference() -> str:
-    """Generates sequential billing payment reference: PAY-2026-0001."""
-    year   = timezone.now().year
-    prefix = f"PAY-{year}-"
-    from .models import Payment
-    last = (
-        Payment.objects
-        .filter(reference_number__startswith=prefix)
-        .order_by("-reference_number")
-        .first()
-    )
-    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    """Sequential billing payment reference: PAY-2026-0001."""
+    from purchases.services import next_reference
+    return next_reference(counter_key="PAY", prefix_label="PAY", model=Payment, field="reference_number")
 
 
 def _generate_return_reference() -> str:
-    """Generates sequential billing return reference: RTN-2026-0001."""
-    year   = timezone.now().year
-    prefix = f"RTN-{year}-"
-    from .models import Return
-    last = (
-        Return.objects
-        .filter(reference_number__startswith=prefix)
-        .order_by("-reference_number")
-        .first()
-    )
-    seq = int(last.reference_number.split("-")[-1]) + 1 if last else 1
-    return f"{prefix}{seq:04d}"
+    """
+    Sequential billing return reference: RTN-2026-0001.
+    Counter key BILL-RTN keeps this sequence independent from purchase
+    returns, which share the RTN- display prefix (uniqueness is per-table).
+    """
+    from purchases.services import next_reference
+    return next_reference(counter_key="BILL-RTN", prefix_label="RTN", model=Return, field="reference_number")
 
 
 def _get_current_selling_price(product) -> Decimal:
@@ -176,9 +150,16 @@ def _validate_stock(product, requested_qty: int, exclude_invoice_id: int = None)
     Raises ValidationError with a clear message if stock is insufficient.
     """
     from rest_framework.exceptions import ValidationError
+    from django.db.models import Sum
 
-    batches = get_available_purchase_batches(product.id)
-    available = sum(b.remaining_quantity for b in batches)
+    # Single aggregate instead of loading every batch row to sum in Python.
+    # Deliberately unlocked — this also runs on draft create/edit, which
+    # must never take stock locks. The locked walk in _run_fifo has its own
+    # ran-out guard for the confirm race.
+    available = (
+        get_available_purchase_batches(product.id)
+        .aggregate(total=Sum("remaining_quantity"))["total"] or 0
+    )
 
     if available < requested_qty:
         raise ValidationError({
@@ -205,7 +186,10 @@ def _run_fifo(*, invoice_item: InvoiceItem, quantity: int, user) -> Decimal:
     product = invoice_item.product
     remaining_to_consume = quantity
     total_cost = Decimal("0")
-    batches = get_available_purchase_batches(product.id)
+    # for_update: this decrements remaining_quantity — batch rows are locked
+    # so a concurrent confirm/loss can't consume the same units. Runs inside
+    # confirm_invoice's transaction; locks acquired in FIFO order.
+    batches = get_available_purchase_batches(product.id, for_update=True)
 
     for batch in batches:
         if remaining_to_consume <= 0:
@@ -255,8 +239,12 @@ def _reverse_fifo(*, invoice_item: InvoiceItem, return_quantity: int) -> None:
     remaining_to_restore = return_quantity
 
     # Reverse in newest-first order so the most recently consumed batch
-    # is restored first (correct FIFO reversal)
-    layers = FIFOLedger.objects.filter(
+    # is restored first (correct FIFO reversal).
+    # select_related("purchase"): each layer's batch was previously lazy-
+    # loaded one query at a time. select_for_update: the joined batch rows'
+    # remaining_quantity is read-then-written, so they must be locked
+    # against concurrent FIFO consumers. Inside accept_return's transaction.
+    layers = FIFOLedger.objects.select_related("purchase").select_for_update().filter(
         invoice_item=invoice_item,
         quantity__gt=0,          # only original consumption entries
     ).order_by("-created_at")
@@ -505,7 +493,12 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     if invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": "Only draft invoices can be confirmed."})
 
-    for item in invoice.items.all():
+    # Sorted in Python (not .order_by) for two reasons: a deterministic
+    # product order means two concurrent confirms lock products in the same
+    # sequence (no deadlocks), and sorting the PREFETCHED objects keeps
+    # _recalculate_invoice_totals below reading the same in-memory items
+    # this loop mutates.
+    for item in sorted(invoice.items.all(), key=lambda i: i.product_id):
         product = item.product
 
         # Final stock check inside transaction
@@ -623,6 +616,7 @@ def create_opening_balance_invoice(*, customer, amount: Decimal, user) -> Invoic
 # Payment services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_payment(
     *, invoice_id: int, amount: Decimal,
     method: str, payment_date, note: str = "", user,
@@ -662,6 +656,7 @@ def create_payment(
     return payment
 
 
+@transaction.atomic
 def delete_payment(*, payment_id: int, user) -> None:
     payment = get_payment_by_id(payment_id)
     invoice = payment.invoice

@@ -78,6 +78,10 @@ class Invoice(AuditMixin):
     customer    = models.ForeignKey(
         Customer, on_delete=models.PROTECT, related_name="invoices",
     )
+    # Overrides AuditMixin.created_at to add an index — every invoice list
+    # sorts by -created_at and filters by date range. Same pattern as
+    # purchases.PurchaseOrder.
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
     is_data_entry = models.BooleanField(
         default=False, db_index=True,
         help_text="True for bootstrap customer opening-balance invoices. Hidden from normal list views.",
@@ -271,6 +275,9 @@ class Return(AuditMixin):
         related_name="accepted_returns",
     )
     accepted_at = models.DateTimeField(null=True, blank=True, db_index=True)
+    # Overrides AuditMixin.created_at to add an index — the returns list
+    # sorts by -created_at and filters by date range.
+    created_at  = models.DateTimeField(auto_now_add=True, db_index=True)
     note        = models.CharField(max_length=255, blank=True, default="")
 
     # Totals — computed on acceptance
