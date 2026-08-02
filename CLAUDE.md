@@ -10,5 +10,6 @@
 - New dashboard/report stat, new app, new "catch-up" calc, new report, perf/DRY-shaped work → `instructions/architecture.md`
 - Anything moving cash-in-hand (payments, returns, expenses, tax, new cash source) → `instructions/cash-in-hand.md`
 - Performance/scalability review or audit request → all `instructions/performance-review-*.md` files
+  - Exception: `instructions/performance-review-reviewer-role-and-goal.md` is ONLY for a dedicated independent-reviewer agent auditing a first agent's performance-review plan — never read it otherwise, and a reviewer agent must not read the other `performance-review-*.md` files in turn (see the file's own header)
 
 Skip these for unrelated tasks (styling tweaks, questions, isolated unrelated bugfixes).
