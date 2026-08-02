@@ -1,5 +1,7 @@
 from decimal import Decimal
 
+from django.db import IntegrityError, transaction
+
 from purchases.models import Product
 from purchases.selectors import get_product_by_id
 
@@ -29,35 +31,55 @@ def _log_rate_history(*, product: Product, selling_price: Decimal, user, note: s
 # Public services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_rate(*, product_id: int, selling_price: Decimal, user, note: str = "") -> ProductRate:
     """
     Create a new ProductRate for a product.
     Raises ValidationError if a rate already exists for this product
     (use update_rate instead).
+
+    Atomic: the rate row and its first history entry are all-or-nothing —
+    billing snapshots prices FROM the history table, so a rate must never
+    exist without its matching history row.
     """
+    from rest_framework.exceptions import ValidationError
+
     product = get_product_by_id(product_id)
 
-    if ProductRate.objects.filter(product=product).exists():
-        from rest_framework.exceptions import ValidationError
-        raise ValidationError(
-            {"product": f"A rate already exists for '{product.name}'. Use PATCH to update it."}
-        )
-
-    rate = ProductRate.objects.create(
-        product=product,
-        selling_price=selling_price,
-        created_by=user,
-        updated_by=user,
+    duplicate_error = ValidationError(
+        {"product": f"A rate already exists for '{product.name}'. Use PATCH to update it."}
     )
+
+    if ProductRate.objects.filter(product=product).exists():
+        raise duplicate_error
+
+    try:
+        # The exists() pre-check can race a concurrent create — the OneToOne
+        # constraint is the real guard, so a duplicate insert must surface as
+        # the same clean 400, not a 500. atomic() keeps the failed insert on
+        # a savepoint so the surrounding transaction stays usable.
+        with transaction.atomic():
+            rate = ProductRate.objects.create(
+                product=product,
+                selling_price=selling_price,
+                created_by=user,
+                updated_by=user,
+            )
+    except IntegrityError:
+        raise duplicate_error
+
     # Log the initial price setting as first history entry
     _log_rate_history(product=product, selling_price=selling_price, user=user, note=note or "Initial price set.")
     return rate
 
 
+@transaction.atomic
 def update_rate(*, pk: int, selling_price: Decimal, user, note: str = "") -> ProductRate:
     """
     Update the current selling price of an existing ProductRate.
-    Always logs the old→new change into ProductRateHistory before saving.
+    Always logs the change into ProductRateHistory in the same transaction —
+    a price change without its history row would make billing (which
+    snapshots prices from history) disagree with the rates page.
     """
     rate = get_rate_by_id(pk)
 

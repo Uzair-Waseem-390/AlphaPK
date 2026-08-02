@@ -19,6 +19,19 @@ def _clean(value):
     return s if s else None
 
 
+# ProductRateReadSerializer nests the full ProductReadSerializer (which in
+# turn nests category/shelf with their audit users) — everything here is
+# serialized; without the user relations each row costs up to 6 extra
+# queries (N+1).
+_RATE_RELATED = (
+    "product", "product__category", "product__shelf",
+    "product__created_by", "product__updated_by",
+    "product__category__created_by", "product__category__updated_by",
+    "product__shelf__created_by", "product__shelf__updated_by",
+    "updated_by", "created_by",
+)
+
+
 def get_all_rates(
     *,
     search      : str = None,
@@ -35,13 +48,7 @@ def get_all_rates(
     """
     from django.db.models import Q
 
-    qs = ProductRate.objects.select_related(
-        "product",
-        "product__category",
-        "product__shelf",
-        "updated_by",
-        "created_by",
-    ).filter(
+    qs = ProductRate.objects.select_related(*_RATE_RELATED).filter(
         product__is_deleted=False,
     )
 
@@ -64,13 +71,7 @@ def get_all_rates(
 
 def get_rate_by_id(pk: int) -> ProductRate:
     return get_object_or_404(
-        ProductRate.objects.select_related(
-            "product",
-            "product__category",
-            "product__shelf",
-            "updated_by",
-            "created_by",
-        ),
+        ProductRate.objects.select_related(*_RATE_RELATED),
         pk=pk,
         product__is_deleted=False,
     )
@@ -78,12 +79,7 @@ def get_rate_by_id(pk: int) -> ProductRate:
 
 def get_rate_by_product_id(product_id: int) -> ProductRate:
     return get_object_or_404(
-        ProductRate.objects.select_related(
-            "product",
-            "product__category",
-            "product__shelf",
-            "updated_by",
-        ),
+        ProductRate.objects.select_related(*_RATE_RELATED),
         product_id=product_id,
         product__is_deleted=False,
     )
