@@ -70,13 +70,18 @@ const MonthlyProfitDetailPage = () => {
     const error   = isCurrent ? currentError : finalizedError;
     const refetch = isCurrent ? refetchCurrent : refetchFinalized;
 
+    // settleType tracks WHICH api ('investor' or 'owner') the open modal /
+    // pending delete should hit — the two settle flows are identical in
+    // shape, just pointed at different backend endpoints.
     const [settleShare, setSettleShare] = useState(null);
+    const [settleType, setSettleType] = useState('investor');
     const [formData, setFormData] = useState({
         amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteType, setDeleteType] = useState('investor');
     const [deleteError, setDeleteError] = useState('');
 
     const resetForm = () => {
@@ -84,17 +89,26 @@ const MonthlyProfitDetailPage = () => {
         setFormError('');
     };
 
-    const openSettle = (share) => {
+    const openSettle = (share, type = 'investor') => {
         resetForm();
         setSettleShare(share);
+        setSettleType(type);
     };
+
+    const openDeleteConfirm = (payout, type = 'investor') => {
+        setDeleteConfirm(payout);
+        setDeleteType(type);
+    };
+
+    const settleLabel = settleType === 'owner' ? 'Owner' : (settleShare?.investor_name_snapshot ?? '');
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
         setFormLoading(true);
         try {
-            await profitsApi.payouts.create(settleShare.id, {
+            const api = settleType === 'owner' ? profitsApi.ownerPayouts : profitsApi.payouts;
+            await api.create(settleShare.id, {
                 ...formData,
                 amount: parseFloat(formData.amount),
             });
@@ -116,7 +130,8 @@ const MonthlyProfitDetailPage = () => {
     const handleDeletePayout = async (payoutId) => {
         setDeleteError('');
         try {
-            await profitsApi.payouts.delete(payoutId);
+            const api = deleteType === 'owner' ? profitsApi.ownerPayouts : profitsApi.payouts;
+            await api.delete(payoutId);
             setDeleteConfirm(null);
             refetch();
         } catch (err) {
@@ -293,34 +308,34 @@ const MonthlyProfitDetailPage = () => {
                     </div>
                 </Card>
             ) : (
-            <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-4">Ownership Split</h3>
+            <Card className="p-8">
+                <h3 className="text-lg font-semibold text-neutral-900 mb-5">Ownership Split</h3>
                 <div className="overflow-x-auto">
-                    <table className="w-full text-sm">
+                    <table className="w-full text-[15px]">
                         <thead>
                             <tr className="text-left text-neutral-500 border-b border-neutral-200">
-                                <th className="pb-2 font-medium">Investor</th>
-                                <th className="pb-2 font-medium">Share %</th>
-                                <th className="pb-2 font-medium">Share Amount</th>
-                                <th className="pb-2 font-medium">Settled</th>
-                                <th className="pb-2 font-medium">Remaining</th>
-                                <th className="pb-2 font-medium">Status</th>
-                                <th className="pb-2 font-medium"></th>
+                                <th className="pb-3 font-medium">Investor</th>
+                                <th className="pb-3 font-medium">Share %</th>
+                                <th className="pb-3 font-medium">Share Amount</th>
+                                <th className="pb-3 font-medium">Settled</th>
+                                <th className="pb-3 font-medium">Remaining</th>
+                                <th className="pb-3 font-medium">Status</th>
+                                <th className="pb-3 font-medium"></th>
                             </tr>
                         </thead>
                         <tbody>
                             {mp.investor_shares.map((share) => (
                                 <Fragment key={share.id}>
                                     <tr className="border-b border-neutral-100">
-                                        <td className="py-2 text-neutral-900">{share.investor_name_snapshot}</td>
-                                        <td className="py-2 text-neutral-700">{fmt(share.share_percent_snapshot)}%</td>
-                                        <td className="py-2 text-neutral-700">Rs. {fmt(share.share_amount)}</td>
-                                        <td className="py-2 text-neutral-700">Rs. {fmt(share.amount_settled)}</td>
-                                        <td className="py-2 text-neutral-700">Rs. {fmt(share.amount_remaining)}</td>
-                                        <td className="py-2">{statusBadge(share.payment_status)}</td>
-                                        <td className="py-2 text-right">
+                                        <td className="py-3 text-neutral-900">{share.investor_name_snapshot}</td>
+                                        <td className="py-3 text-neutral-700">{fmt(share.share_percent_snapshot)}%</td>
+                                        <td className="py-3 text-neutral-700">Rs. {fmt(share.share_amount)}</td>
+                                        <td className="py-3 text-neutral-700">Rs. {fmt(share.amount_settled)}</td>
+                                        <td className="py-3 text-neutral-700">Rs. {fmt(share.amount_remaining)}</td>
+                                        <td className="py-3">{statusBadge(share.payment_status)}</td>
+                                        <td className="py-3 text-right">
                                             {parseFloat(share.amount_remaining) > 0 && (
-                                                <Button size="sm" variant="secondary" onClick={() => openSettle(share)}>
+                                                <Button size="sm" variant="secondary" onClick={() => openSettle(share, 'investor')}>
                                                     Settle Share
                                                 </Button>
                                             )}
@@ -328,17 +343,17 @@ const MonthlyProfitDetailPage = () => {
                                     </tr>
                                     {share.payouts.length > 0 && (
                                         <tr>
-                                            <td colSpan={7} className="pb-3">
-                                                <div className="ml-2 space-y-1">
+                                            <td colSpan={7} className="pb-4">
+                                                <div className="ml-2 space-y-1.5">
                                                     {share.payouts.map((p) => (
-                                                        <div key={p.id} className="flex items-center justify-between text-xs bg-neutral-50 rounded-lg px-3 py-2">
+                                                        <div key={p.id} className="flex items-center justify-between text-sm bg-neutral-50 rounded-lg px-3 py-2.5">
                                                             <span className="text-neutral-600">
                                                                 {p.action_type === 'reinvest' ? 'Reinvested' : 'Paid out'}{' '}
                                                                 <strong>Rs. {fmt(p.amount)}</strong> on {new Date(p.payout_date).toLocaleDateString()}
                                                                 {p.note && ` — ${p.note}`}
                                                             </span>
                                                             <button
-                                                                onClick={() => setDeleteConfirm(p)}
+                                                                onClick={() => openDeleteConfirm(p, 'investor')}
                                                                 className="text-error-600 hover:text-error-700"
                                                             >
                                                                 Reverse
@@ -351,15 +366,52 @@ const MonthlyProfitDetailPage = () => {
                                     )}
                                 </Fragment>
                             ))}
-                            <tr>
-                                <td className="py-2 font-semibold text-neutral-900">Owner</td>
-                                <td className="py-2 font-semibold text-neutral-900">{fmt(mp.owner_share_percent)}%</td>
-                                <td className="py-2 font-semibold text-neutral-900" colSpan={4}>Rs. {fmt(mp.owner_share_amount)}</td>
-                            </tr>
+                            {mp.owner_share && (
+                                <Fragment>
+                                    <tr className="border-b border-neutral-100 border-t-2 border-t-neutral-200">
+                                        <td className="py-3 font-semibold text-neutral-900">Owner</td>
+                                        <td className="py-3 font-semibold text-neutral-900">{fmt(mp.owner_share_percent)}%</td>
+                                        <td className="py-3 font-semibold text-neutral-900">Rs. {fmt(mp.owner_share.share_amount)}</td>
+                                        <td className="py-3 text-neutral-700">Rs. {fmt(mp.owner_share.amount_settled)}</td>
+                                        <td className="py-3 text-neutral-700">Rs. {fmt(mp.owner_share.amount_remaining)}</td>
+                                        <td className="py-3">{statusBadge(mp.owner_share.payment_status)}</td>
+                                        <td className="py-3 text-right">
+                                            {parseFloat(mp.owner_share.amount_remaining) > 0 && (
+                                                <Button size="sm" variant="secondary" onClick={() => openSettle(mp.owner_share, 'owner')}>
+                                                    Settle Share
+                                                </Button>
+                                            )}
+                                        </td>
+                                    </tr>
+                                    {mp.owner_share.payouts.length > 0 && (
+                                        <tr>
+                                            <td colSpan={7} className="pb-4">
+                                                <div className="ml-2 space-y-1.5">
+                                                    {mp.owner_share.payouts.map((p) => (
+                                                        <div key={p.id} className="flex items-center justify-between text-sm bg-neutral-50 rounded-lg px-3 py-2.5">
+                                                            <span className="text-neutral-600">
+                                                                {p.action_type === 'reinvest' ? 'Reinvested' : 'Paid out'}{' '}
+                                                                <strong>Rs. {fmt(p.amount)}</strong> on {new Date(p.payout_date).toLocaleDateString()}
+                                                                {p.note && ` — ${p.note}`}
+                                                            </span>
+                                                            <button
+                                                                onClick={() => openDeleteConfirm(p, 'owner')}
+                                                                className="text-error-600 hover:text-error-700"
+                                                            >
+                                                                Reverse
+                                                            </button>
+                                                        </div>
+                                                    ))}
+                                                </div>
+                                            </td>
+                                        </tr>
+                                    )}
+                                </Fragment>
+                            )}
                         </tbody>
                     </table>
                 </div>
-                <p className="text-xs text-neutral-400 mt-4">
+                <p className="text-xs text-neutral-400 mt-5">
                     Share % is frozen as of this month — it won't change even if ownership % changes later.
                     An unpaid or partial balance isn't a business liability, it's informational tracking only.
                 </p>
@@ -370,7 +422,7 @@ const MonthlyProfitDetailPage = () => {
             <Modal
                 isOpen={!!settleShare}
                 onClose={() => { setSettleShare(null); resetForm(); }}
-                title={`Settle Share — ${settleShare?.investor_name_snapshot ?? ''}`}
+                title={`Settle Share — ${settleLabel}`}
                 size="lg"
             >
                 {settleShare && (
@@ -430,8 +482,8 @@ const MonthlyProfitDetailPage = () => {
                             <div className="p-3 bg-amber-50 rounded-lg">
                                 <p className="text-sm text-amber-700">
                                     {formData.action_type === 'reinvest'
-                                        ? `⚠️ Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new investment for ${settleShare.investor_name_snapshot} — net cash effect is zero, but both are recorded.`
-                                        : `⚠️ This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${settleShare.investor_name_snapshot}.`}
+                                        ? `⚠️ Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new ${settleType === 'owner' ? 'contribution' : 'investment'} for ${settleLabel} — net cash effect is zero, but both are recorded.`
+                                        : `⚠️ This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${settleLabel}.`}
                                 </p>
                             </div>
                         )}
@@ -459,7 +511,7 @@ const MonthlyProfitDetailPage = () => {
                 onClose={() => setDeleteConfirm(null)}
                 onConfirm={() => handleDeletePayout(deleteConfirm?.id)}
                 title="Reverse Settlement"
-                message={`Are you sure you want to reverse this Rs. ${fmt(deleteConfirm?.amount)} ${deleteConfirm?.action_type === 'reinvest' ? 'reinvestment' : 'payout'}? This restores cash in hand${deleteConfirm?.action_type === 'reinvest' ? ' and undoes the linked investment' : ''}.`}
+                message={`Are you sure you want to reverse this Rs. ${fmt(deleteConfirm?.amount)} ${deleteConfirm?.action_type === 'reinvest' ? 'reinvestment' : 'payout'}? This restores cash in hand${deleteConfirm?.action_type === 'reinvest' ? ` and undoes the linked ${deleteType === 'owner' ? 'contribution' : 'investment'}` : ''}.`}
             />
         </div>
     );
