@@ -1,7 +1,16 @@
+from datetime import timedelta
+
+from django.db import transaction
+from django.utils import timezone
+from rest_framework_simplejwt.token_blacklist.models import OutstandingToken
 from rest_framework_simplejwt.tokens import RefreshToken
 
-from .models import User
+from .models import TokenFlushState, User
 from .selectors import get_user_by_email
+
+# Expired tokens are pruned at most once per this interval — frequent
+# catch-up calls stay O(1) (one indexed read of the singleton row).
+TOKEN_FLUSH_INTERVAL = timedelta(hours=24)
 
 
 # ---------------------------------------------------------------------------
@@ -31,6 +40,37 @@ def logout_user(refresh_token: str) -> None:
     """
     token = RefreshToken(refresh_token)
     token.blacklist()
+
+
+# ---------------------------------------------------------------------------
+# Token table maintenance (catch-up on view — no cron/celery in this project)
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def flush_expired_tokens(*, force: bool = False) -> int:
+    """
+    Delete expired rows from SimpleJWT's OutstandingToken table (their
+    BlacklistedToken rows cascade). Same effect as `manage.py
+    flushexpiredtokens`, exposed as a service so the system catch-up
+    endpoint can run it.
+
+    Throttled to once per TOKEN_FLUSH_INTERVAL via the TokenFlushState
+    singleton unless force=True. Consistency-safe: an expired token is
+    rejected by signature/exp validation regardless of whether its
+    blacklist row still exists. A concurrent double-flush is harmless
+    (the delete is idempotent), so no row locking is needed.
+
+    Returns the number of rows deleted (0 when throttled).
+    """
+    state = TokenFlushState.get_instance()
+    now = timezone.now()
+    if not force and state.last_flushed_at and now - state.last_flushed_at < TOKEN_FLUSH_INTERVAL:
+        return 0
+
+    deleted_count, _ = OutstandingToken.objects.filter(expires_at__lte=now).delete()
+    state.last_flushed_at = now
+    state.save(update_fields=["last_flushed_at"])
+    return deleted_count
 
 
 # ---------------------------------------------------------------------------

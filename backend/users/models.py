@@ -74,3 +74,36 @@ class User(AbstractBaseUser, PermissionsMixin):
         if self.is_staff:
             return "admin"
         return "user"
+
+
+# ---------------------------------------------------------------------------
+# TokenFlushState  (singleton — mirrors CashFlow/TaxFlow/AssetFlow/ProfitFlow)
+# ---------------------------------------------------------------------------
+
+class TokenFlushState(models.Model):
+    """
+    Single live record tracking when expired JWT tokens were last flushed
+    from SimpleJWT's OutstandingToken/BlacklistedToken tables. Those tables
+    grow on every login and refresh (ROTATE_REFRESH_TOKENS +
+    BLACKLIST_AFTER_ROTATION) and nothing else ever prunes them — the flush
+    runs as a throttled catch-up via GET /api/system/catch-up/, and this
+    row makes the "already flushed recently?" check O(1).
+    """
+
+    last_flushed_at = models.DateTimeField(
+        null=True, blank=True,
+        help_text="When expired tokens were last flushed. Null = never flushed.",
+    )
+
+    class Meta:
+        verbose_name = "Token Flush State"
+        verbose_name_plural = "Token Flush State"
+
+    def __str__(self):
+        return f"TokenFlushState — last_flushed_at: {self.last_flushed_at}"
+
+    @classmethod
+    def get_instance(cls):
+        """Always returns the single TokenFlushState record, creating it if needed."""
+        instance, _ = cls.objects.get_or_create(pk=1)
+        return instance

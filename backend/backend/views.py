@@ -25,7 +25,7 @@ class TriggerAllCatchUpsView(APIView):
     pages/hooks happen to be wired up. Returns only a small confirmation
     object — no dashboard data lives here on purpose.
 
-    There are exactly three such mechanisms in the whole codebase (verified
+    There are exactly four such mechanisms in the whole codebase (verified
     by two independent sweeps across every app — nothing else uses this
     pattern; every other Flow singleton is kept current at write time,
     event-driven, and needs no trigger):
@@ -33,10 +33,12 @@ class TriggerAllCatchUpsView(APIView):
         1. assets      — depreciation catch-up, one entry per active asset
         2. cash_management — investor growth catch-up, one entry per investor
         3. profits     — monthly profit finalization catch-up (global)
+        4. users       — expired JWT token flush (throttled to once/24h)
 
     Order matters: assets and investors run first because profits reads
     both of their outputs (asset depreciation for the deduction breakdown,
     investor current_worth for the ownership split) when finalizing a month.
+    The token flush is independent of the other three and runs last.
 
     Each phase is isolated in its own try/except — one app's failure never
     blocks the other two (same defensive-import discipline already used for
@@ -49,6 +51,7 @@ class TriggerAllCatchUpsView(APIView):
         assets_processed, assets_error = self._run_asset_catchup()
         investors_processed, investors_error = self._run_investor_catchup()
         months_finalized, profits_error = self._run_profits_catchup(user=request.user)
+        tokens_flushed, tokens_error = self._run_token_flush()
 
         return Response({
             "assets_processed": assets_processed,
@@ -57,6 +60,8 @@ class TriggerAllCatchUpsView(APIView):
             "investors_error": investors_error,
             "months_finalized": months_finalized,
             "profits_error": profits_error,
+            "tokens_flushed": tokens_flushed,
+            "tokens_error": tokens_error,
         })
 
     def _run_asset_catchup(self):
@@ -88,7 +93,7 @@ class TriggerAllCatchUpsView(APIView):
             return 0, str(exc)
 
     def _run_profits_catchup(self, *, user):
-        """Runs last — depends on assets/investors already being current."""
+        """Depends on assets/investors already being current."""
         try:
             from profits.models import ProfitFlow
             from profits.services import catch_up_monthly_profits
@@ -97,5 +102,17 @@ class TriggerAllCatchUpsView(APIView):
             catch_up_monthly_profits(user=user)
             after = ProfitFlow.get_instance().months_finalized_count
             return after - before, None
+        except Exception as exc:
+            return 0, str(exc)
+
+    def _run_token_flush(self):
+        """Prunes expired SimpleJWT outstanding/blacklisted token rows —
+        the only tables in the project that would otherwise grow forever
+        (every login and refresh inserts rows and nothing else deletes
+        them). Throttled inside the service to once per 24h."""
+        try:
+            from users.services import flush_expired_tokens
+
+            return flush_expired_tokens(), None
         except Exception as exc:
             return 0, str(exc)

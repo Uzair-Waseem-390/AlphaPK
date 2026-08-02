@@ -1,3 +1,4 @@
+from django.db import IntegrityError, transaction
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
@@ -6,7 +7,7 @@ from rest_framework_simplejwt.exceptions import TokenError
 
 from .models import User
 from .permissions import IsOwnerOrSuperuser, IsSuperuser
-from .selectors import authenticate_user, get_all_users, get_user_by_email
+from .selectors import authenticate_user, get_all_users
 from .serializers import (
     ChangePasswordSerializer,
     LoginSerializer,
@@ -137,14 +138,24 @@ class UserListCreateView(generics.ListCreateAPIView):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
-        create_user(
-            email=data["email"],
-            first_name=data["first_name"],
-            last_name=data["last_name"],
-            password=data["password"],
-            role=data["role"],
-        )
-        user = get_user_by_email(data["email"])
+        try:
+            # The serializer's exists() check can race a concurrent create —
+            # the PK constraint is the real guard, so a duplicate insert must
+            # surface as a 400, not a 500. atomic() keeps the failed insert
+            # on a savepoint so any surrounding transaction stays usable.
+            with transaction.atomic():
+                user = create_user(
+                    email=data["email"],
+                    first_name=data["first_name"],
+                    last_name=data["last_name"],
+                    password=data["password"],
+                    role=data["role"],
+                )
+        except IntegrityError:
+            return Response(
+                {"email": ["A user with this email already exists."]},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
         return Response(UserReadSerializer(user).data, status=status.HTTP_201_CREATED)
 
 

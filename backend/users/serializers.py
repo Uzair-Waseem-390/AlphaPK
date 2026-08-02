@@ -101,11 +101,10 @@ class SuperuserChangePasswordSerializer(ChangePasswordSerializer):
     Extends ChangePasswordSerializer with a target `email` field so a
     superuser can change another user's password by supplying their email.
     Inherits all password validation logic — no duplication.
+
+    No existence check here: the service's get_user_by_email() already
+    404s on an unknown email, and a serializer-level exists() would just
+    re-fetch the same row.
     """
 
     email = serializers.EmailField()
-
-    def validate_email(self, value):
-        if not User.objects.filter(email=value).exists():
-            raise serializers.ValidationError("No user found with this email.")
-        return value
