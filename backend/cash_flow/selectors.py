@@ -369,6 +369,31 @@ def get_cash_in_hand_breakdown(
     except Exception:
         pass
 
+    # --- Outflows: owner profit payouts (payout or reinvest — both move cash out) ---
+    try:
+        from profits.models import OwnerProfitPayout
+        owner_payout_qs = OwnerProfitPayout.objects.filter(is_deleted=False).select_related(
+            "owner_share__monthly_profit",
+        )
+        if _clean(date_from):
+            owner_payout_qs = owner_payout_qs.filter(payout_date__gte=_clean(date_from))
+        if _clean(date_to):
+            owner_payout_qs = owner_payout_qs.filter(payout_date__lte=_clean(date_to))
+
+        for op in owner_payout_qs:
+            movements.append({
+                "direction"  : "outflow",
+                "type"       : "owner_profit_payout",
+                "date"       : str(op.payout_date),
+                "created_at" : op.created_at,
+                "description": f"{op.get_action_type_display()} — Owner ({op.owner_share.monthly_profit.period})",
+                "reference"  : f"OWNPROFIT-{op.id}",
+                "amount"     : op.amount,
+                "method"     : None,
+            })
+    except Exception:
+        pass
+
     # --- Lost/found cash + investor investments/withdrawals ---
     # cash_management is a separate app — import defensively so this
     # breakdown keeps working even if the app were ever removed.
@@ -518,7 +543,7 @@ def get_cash_in_hand_breakdown(
 def get_cash_flow_totals_up_to(as_of_date=None) -> dict:
     """
     {"inflow": Decimal, "outflow": Decimal} summed at the DB level (Sum/
-    Coalesce per source, no per-row dict building) across the same 13
+    Coalesce per source, no per-row dict building) across the same 14
     sources get_cash_in_hand_breakdown() draws from. `as_of_date=None` means
     unbounded (all-time) — used by the backfill command and by
     get_cash_in_hand_as_of() below, which is the only place this runs with a
@@ -565,6 +590,12 @@ def get_cash_flow_totals_up_to(as_of_date=None) -> dict:
     try:
         from profits.models import InvestorProfitPayout
         outflow += _sum(_lte(InvestorProfitPayout.objects.filter(is_deleted=False), "payout_date"))
+    except Exception:
+        pass
+
+    try:
+        from profits.models import OwnerProfitPayout
+        outflow += _sum(_lte(OwnerProfitPayout.objects.filter(is_deleted=False), "payout_date"))
     except Exception:
         pass
 
