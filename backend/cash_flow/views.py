@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.db.models.functions import Coalesce
 from rest_framework import generics, status
 from rest_framework.response import Response
@@ -245,12 +245,13 @@ class BreakdownTotalsMixin:
         return response
 
 
-def _paginate_movements(movements: list, request) -> dict:
+def _paginate_movement_queryset(qs, request) -> dict:
     """
-    Manual page-number pagination for an already-materialized list — mirrors
-    ledger.views._paginate_entries. get_cash_in_hand_breakdown() merges rows
-    from several source models into one plain Python list, so there's no
-    single queryset for DRF's paginator to slice.
+    Manual page-number pagination over the CashMovement queryset — same
+    response shape as the old materialized-list pagination (count,
+    total_pages, current_page, page_size, results), but only the requested
+    page is ever fetched from the database. Row dicts are byte-identical to
+    what the old Python merge produced.
     """
     try:
         page_size = min(int(request.query_params.get("page_size", 25)), 500)
@@ -261,23 +262,38 @@ def _paginate_movements(movements: list, request) -> dict:
     except (TypeError, ValueError):
         page = 1
 
-    count = len(movements)
+    count = qs.count()
     total_pages = max(-(-count // page_size), 1)  # ceil division
     start = (page - 1) * page_size
+
+    results = [
+        {
+            "direction"  : m.direction,
+            "type"       : m.movement_type,
+            "date"       : str(m.date),
+            "created_at" : m.occurred_at,
+            "description": m.description,
+            "reference"  : m.reference,
+            "amount"     : m.amount,
+            "method"     : m.method,
+        }
+        for m in qs[start:start + page_size]
+    ]
 
     return {
         "count": count,
         "total_pages": total_pages,
         "current_page": page,
         "page_size": page_size,
-        "results": movements[start:start + page_size],
+        "results": results,
     }
 
 
 class CashInHandBreakdownView(APIView):
     """
     GET /cash-flow/breakdown/cash-in-hand/
-    ALL cash movements affecting cash_in_hand (inflows AND outflows).
+    ALL cash movements affecting cash_in_hand (inflows AND outflows) — one
+    indexed query on the CashMovement event table.
 
     Filter params:
         date_from     : YYYY-MM-DD
@@ -296,7 +312,7 @@ class CashInHandBreakdownView(APIView):
         date_to       = p.get("date_to")
         movement_type = p.get("movement_type")
 
-        movements = get_cash_in_hand_breakdown(
+        qs = get_cash_in_hand_breakdown(
             date_from     = date_from,
             date_to       = date_to,
             movement_type = movement_type,
@@ -304,19 +320,23 @@ class CashInHandBreakdownView(APIView):
 
         if not date_from and not date_to and not movement_type:
             # No filter at all — read the stored gross totals (O(1)) instead
-            # of summing the full movement history in Python on every load.
-            # The row list above is still needed for the paginated table;
-            # only the header totals are affected.
+            # of aggregating the full event history on every load.
             cf = CashFlow.get_instance()
             total_inflow  = cf.total_cash_inflow
             total_outflow = cf.total_cash_outflow
         else:
             # Totals are computed over the FULL filtered set, not just the
-            # page being returned — same convention as BreakdownTotalsMixin.
-            total_inflow  = sum((m["amount"] for m in movements if m["direction"] == "inflow"), Decimal("0"))
-            total_outflow = sum((m["amount"] for m in movements if m["direction"] == "outflow"), Decimal("0"))
+            # page being returned — same convention as BreakdownTotalsMixin,
+            # now a single DB aggregate instead of a Python sum over
+            # materialized rows.
+            agg = qs.aggregate(
+                total_inflow  = Coalesce(Sum("amount", filter=Q(direction="inflow")), Decimal("0")),
+                total_outflow = Coalesce(Sum("amount", filter=Q(direction="outflow")), Decimal("0")),
+            )
+            total_inflow  = agg["total_inflow"]
+            total_outflow = agg["total_outflow"]
 
-        response = _paginate_movements(movements, request)
+        response = _paginate_movement_queryset(qs, request)
         response["totals"] = {
             "total_inflow"  : total_inflow,
             "total_outflow" : total_outflow,

@@ -370,8 +370,9 @@ def create_investor_profit_payout(
     )
 
     # Always: real cash leaves for this share, regardless of what happens next.
-    from cash_flow.services import sync_investor_profit_payout_made
+    from cash_flow.services import record_cash_movement, sync_investor_profit_payout_made
     sync_investor_profit_payout_made(amount=amount, user=user)
+    record_cash_movement(payout)
 
     if action_type == InvestorProfitPayout.ActionType.PAYOUT:
         share.amount_paid_out += amount
@@ -416,8 +417,9 @@ def delete_investor_profit_payout(*, pk: int, user) -> None:
     payout.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
     # Reverse the outflow every payout action performed, regardless of type.
-    from cash_flow.services import sync_investor_profit_payout_reversed
+    from cash_flow.services import reverse_cash_movement, sync_investor_profit_payout_reversed
     sync_investor_profit_payout_reversed(amount=amount, user=user)
+    reverse_cash_movement(payout)
 
     if payout.action_type == InvestorProfitPayout.ActionType.PAYOUT:
         share.amount_paid_out = max(Decimal("0"), share.amount_paid_out - amount)
@@ -466,8 +468,9 @@ def create_owner_profit_payout(
     )
 
     # Always: real cash leaves for this share, regardless of what happens next.
-    from cash_flow.services import sync_owner_profit_payout_made
+    from cash_flow.services import record_cash_movement, sync_owner_profit_payout_made
     sync_owner_profit_payout_made(amount=amount, user=user)
+    record_cash_movement(payout)
 
     if action_type == OwnerProfitPayout.ActionType.PAYOUT:
         owner_share.amount_paid_out += amount
@@ -511,8 +514,9 @@ def delete_owner_profit_payout(*, pk: int, user) -> None:
     payout.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
     # Reverse the outflow every payout action performed, regardless of type.
-    from cash_flow.services import sync_owner_profit_payout_reversed
+    from cash_flow.services import reverse_cash_movement, sync_owner_profit_payout_reversed
     sync_owner_profit_payout_reversed(amount=amount, user=user)
+    reverse_cash_movement(payout)
 
     if payout.action_type == OwnerProfitPayout.ActionType.PAYOUT:
         owner_share.amount_paid_out = max(Decimal("0"), owner_share.amount_paid_out - amount)

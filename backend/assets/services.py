@@ -245,8 +245,9 @@ def create_asset(
     )
 
     if acquisition_type == Asset.AcquisitionType.NEW:
-        from cash_flow.services import sync_asset_purchased
+        from cash_flow.services import record_cash_movement, sync_asset_purchased
         sync_asset_purchased(amount=cost, user=user)
+        record_cash_movement(asset)
 
     _catch_up_asset_depreciation(asset, user=user)
 
@@ -358,8 +359,9 @@ def dispose_asset(
         else:
             flow_kwargs["total_loss_on_disposal_delta"] = -gain_loss
 
-        from cash_flow.services import sync_asset_sold
+        from cash_flow.services import record_cash_movement, sync_asset_sold
         sync_asset_sold(amount=sale_amount, user=user)
+        record_cash_movement(disposal)
 
     _adjust_asset_flow(**flow_kwargs)
 

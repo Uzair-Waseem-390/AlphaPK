@@ -74,6 +74,74 @@ class Expense(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# CashMovement  (event table — one row per cash_in_hand movement)
+# ---------------------------------------------------------------------------
+
+class CashMovement(models.Model):
+    """
+    One row per event that moved cash_in_hand — written at the same moment
+    (inside the same transaction) as the CashFlow adjustment, by
+    services.record_cash_movement()/refresh_cash_movement()/
+    reverse_cash_movement() ONLY. Powers the cash-in-hand breakdown drawer
+    with a single indexed query instead of materializing every row from all
+    14 source tables in Python.
+
+    description/reference/method are snapshots of exactly what the drawer
+    displayed at the moment the event happened (the same f-strings the old
+    Python merge built). source_model + source_id tie each event back to the
+    row that caused it, so deleting/reversing the source soft-deletes the
+    event, and `backfill_cash_movements` can rebuild the whole table from
+    the sources at any time (it is also the repair tool).
+
+    NOT the source of truth for balances — CashFlow's stored totals remain
+    that; get_cash_flow_totals_up_to() stays derived from the source tables
+    as an independent cross-check.
+    """
+
+    class Direction(models.TextChoices):
+        INFLOW  = "inflow", "Inflow"
+        OUTFLOW = "outflow", "Outflow"
+
+    direction     = models.CharField(max_length=10, choices=Direction.choices)
+    movement_type = models.CharField(max_length=40)
+    date          = models.DateField(help_text="Business date shown in the drawer (payment/expense/... date).")
+    occurred_at   = models.DateTimeField(help_text="Source row's created_at — the drawer's sort key.")
+    description   = models.CharField(max_length=500)
+    reference     = models.CharField(max_length=100)
+    method        = models.CharField(max_length=30, null=True, blank=True)
+    amount        = models.DecimalField(max_digits=20, decimal_places=4)
+
+    source_model  = models.CharField(max_length=60, help_text="app_label.model_name of the row that caused this event.")
+    source_id     = models.BigIntegerField()
+
+    is_deleted    = models.BooleanField(default=False)
+    created_at    = models.DateTimeField(auto_now_add=True)
+
+    objects       = models.Manager()
+
+    class Meta:
+        verbose_name        = "Cash Movement"
+        verbose_name_plural = "Cash Movements"
+        ordering            = ["-occurred_at", "-id"]
+        constraints = [
+            models.UniqueConstraint(
+                fields=["source_model", "source_id"], name="uniq_cashmove_source",
+            ),
+        ]
+        indexes = [
+            # Drawer's default read: active rows, newest first.
+            models.Index(fields=["is_deleted", "-occurred_at"], name="idx_cashmove_active_occurred"),
+            # Same read with the inflow/outflow filter applied.
+            models.Index(fields=["is_deleted", "direction", "-occurred_at"], name="idx_cashmove_dir_occurred"),
+            # Business-date range filters.
+            models.Index(fields=["date"], name="idx_cashmove_date"),
+        ]
+
+    def __str__(self):
+        return f"{self.direction} {self.amount} — {self.description}"
+
+
+# ---------------------------------------------------------------------------
 # CashFlow  (singleton — one live record, auto-synced)
 # ---------------------------------------------------------------------------
 

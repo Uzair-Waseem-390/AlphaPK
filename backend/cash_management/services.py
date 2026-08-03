@@ -183,7 +183,7 @@ def create_cash_adjustment(
         updated_by=user,
     )
 
-    from cash_flow.services import sync_cash_found, sync_cash_lost
+    from cash_flow.services import record_cash_movement, sync_cash_found, sync_cash_lost
 
     if adjustment_type == CashAdjustment.AdjustmentType.LOST:
         _adjust_cash_management_flow(total_cash_lost_delta=+amount, user=user)
@@ -192,6 +192,7 @@ def create_cash_adjustment(
         _adjust_cash_management_flow(total_cash_recovered_delta=+amount, user=user)
         sync_cash_found(amount=amount, user=user)
 
+    record_cash_movement(adjustment)
     return adjustment
 
 
@@ -208,7 +209,7 @@ def delete_cash_adjustment(*, pk: int, user) -> None:
     adjustment.deleted_by = user
     adjustment.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
-    from cash_flow.services import sync_cash_found, sync_cash_lost
+    from cash_flow.services import reverse_cash_movement, sync_cash_found, sync_cash_lost
 
     if adjustment.adjustment_type == CashAdjustment.AdjustmentType.LOST:
         _adjust_cash_management_flow(total_cash_lost_delta=-amount, user=user)
@@ -216,6 +217,8 @@ def delete_cash_adjustment(*, pk: int, user) -> None:
     else:
         _adjust_cash_management_flow(total_cash_recovered_delta=-amount, user=user)
         sync_cash_lost(amount=amount, user=user)  # reverse: remove cash_in_hand again
+
+    reverse_cash_movement(adjustment)
 
 
 # ---------------------------------------------------------------------------
@@ -394,6 +397,12 @@ def create_investor_transaction(
         updated_by=user,
     )
 
+    # Recorded even for is_data_entry rows — the drawer has always itemised
+    # every non-deleted investor transaction, including opening investments
+    # that never moved cash_in_hand (pre-existing behavior, preserved).
+    from cash_flow.services import record_cash_movement
+    record_cash_movement(txn)
+
     return txn
 
 
@@ -454,6 +463,9 @@ def delete_investor_transaction(*, pk: int, user) -> None:
     txn.deleted_by = user
     txn.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
+    from cash_flow.services import reverse_cash_movement
+    reverse_cash_movement(txn)
+
 
 # ---------------------------------------------------------------------------
 # OwnerTransaction services (owner drawings/contributions)
@@ -485,7 +497,7 @@ def create_owner_transaction(
         updated_by=user,
     )
 
-    from cash_flow.services import sync_owner_contribution, sync_owner_drawing
+    from cash_flow.services import record_cash_movement, sync_owner_contribution, sync_owner_drawing
 
     if transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
         _adjust_cash_management_flow(
@@ -502,6 +514,7 @@ def create_owner_transaction(
         )
         sync_owner_drawing(amount=amount, user=user)
 
+    record_cash_movement(txn)
     return txn
 
 
@@ -513,7 +526,7 @@ def delete_owner_transaction(*, pk: int, user) -> None:
     txn = get_object_or_404(OwnerTransaction, pk=pk, is_deleted=False)
     amount = txn.amount
 
-    from cash_flow.services import sync_owner_contribution, sync_owner_drawing
+    from cash_flow.services import reverse_cash_movement, sync_owner_contribution, sync_owner_drawing
 
     if txn.transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION:
         _adjust_cash_management_flow(
@@ -534,3 +547,5 @@ def delete_owner_transaction(*, pk: int, user) -> None:
     txn.deleted_at = timezone.now()
     txn.deleted_by = user
     txn.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    reverse_cash_movement(txn)

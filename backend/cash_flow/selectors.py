@@ -4,7 +4,12 @@ from django.db.models import Q, QuerySet, Sum, Count
 from django.db.models.functions import Coalesce
 from django.shortcuts import get_object_or_404
 
-from .models import CashFlow, Expense, ExpenseCategory
+from backend.search import search_q
+# Shared index-friendly day-boundary helpers (aware datetimes at local
+# midnight) — same ones billing/ledger use for datetime-column date filters.
+from purchases.selectors import _day_start, _next_day_start
+
+from .models import CashFlow, CashMovement, Expense, ExpenseCategory
 
 
 # ---------------------------------------------------------------------------
@@ -88,7 +93,9 @@ def get_cashflow_stats() -> dict:
 # ---------------------------------------------------------------------------
 
 def get_all_expense_categories() -> QuerySet:
-    return ExpenseCategory.objects.all().order_by("name")
+    # created_by is serialized on every row — select_related avoids one
+    # extra query per category (N+1).
+    return ExpenseCategory.objects.select_related("created_by").order_by("name")
 
 
 def get_expense_category_by_id(pk: int) -> ExpenseCategory:
@@ -116,10 +123,7 @@ def get_all_expenses(
     )
 
     if _clean(search):
-        qs = qs.filter(
-            Q(name__icontains=_clean(search)) |
-            Q(description__icontains=_clean(search))
-        )
+        qs = qs.filter(search_q(_clean(search), "name", "description"))
     if category_id:
         qs = qs.filter(category_id=category_id)
     if _clean(date_from):
@@ -168,9 +172,9 @@ def get_invoice_payments_breakdown(
     )
 
     if _clean(customer_name):
-        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "invoice__customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(invoice__customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "invoice__customer__code"))
     if _clean(date_from):
         qs = qs.filter(payment_date__gte=_clean(date_from))
     if _clean(date_to):
@@ -190,16 +194,43 @@ def get_cash_in_hand_breakdown(
     date_from    : str = None,
     date_to      : str = None,
     movement_type: str = None,
-) -> list:
+) -> QuerySet:
     """
-    Full cash_in_hand breakdown — ALL movements (inflows AND outflows):
-      + Invoice payments received      (inflow)
-      - Expenses paid                  (outflow)
-      - Supplier payments made         (outflow)
-      - Advance payments to suppliers  (outflow)
+    Full cash_in_hand breakdown — ALL movements (inflows AND outflows),
+    served by ONE indexed query on the CashMovement event table (each event
+    is written in the same transaction as its CashFlow adjustment; see
+    services.record_cash_movement). Previously this materialized EVERY row
+    from 14 source tables into Python dicts and sorted them on each drawer
+    open — O(all history) per request. Now O(page).
 
     movement_type: inflow | outflow (optional filter)
-    Returns sorted list of dicts, newest first.
+    Returns a queryset ordered newest first (by occurred_at — the source
+    row's creation time, NOT the business date, which can be backdated —
+    same ordering as before).
+    """
+    qs = CashMovement.objects.filter(is_deleted=False)
+
+    if _clean(date_from):
+        qs = qs.filter(date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(date__lte=_clean(date_to))
+    if _clean(movement_type):
+        qs = qs.filter(direction=_clean(movement_type))
+
+    return qs.order_by("-occurred_at", "-id")
+
+
+def get_cash_in_hand_breakdown_from_sources(
+    *,
+    date_from    : str = None,
+    date_to      : str = None,
+    movement_type: str = None,
+) -> list:
+    """
+    The ORIGINAL 14-source Python merge, kept verbatim as the consistency
+    oracle: backfill_cash_movements rebuilds the event table from it, and
+    tests assert the event table returns the exact same rows. Never called
+    on a request path.
     """
     from billing.models import Payment
     from purchases.models import SupplierPayment
@@ -566,7 +597,12 @@ def get_cash_flow_totals_up_to(as_of_date=None) -> dict:
 
     try:
         from data_entry.models import OpeningCashEntry
-        inflow += _sum(_lte(OpeningCashEntry.objects.all(), "added_at__date"))
+        # added_at is a datetime — use a half-open bound at the next local
+        # midnight instead of the index-defeating __date cast.
+        oc_qs = OpeningCashEntry.objects.all()
+        if as_of_date is not None:
+            oc_qs = oc_qs.filter(added_at__lt=_next_day_start(as_of_date))
+        inflow += _sum(oc_qs)
     except Exception:
         pass
 
@@ -698,15 +734,15 @@ def get_customer_outstanding_breakdown(
     ).exclude(status="draft").select_related("customer")
 
     if _clean(customer_name):
-        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "customer__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
-    if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(created_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(created_at__lt=_next_day_start(_clean(date_to)))
     if _clean(min_amount):
         qs = qs.filter(credit_outstanding__gte=_clean(min_amount))
     if _clean(max_amount):
@@ -736,9 +772,9 @@ def get_supplier_payments_breakdown(
     ).select_related("order__supplier", "created_by")
 
     if _clean(supplier_name):
-        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "order__supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "order__supplier__code"))
     if _clean(date_from):
         qs = qs.filter(payment_date__gte=_clean(date_from))
     if _clean(date_to):
@@ -776,15 +812,15 @@ def get_supplier_payable_outstanding_breakdown(
     ).select_related("supplier")
 
     if _clean(supplier_name):
-        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "supplier__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
-    if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(created_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(created_at__lt=_next_day_start(_clean(date_to)))
     if _clean(min_amount):
         qs = qs.filter(payable_outstanding__gte=_clean(min_amount))
     if _clean(max_amount):
@@ -815,17 +851,17 @@ def get_invoices_breakdown(
     ).exclude(status="draft").select_related("customer")
 
     if _clean(customer_name):
-        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(customer__code__icontains=_clean(customer_code))
+        qs = qs.filter(search_q(_clean(customer_code), "customer__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(status):
         qs = qs.filter(status=_clean(status))
-    if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(created_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(created_at__lt=_next_day_start(_clean(date_to)))
     if _clean(min_amount):
         qs = qs.filter(grand_total__gte=_clean(min_amount))
     if _clean(max_amount):
@@ -859,15 +895,15 @@ def get_purchases_breakdown(
     ).select_related("supplier")
 
     if _clean(supplier_name):
-        qs = qs.filter(supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(supplier__code__icontains=_clean(supplier_code))
+        qs = qs.filter(search_q(_clean(supplier_code), "supplier__code"))
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
-    if _clean(date_from):
-        qs = qs.filter(created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(created_at__date__lte=_clean(date_to))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(created_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(created_at__lt=_next_day_start(_clean(date_to)))
     if _clean(min_amount):
         qs = qs.filter(net_payable__gte=_clean(min_amount))
     if _clean(max_amount):
@@ -894,13 +930,13 @@ def get_lost_inventory_breakdown(
     ).select_related("record", "record__created_by", "product")
 
     if _clean(search):
-        qs = qs.filter(record__reference_number__icontains=_clean(search))
+        qs = qs.filter(search_q(_clean(search), "record__reference_number"))
     if _clean(product_id):
         qs = qs.filter(product_id=_clean(product_id))
-    if _clean(date_from):
-        qs = qs.filter(record__created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(record__created_at__date__lte=_clean(date_to))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(record__created_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(record__created_at__lt=_next_day_start(_clean(date_to)))
 
     return qs.order_by("-record__created_at")
 
@@ -927,13 +963,13 @@ def get_purchase_returns_breakdown(
     ).select_related("order__supplier")
 
     if _clean(supplier_name):
-        qs = qs.filter(order__supplier__name__icontains=_clean(supplier_name))
+        qs = qs.filter(search_q(_clean(supplier_name), "order__supplier__name"))
     if _clean(supplier_code):
-        qs = qs.filter(order__supplier__code__icontains=_clean(supplier_code))
-    if _clean(date_from):
-        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
+        qs = qs.filter(search_q(_clean(supplier_code), "order__supplier__code"))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(accepted_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(accepted_at__lt=_next_day_start(_clean(date_to)))
 
     return qs.order_by("-created_at")
 
@@ -960,13 +996,13 @@ def get_customer_returns_breakdown(
     ).select_related("invoice__customer")
 
     if _clean(customer_name):
-        qs = qs.filter(invoice__customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "invoice__customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(invoice__customer__code__icontains=_clean(customer_code))
-    if _clean(date_from):
-        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
+        qs = qs.filter(search_q(_clean(customer_code), "invoice__customer__code"))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(accepted_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(accepted_at__lt=_next_day_start(_clean(date_to)))
 
     return qs.order_by("-created_at")
 
@@ -993,13 +1029,13 @@ def get_profit_breakdown(
     ).exclude(status=Invoice.Status.DRAFT).select_related("customer")
 
     if _clean(customer_name):
-        qs = qs.filter(customer__name__icontains=_clean(customer_name))
+        qs = qs.filter(search_q(_clean(customer_name), "customer__name"))
     if _clean(customer_code):
-        qs = qs.filter(customer__code__icontains=_clean(customer_code))
-    if _clean(date_from):
-        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
+        qs = qs.filter(search_q(_clean(customer_code), "customer__code"))
+    if _clean(date_from) and _day_start(_clean(date_from)):
+        qs = qs.filter(confirmed_at__gte=_day_start(_clean(date_from)))
+    if _clean(date_to) and _next_day_start(_clean(date_to)):
+        qs = qs.filter(confirmed_at__lt=_next_day_start(_clean(date_to)))
 
     return qs.order_by("-created_at")
 
@@ -1076,11 +1112,13 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
     if months_in_range > 120:
         raise ValidationError({"date_from": "Date range cannot exceed 10 years (120 months)."})
 
+    # Half-open datetime bounds instead of __date casts so the range can use
+    # the confirmed_at index (same day-boundary helpers as everywhere else).
     qs = Invoice.objects.filter(
         is_deleted=False, is_data_entry=False,
     ).exclude(status=Invoice.Status.DRAFT).filter(
-        confirmed_at__date__gte=range_start,
-        confirmed_at__date__lte=range_end,
+        confirmed_at__gte=_day_start(range_start),
+        confirmed_at__lt=_next_day_start(range_end),
     )
 
     grouped = {
@@ -1103,8 +1141,8 @@ def get_gross_profit_trend(*, date_from: str = None, date_to: str = None) -> lis
     # correctly reduces month M's net figures.
     return_qs = Return.objects.filter(
         is_deleted=False, status=Return.Status.ACCEPTED,
-        accepted_at__date__gte=range_start,
-        accepted_at__date__lte=range_end,
+        accepted_at__gte=_day_start(range_start),
+        accepted_at__lt=_next_day_start(range_end),
     )
     returns_grouped = {
         row["month"].strftime("%Y-%m"): row

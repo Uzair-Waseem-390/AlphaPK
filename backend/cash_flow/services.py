@@ -3,7 +3,7 @@ from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
 
-from .models import CashFlow, Expense, ExpenseCategory
+from .models import CashFlow, CashMovement, Expense, ExpenseCategory
 
 
 # ---------------------------------------------------------------------------
@@ -125,6 +125,246 @@ def _adjust_cashflow(
 
 
 # ---------------------------------------------------------------------------
+# CashMovement writers — the ONLY code that writes the event table.
+#
+# Every service that moves cash_in_hand calls record_cash_movement(source)
+# right next to its sync_* call (inside the same transaction), passing the
+# row that caused the movement. reverse_cash_movement(source) mirrors the
+# source's soft-delete; refresh_cash_movement(source) mirrors edits that
+# change what the drawer displays (expense edits, advance amount edits).
+#
+# The payload builders below reproduce EXACTLY the strings the drawer's old
+# Python merge built (see get_cash_in_hand_breakdown before this change) —
+# they are also what backfill_cash_movements uses to rebuild the table from
+# the 14 source models, so live rows and backfilled rows are identical.
+# ---------------------------------------------------------------------------
+
+def _payload_opening_cash(e):
+    return dict(
+        direction="inflow", movement_type="opening_cash",
+        date=e.added_at.date(), occurred_at=e.added_at,
+        description="Opening cash — data entry", reference=f"OCE-{e.id}",
+        amount=e.amount, method=None,
+    )
+
+
+def _payload_invoice_payment(p):
+    if p.amount <= 0 or p.invoice.status == "draft" or p.invoice.is_deleted:
+        return None
+    return dict(
+        direction="inflow", movement_type="invoice_payment",
+        date=p.payment_date, occurred_at=p.created_at,
+        description=f"Received from {p.invoice.customer.name} ({p.invoice.bill_number})",
+        reference=p.reference_number, amount=p.amount, method=p.method,
+    )
+
+
+def _payload_expense(e):
+    return dict(
+        direction="outflow", movement_type="expense",
+        date=e.expense_date, occurred_at=e.created_at,
+        description=f"Expense: {e.name} ({e.category.name})",
+        reference=f"EXP-{e.id}", amount=e.amount, method=None,
+    )
+
+
+def _payload_supplier_payment(p):
+    if p.amount <= 0:
+        return None
+    ptype = "advance_payment" if p.note.startswith("Advance payment") else "supplier_payment"
+    return dict(
+        direction="outflow", movement_type=ptype,
+        date=p.payment_date, occurred_at=p.created_at,
+        description=f"Paid to {p.order.supplier.name} ({p.order.order_number})",
+        reference=p.reference_number, amount=p.amount, method=p.method,
+    )
+
+
+def _payload_tax_payment(tp):
+    return dict(
+        direction="outflow", movement_type="tax_payment",
+        date=tp.payment_date, occurred_at=tp.created_at,
+        description=f"Tax payment to FBR{f' — {tp.note}' if tp.note else ''}",
+        reference=f"TAX-{tp.id}", amount=tp.amount, method=None,
+    )
+
+
+def _payload_wht_payment(wp):
+    return dict(
+        direction="outflow", movement_type="wht_payment",
+        date=wp.payment_date, occurred_at=wp.created_at,
+        description=f"WHT payment to FBR{f' — {wp.note}' if wp.note else ''}",
+        reference=f"WHT-{wp.id}", amount=wp.amount, method=None,
+    )
+
+
+def _payload_investor_profit_payout(pp):
+    return dict(
+        direction="outflow", movement_type="investor_profit_payout",
+        date=pp.payout_date, occurred_at=pp.created_at,
+        description=f"{pp.get_action_type_display()} — {pp.share.investor_name_snapshot} ({pp.share.monthly_profit.period})",
+        reference=f"PROFIT-{pp.id}", amount=pp.amount, method=None,
+    )
+
+
+def _payload_owner_profit_payout(op):
+    return dict(
+        direction="outflow", movement_type="owner_profit_payout",
+        date=op.payout_date, occurred_at=op.created_at,
+        description=f"{op.get_action_type_display()} — Owner ({op.owner_share.monthly_profit.period})",
+        reference=f"OWNPROFIT-{op.id}", amount=op.amount, method=None,
+    )
+
+
+def _payload_cash_adjustment(a):
+    is_lost = a.adjustment_type == "lost"
+    return dict(
+        direction="outflow" if is_lost else "inflow",
+        movement_type="cash_lost" if is_lost else "cash_found",
+        date=a.adjustment_date, occurred_at=a.created_at,
+        description=f"Cash {'lost' if is_lost else 'found'}{f' — {a.reason}' if a.reason else ''}",
+        reference=f"ADJ-{a.id}", amount=a.amount, method=None,
+    )
+
+
+def _payload_investor_transaction(t):
+    # NOTE: includes is_data_entry rows on purpose — the drawer always
+    # itemised every non-deleted InvestorTransaction, even opening
+    # investments that never moved cash_in_hand (pre-existing behavior,
+    # preserved exactly).
+    is_investment = t.transaction_type == "investment"
+    return dict(
+        direction="inflow" if is_investment else "outflow",
+        movement_type="investor_investment" if is_investment else "investor_withdrawal",
+        date=t.transaction_date, occurred_at=t.created_at,
+        description=f"{'Investment from' if is_investment else 'Withdrawal by'} {t.investor.name}",
+        reference=f"INV-{t.id}", amount=t.amount, method=None,
+    )
+
+
+def _payload_owner_transaction(t):
+    is_contribution = t.transaction_type == "contribution"
+    return dict(
+        direction="inflow" if is_contribution else "outflow",
+        movement_type="owner_contribution" if is_contribution else "owner_drawing",
+        date=t.transaction_date, occurred_at=t.created_at,
+        description=f"Owner {'contribution' if is_contribution else 'drawing'}{f' — {t.note}' if t.note else ''}",
+        reference=f"OWN-{t.id}", amount=t.amount, method=None,
+    )
+
+
+def _payload_asset(a):
+    if a.acquisition_type != "new":
+        return None
+    return dict(
+        direction="outflow", movement_type="asset_purchase",
+        date=a.acquisition_date, occurred_at=a.created_at,
+        description=f"Fixed asset purchased — {a.name}",
+        reference=f"AST-{a.id}", amount=a.cost, method=None,
+    )
+
+
+def _payload_asset_disposal(d):
+    if d.disposal_type != "sold":
+        return None
+    return dict(
+        direction="inflow", movement_type="asset_sold",
+        date=d.disposal_date, occurred_at=d.created_at,
+        description=f"Fixed asset sold — {d.asset.name}",
+        reference=f"DIS-{d.id}", amount=d.sale_amount, method=None,
+    )
+
+
+def _payload_recurring_expense_payment(p):
+    return dict(
+        direction="outflow", movement_type="recurring_expense_payment",
+        date=p.payment_date, occurred_at=p.created_at,
+        description=f"{p.assignment.name_snapshot} — {p.assignment.period} ({p.assignment.category_name_snapshot})",
+        reference=f"REP-{p.id}", amount=p.amount, method=None,
+    )
+
+
+_MOVEMENT_BUILDERS = {
+    "data_entry.openingcashentry"                        : _payload_opening_cash,
+    "billing.payment"                                    : _payload_invoice_payment,
+    "cash_flow.expense"                                  : _payload_expense,
+    "purchases.supplierpayment"                          : _payload_supplier_payment,
+    "taxes.taxpayment"                                   : _payload_tax_payment,
+    "taxes.whtpayment"                                   : _payload_wht_payment,
+    "profits.investorprofitpayout"                       : _payload_investor_profit_payout,
+    "profits.ownerprofitpayout"                          : _payload_owner_profit_payout,
+    "cash_management.cashadjustment"                     : _payload_cash_adjustment,
+    "cash_management.investortransaction"                : _payload_investor_transaction,
+    "cash_management.ownertransaction"                   : _payload_owner_transaction,
+    "assets.asset"                                       : _payload_asset,
+    "assets.assetdisposal"                               : _payload_asset_disposal,
+    "recurring_expenses.recurringexpenseassignmentpayment": _payload_recurring_expense_payment,
+}
+
+
+def _source_label(source) -> str:
+    return f"{source._meta.app_label}.{source._meta.model_name}"
+
+
+def _movement_payload(source):
+    """Payload dict for this source row, or None if the row never appears in
+    the drawer (credit notes, non-'new' assets, scrapped disposals, ...)."""
+    builder = _MOVEMENT_BUILDERS.get(_source_label(source))
+    if builder is None:
+        raise ValueError(f"No cash movement builder registered for {_source_label(source)}.")
+    return builder(source)
+
+
+def record_cash_movement(source) -> None:
+    """Creates the drawer event for a freshly created source row. Call inside
+    the same transaction as the CashFlow sync. No-op if the row doesn't
+    belong in the drawer."""
+    payload = _movement_payload(source)
+    if payload is None:
+        return
+    CashMovement.objects.create(
+        source_model=_source_label(source), source_id=source.pk, **payload,
+    )
+
+
+def refresh_cash_movement(source) -> None:
+    """Re-syncs the event after a source edit that changes what the drawer
+    shows (expense name/amount/date edits, advance amount edits). Creates,
+    updates, revives, or soft-deletes the event as the new payload demands."""
+    payload = _movement_payload(source)
+    row = CashMovement.objects.filter(
+        source_model=_source_label(source), source_id=source.pk,
+    ).first()
+
+    if payload is None:
+        # e.g. an advance edited down to 0 — the drawer hides amount<=0 rows.
+        if row and not row.is_deleted:
+            row.is_deleted = True
+            row.save(update_fields=["is_deleted"])
+        return
+
+    if row is None:
+        CashMovement.objects.create(
+            source_model=_source_label(source), source_id=source.pk, **payload,
+        )
+        return
+
+    for field, value in payload.items():
+        setattr(row, field, value)
+    row.is_deleted = False
+    row.save()
+
+
+def reverse_cash_movement(source) -> None:
+    """Soft-deletes the event when its source row is soft-deleted/reversed.
+    No-op if no event exists (credit notes, rows predating the event table
+    before backfill ran)."""
+    CashMovement.objects.filter(
+        source_model=_source_label(source), source_id=source.pk, is_deleted=False,
+    ).update(is_deleted=True)
+
+
+# ---------------------------------------------------------------------------
 # ExpenseCategory services
 # ---------------------------------------------------------------------------
 
@@ -164,12 +404,15 @@ def delete_expense_category(*, pk: int) -> None:
 # Expense services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_expense(
     *, name: str, category_id: int, amount: Decimal,
     expense_date, description: str = "", user,
 ) -> Expense:
     """
     Creates an expense and immediately deducts amount from cash_in_hand.
+    Atomic: the Expense row, the CashFlow adjustment, and the drawer event
+    commit together or not at all.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -196,10 +439,12 @@ def create_expense(
         total_expenses_amount_delta = +amount,
         user=user,
     )
+    record_cash_movement(expense)
 
     return expense
 
 
+@transaction.atomic
 def update_expense(
     *, pk: int, name: str = None, category_id: int = None,
     amount: Decimal = None, expense_date=None,
@@ -209,6 +454,7 @@ def update_expense(
     Updates an expense. If amount changes, adjusts cash_in_hand by the difference.
     Example: old=10000, new=8000 → cash_in_hand += 2000 (refund)
              old=10000, new=12000 → cash_in_hand -= 2000 (extra deduction)
+    Atomic: row + CashFlow + drawer event move together.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -243,12 +489,18 @@ def update_expense(
             user=user,
         )
 
+    # Name/category/date edits change the drawer's display too, not just
+    # amount edits — re-sync the event on every update.
+    refresh_cash_movement(expense)
+
     return expense
 
 
+@transaction.atomic
 def delete_expense(*, pk: int, user) -> None:
     """
     Soft-deletes expense and restores its amount to cash_in_hand.
+    Atomic: row + CashFlow + drawer event move together.
     """
     from django.shortcuts import get_object_or_404
 
@@ -267,6 +519,7 @@ def delete_expense(*, pk: int, user) -> None:
         total_expenses_amount_delta = -amount,
         user=user,
     )
+    reverse_cash_movement(expense)
 
 
 # ---------------------------------------------------------------------------

@@ -650,8 +650,9 @@ def create_payment(
     _sync_invoice_payment_summary(invoice)
 
     # Sync CashFlow: cash in hand increases, customer outstanding decreases
-    from cash_flow.services import sync_invoice_payment_received
+    from cash_flow.services import record_cash_movement, sync_invoice_payment_received
     sync_invoice_payment_received(amount=amount, user=user)
+    record_cash_movement(payment)
 
     return payment
 
@@ -665,8 +666,9 @@ def delete_payment(*, payment_id: int, user) -> None:
     _sync_invoice_payment_summary(invoice)
 
     # Reverse CashFlow sync only for positive payments (not credit notes)
-    from cash_flow.services import sync_invoice_payment_deleted
+    from cash_flow.services import reverse_cash_movement, sync_invoice_payment_deleted
     sync_invoice_payment_deleted(amount=amount, user=user)
+    reverse_cash_movement(payment)  # no-op for credit notes (never recorded)
 
 
 # ---------------------------------------------------------------------------

@@ -399,8 +399,9 @@ def create_recurring_expense_payment(
     _adjust_recurring_expense_flow(total_paid_amount_delta=+amount, user=user)
     _adjust_recurring_expense_monthly_stats(period=assignment.period, total_paid_delta=+amount)
 
-    from cash_flow.services import sync_recurring_expense_payment_made
+    from cash_flow.services import record_cash_movement, sync_recurring_expense_payment_made
     sync_recurring_expense_payment_made(amount=amount, user=user)
+    record_cash_movement(payment)
 
     return payment
 
@@ -434,5 +435,6 @@ def delete_recurring_expense_payment(*, pk: int, user) -> None:
     _adjust_recurring_expense_flow(total_paid_amount_delta=-amount, user=user)
     _adjust_recurring_expense_monthly_stats(period=assignment.period, total_paid_delta=-amount)
 
-    from cash_flow.services import sync_recurring_expense_payment_deleted
+    from cash_flow.services import reverse_cash_movement, sync_recurring_expense_payment_deleted
     sync_recurring_expense_payment_deleted(amount=amount, user=user)
+    reverse_cash_movement(payment)

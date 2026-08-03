@@ -443,10 +443,11 @@ def delete_product(*, pk: int, user) -> None:
 # ---------------------------------------------------------------------------
 
 
-def _cancel_advance_payment(*, order, user) -> None:
+def _cancel_advance_payment(*, order, user) -> bool:
     """
     Cancels any existing advance SupplierPayment on this order and restores cash.
     Also removes the linked ledger entry and recalculates snapshots.
+    Returns True if an advance payment was found and cancelled.
     """
     advance_payment = SupplierPayment.objects.filter(
         order=order,
@@ -455,7 +456,7 @@ def _cancel_advance_payment(*, order, user) -> None:
         is_deleted=False,
     ).first()
     if advance_payment:
-        from cash_flow.services import sync_advance_payment_deleted
+        from cash_flow.services import reverse_cash_movement, sync_advance_payment_deleted
         sync_advance_payment_deleted(advance_amount=advance_payment.amount, user=user)
 
         # Remove ledger entry
@@ -466,6 +467,9 @@ def _cancel_advance_payment(*, order, user) -> None:
         advance_payment.deleted_by = user
         advance_payment.deleted_at = timezone.now()
         advance_payment.save(update_fields=["is_deleted", "deleted_by", "deleted_at"])
+        reverse_cash_movement(advance_payment)
+        return True
+    return False
 
 
 def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, user) -> None:
@@ -487,6 +491,10 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
         # Update payment amount
         advance_payment.amount = new_amount
         advance_payment.save(update_fields=["amount"])
+
+        # Keep the drawer event's amount in step (hides it if edited to 0).
+        from cash_flow.services import refresh_cash_movement
+        refresh_cash_movement(advance_payment)
 
         # Update linked ledger entry amount
         ledger_entry = SupplierLedgerEntry.objects.filter(
@@ -520,6 +528,8 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
             date=timezone.localtime(timezone.now()).date(),
             user=user,
         )
+        from cash_flow.services import record_cash_movement
+        record_cash_movement(adv_payment)
 
     from cash_flow.services import sync_advance_payment_updated
     sync_advance_payment_updated(old_amount=old_amount, new_amount=new_amount, user=user)
@@ -581,8 +591,9 @@ def create_purchase_order(
             created_by=user,
             updated_by=user,
         )
-        from cash_flow.services import sync_advance_payment_created
+        from cash_flow.services import record_cash_movement, sync_advance_payment_created
         sync_advance_payment_created(advance_amount=advance_amount, user=user)
+        record_cash_movement(adv_payment)
 
         # Ledger entry: advance debit
         from ledger.services import add_advance_entry
@@ -682,8 +693,18 @@ def update_purchase_order_items(
     return order
 
 
+@transaction.atomic
 def delete_purchase_order(*, order_id: int, user) -> None:
-    """Only DRAFT orders can be deleted. Refunds advance payment if applicable."""
+    """
+    Only DRAFT orders can be deleted. Refunds advance payment if applicable.
+
+    The refund goes through _cancel_advance_payment, which restores the cash
+    AND soft-deletes the advance SupplierPayment row + its ledger entry +
+    its drawer event — previously the cash was restored but the payment row
+    stayed alive forever, leaving a phantom outflow in the cash-in-hand
+    drawer and a phantom debit in the supplier ledger for an order that no
+    longer exists (fix approved 2026-08-03).
+    """
     from rest_framework.exceptions import ValidationError
     order = get_purchase_order_by_id(order_id)
     if order.status != PurchaseOrder.Status.DRAFT:
@@ -691,8 +712,12 @@ def delete_purchase_order(*, order_id: int, user) -> None:
 
     # Refund advance if this was an advance order
     if order.payment_type == "advance" and order.advance_amount > 0:
-        from cash_flow.services import sync_advance_payment_deleted
-        sync_advance_payment_deleted(advance_amount=order.advance_amount, user=user)
+        if not _cancel_advance_payment(order=order, user=user):
+            # Advance payment row already deleted directly (its deletion
+            # deliberately does NOT restore cash for advances) — restore the
+            # cash here exactly as before.
+            from cash_flow.services import sync_advance_payment_deleted
+            sync_advance_payment_deleted(advance_amount=order.advance_amount, user=user)
 
     _soft_delete(order, user)
 
@@ -889,8 +914,9 @@ def create_supplier_payment(
     _sync_order_payable(order)
 
     # Sync CashFlow: cash out, payable reduces, paid increases
-    from cash_flow.services import sync_supplier_payment_made
+    from cash_flow.services import record_cash_movement, sync_supplier_payment_made
     sync_supplier_payment_made(amount=amount, user=user)
+    record_cash_movement(payment)
 
     # Ledger entry: debit (we paid supplier)
     from ledger.services import add_payment_entry
@@ -917,6 +943,11 @@ def delete_supplier_payment(*, payment_id: int, user) -> None:
     if amount > 0 and not payment.note.startswith("Advance payment"):
         from cash_flow.services import sync_supplier_payment_deleted
         sync_supplier_payment_deleted(amount=amount, user=user)
+
+    # The drawer hides ANY soft-deleted payment row (advance or not), so the
+    # event is reversed unconditionally — mirroring row visibility, not cash.
+    from cash_flow.services import reverse_cash_movement
+    reverse_cash_movement(payment)
 
 
 # ---------------------------------------------------------------------------

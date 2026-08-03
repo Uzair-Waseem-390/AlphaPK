@@ -110,6 +110,9 @@ def create_opening_cash(*, amount: Decimal, user) -> OpeningCashEntry:
 
     entry = OpeningCashEntry.objects.create(amount=amount, added_by=user)
     sync_data_entry_opening_cash(amount=amount, user=user)
+
+    from cash_flow.services import record_cash_movement
+    record_cash_movement(entry)
     return entry
 
 

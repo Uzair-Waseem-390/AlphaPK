@@ -129,8 +129,9 @@ def create_tax_payment(
 
     _adjust_taxflow(total_sales_tax_paid_delta=+amount, user=user)
 
-    from cash_flow.services import sync_tax_payment_made
+    from cash_flow.services import record_cash_movement, sync_tax_payment_made
     sync_tax_payment_made(amount=amount, user=user)
+    record_cash_movement(payment)
 
     return payment
 
@@ -153,8 +154,9 @@ def delete_tax_payment(*, pk: int, user) -> None:
 
     _adjust_taxflow(total_sales_tax_paid_delta=-amount, user=user)
 
-    from cash_flow.services import sync_tax_payment_deleted
+    from cash_flow.services import reverse_cash_movement, sync_tax_payment_deleted
     sync_tax_payment_deleted(amount=amount, user=user)
+    reverse_cash_movement(payment)
 
 
 # ---------------------------------------------------------------------------
@@ -186,8 +188,9 @@ def create_wht_payment(
 
     _adjust_taxflow(total_wht_paid_delta=+amount, user=user)
 
-    from cash_flow.services import sync_wht_payment_made
+    from cash_flow.services import record_cash_movement, sync_wht_payment_made
     sync_wht_payment_made(amount=amount, user=user)
+    record_cash_movement(payment)
 
     return payment
 
@@ -210,5 +213,6 @@ def delete_wht_payment(*, pk: int, user) -> None:
 
     _adjust_taxflow(total_wht_paid_delta=-amount, user=user)
 
-    from cash_flow.services import sync_wht_payment_deleted
+    from cash_flow.services import reverse_cash_movement, sync_wht_payment_deleted
     sync_wht_payment_deleted(amount=amount, user=user)
+    reverse_cash_movement(payment)
