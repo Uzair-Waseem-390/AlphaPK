@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import (
@@ -131,16 +131,26 @@ def _catch_up_investor_growth(investor: Investor, user=None) -> None:
         worth_after = worth_before + monthly_growth
         period_str = f"{next_date.year:04d}-{next_date.month:02d}"
 
-        InvestorValuationEntry.objects.create(
-            investor=investor,
-            period=period_str,
-            rate_applied=rate,
-            worth_before=worth_before,
-            worth_after=worth_after,
-            amount=monthly_growth,
-            note="Auto-posted monthly growth (catch-up)",
-            created_by=user,
-        )
+        try:
+            # Savepoint so a unique-constraint hit doesn't poison an outer
+            # transaction (catch-up runs inside atomic services too).
+            with transaction.atomic():
+                InvestorValuationEntry.objects.create(
+                    investor=investor,
+                    period=period_str,
+                    rate_applied=rate,
+                    worth_before=worth_before,
+                    worth_after=worth_after,
+                    amount=monthly_growth,
+                    note="Auto-posted monthly growth (catch-up)",
+                    created_by=user,
+                )
+        except IntegrityError:
+            # uniq_investor_valuation_period: a concurrent catch-up already
+            # posted this month (and everything after it) — pick up its
+            # result and stop instead of double-compounding.
+            investor.refresh_from_db(fields=["current_worth"])
+            return
 
         investor.current_worth = worth_after
         investor.save(update_fields=["current_worth"])
@@ -152,6 +162,33 @@ def _catch_up_investor_growth(investor: Investor, user=None) -> None:
 
         ny2, nm2 = _add_months(next_date.year, next_date.month, 1)
         next_date = date(ny2, nm2, 1)
+
+
+def catch_up_all_investor_growth(user=None) -> None:
+    """
+    Runs growth catch-up for every active investor, gated by an O(1) month
+    marker on the flow singleton: growth only ever becomes due at a month
+    boundary (a new investor's first entry is due the FOLLOWING month, and
+    rate edits only affect future postings), so once everyone is posted
+    through the current month there is nothing to check until the 1st of the
+    next month. Selectors call this on every stats/investor-list read —
+    previously that meant one "latest entry" query per growth investor per
+    request; now it's a free field comparison on the already-fetched
+    singleton, with the real per-investor sweep running once per month.
+    Posting logic and numbers are completely unchanged.
+    """
+    today = timezone.localdate()
+    current_period = f"{today.year:04d}-{today.month:02d}"
+
+    cmf = CashManagementFlow.get_instance()
+    if cmf.growth_caught_up_through == current_period:
+        return
+
+    for investor in Investor.objects.filter(is_deleted=False):
+        _catch_up_investor_growth(investor, user=user)
+
+    # update() — not save() — so the marker stamp doesn't touch last_updated_at.
+    CashManagementFlow.objects.filter(pk=1).update(growth_caught_up_through=current_period)
 
 
 # ---------------------------------------------------------------------------
@@ -276,16 +313,20 @@ def update_investor(
     return investor
 
 
+@transaction.atomic
 def delete_investor(*, pk: int, user) -> None:
     """
     Soft-deletes an investor. Blocked if they have any non-deleted
     transactions — deleting the investor would orphan real financial
     history; delete/reverse the transactions first if that's truly intended.
+    select_for_update: transaction creation locks this same row, so the
+    delete waits for any in-flight transaction and re-checks — the
+    "no transactions" guard can't be raced past.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
 
-    investor = get_object_or_404(Investor, pk=pk, is_deleted=False)
+    investor = get_object_or_404(Investor.objects.select_for_update(), pk=pk, is_deleted=False)
 
     if investor.transactions.filter(is_deleted=False).exists():
         raise ValidationError({

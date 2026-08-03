@@ -222,6 +222,16 @@ class InvestorValuationEntry(models.Model):
         indexes = [
             models.Index(fields=["investor", "-period"], name="idx_investor_valuation_lookup"),
         ]
+        constraints = [
+            # Two concurrent catch-up runs (e.g. two stats requests at a
+            # month boundary) could otherwise both post the same month for
+            # the same investor — the DB now makes that physically
+            # impossible; _catch_up_investor_growth treats the violation as
+            # "someone else already posted" and stops cleanly.
+            models.UniqueConstraint(
+                fields=["investor", "period"], name="uniq_investor_valuation_period",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.investor.name} — growth {self.period}: {self.amount}"
@@ -331,6 +341,12 @@ class CashManagementFlow(models.Model):
                                        help_text="total_owner_contributions - total_owner_drawings. NOT floored at 0 — "
                                                   "a sole owner can draw out more than they've deposited, financed by "
                                                   "the business's profits, same as any real owner's drawing account.")
+
+    growth_caught_up_through = models.CharField(max_length=7, blank=True, default="",
+                                    help_text="YYYY-MM through which EVERY investor's growth is posted. Growth only "
+                                              "becomes due at month boundaries, so while this equals the current month "
+                                              "the per-investor catch-up loop can be skipped entirely (O(1) staleness "
+                                              "check — same throttle pattern as users.TokenFlushState).")
 
     last_updated_at = models.DateTimeField(auto_now=True)
     last_updated_by = models.ForeignKey(

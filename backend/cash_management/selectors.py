@@ -1,11 +1,13 @@
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+
+from backend.search import search_q
 
 from .models import (
     CashAdjustment, CashManagementFlow, Investor, InvestorTransaction,
     InvestorValuationEntry, OwnerTransaction,
 )
-from .services import _catch_up_investor_growth
+from .services import _catch_up_investor_growth, catch_up_all_investor_growth
 
 
 def _clean(value):
@@ -21,13 +23,13 @@ def _clean(value):
 
 def get_cash_management_stats() -> dict:
     """
-    Runs growth catch-up for every active investor (cheap at real-world
-    scale), then returns the store's current cash-reconciliation and
-    investor-capital position off the CashManagementFlow singleton —
-    O(1) after catch-up, same pattern as cash_flow.get_cashflow_stats().
+    Ensures investor growth is current (O(1) month-marker check — the
+    per-investor sweep only actually runs on the first read of each month),
+    then returns the store's cash-reconciliation and investor-capital
+    position off the CashManagementFlow singleton — same pattern as
+    cash_flow.get_cashflow_stats().
     """
-    for investor in Investor.objects.filter(is_deleted=False):
-        _catch_up_investor_growth(investor)
+    catch_up_all_investor_growth()
 
     cmf = CashManagementFlow.get_instance()
     return {
@@ -67,7 +69,7 @@ def get_all_cash_adjustments(
     if _clean(adjustment_type):
         qs = qs.filter(adjustment_type=_clean(adjustment_type))
     if _clean(search):
-        qs = qs.filter(Q(reason__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "reason"))
     if _clean(date_from):
         qs = qs.filter(adjustment_date__gte=_clean(date_from))
     if _clean(date_to):
@@ -91,22 +93,18 @@ def get_cash_adjustment_by_id(pk: int) -> CashAdjustment:
 def get_all_investors(*, search: str = None) -> QuerySet:
     """
     Returns all non-deleted investors, optionally filtered by name/email/phone.
-    Runs growth catch-up per investor first — always current, no cron.
+    Growth is kept current via the O(1) month-marker check (the sweep runs
+    once per month, covering every investor — a superset of the old
+    per-matched-row loop, so results are never staler than before).
     """
+    catch_up_all_investor_growth()
+
     qs = Investor.objects.filter(is_deleted=False)
 
     if _clean(search):
-        s = _clean(search)
-        qs = qs.filter(
-            Q(name__icontains=s) | Q(email__icontains=s) | Q(contact_number__icontains=s)
-        )
+        qs = qs.filter(search_q(_clean(search), "name", "email", "contact_number"))
 
-    qs = qs.order_by("name")
-
-    for investor in qs:
-        _catch_up_investor_growth(investor)
-
-    return qs
+    return qs.order_by("name")
 
 
 def get_investor_by_id(pk: int) -> Investor:
@@ -151,7 +149,7 @@ def get_all_investor_transactions(
     if _clean(transaction_type):
         qs = qs.filter(transaction_type=_clean(transaction_type))
     if _clean(search):
-        qs = qs.filter(Q(note__icontains=_clean(search)) | Q(investor__name__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "note", "investor__name"))
     if _clean(date_from):
         qs = qs.filter(transaction_date__gte=_clean(date_from))
     if _clean(date_to):
@@ -189,7 +187,7 @@ def get_all_owner_transactions(
     if _clean(transaction_type):
         qs = qs.filter(transaction_type=_clean(transaction_type))
     if _clean(search):
-        qs = qs.filter(Q(note__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "note"))
     if _clean(date_from):
         qs = qs.filter(transaction_date__gte=_clean(date_from))
     if _clean(date_to):
