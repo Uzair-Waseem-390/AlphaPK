@@ -1,7 +1,7 @@
 from datetime import date, timedelta
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import Sum
 from django.utils import timezone
 
@@ -107,9 +107,14 @@ def _compute_found_cash(first_day, last_day) -> Decimal:
 def _compute_lost_inventory(first_day, last_day) -> Decimal:
     """Batches (LostInventoryRecord) created this month — the loss side, dated by when it was recorded."""
     from purchases.models import LostInventoryRecord
+    from purchases.selectors import _day_start, _next_day_start
 
+    # Half-open datetime range instead of the index-defeating __date cast —
+    # this runs on every current-month profit view, not just finalization.
     total = LostInventoryRecord.objects.filter(
-        is_deleted=False, created_at__date__gte=first_day, created_at__date__lte=last_day,
+        is_deleted=False,
+        created_at__gte=_day_start(first_day),
+        created_at__lt=_next_day_start(last_day),
     ).aggregate(total=Sum("total_lost_amount"))["total"]
     return total or Decimal("0")
 
@@ -229,24 +234,30 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
         - depreciation + disposal_gain_loss
     )
 
-    mp = MonthlyProfit.objects.create(
-        period=period,
-        gross_revenue=row["revenue"], gross_cogs=row["cogs"], gross_profit=row["gross_profit"],
-        net_revenue=row["net_revenue"], net_cogs=row["net_cogs"], net_gross_profit=row["net_gross_profit"],
-        expenses_paid=expenses_paid, recurring_expenses_paid=recurring_expenses_paid,
-        gst_paid=gst_paid, wht_paid=wht_paid,
-        lost_cash=lost_cash, found_cash=found_cash,
-        lost_inventory=lost_inventory, found_inventory=found_inventory,
-        depreciation=depreciation, disposal_gain_loss=disposal_gain_loss,
-        net_profit=net_profit,
-    )
+    try:
+        # Savepoint: catch-up runs on every profits read, so two requests at a
+        # month boundary can race to finalize the same period. The unique
+        # constraint on period stops the loser — treat that as "already
+        # finalized by the winner" instead of crashing the read with a 500.
+        with transaction.atomic():
+            mp = MonthlyProfit.objects.create(
+                period=period,
+                gross_revenue=row["revenue"], gross_cogs=row["cogs"], gross_profit=row["gross_profit"],
+                net_revenue=row["net_revenue"], net_cogs=row["net_cogs"], net_gross_profit=row["net_gross_profit"],
+                expenses_paid=expenses_paid, recurring_expenses_paid=recurring_expenses_paid,
+                gst_paid=gst_paid, wht_paid=wht_paid,
+                lost_cash=lost_cash, found_cash=found_cash,
+                lost_inventory=lost_inventory, found_inventory=found_inventory,
+                depreciation=depreciation, disposal_gain_loss=disposal_gain_loss,
+                net_profit=net_profit,
+            )
+    except IntegrityError:
+        return MonthlyProfit.objects.get(period=period)
 
     # Snapshot the ownership split AT THIS MOMENT — frozen forever on the
     # share rows, never recalculated even if current ownership % later moves.
     from profits.selectors import get_ownership_split
     split = get_ownership_split()
-
-    from cash_management.models import Investor
 
     investor_amounts_sum   = Decimal("0")
     total_investor_percent = Decimal("0")
@@ -258,7 +269,7 @@ def _finalize_month(period: str, user=None) -> MonthlyProfit:
         investor_amounts_sum += share_amount
         MonthlyProfitInvestorShare.objects.create(
             monthly_profit=mp,
-            investor=Investor.objects.get(pk=inv["id"]),
+            investor_id=inv["id"],
             investor_name_snapshot=inv["name"],
             share_percent_snapshot=inv["share_percent"],
             share_amount=share_amount,

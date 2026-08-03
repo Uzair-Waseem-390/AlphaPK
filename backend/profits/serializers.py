@@ -89,13 +89,10 @@ class MonthlyProfitInvestorShareSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def to_representation(self, instance):
-        rep = super().to_representation(instance)
-        # payouts relation only includes non-deleted rows for display
-        rep["payouts"] = InvestorProfitPayoutReadSerializer(
-            instance.payouts.filter(is_deleted=False).order_by("-payout_date", "-created_at"), many=True,
-        ).data
-        return rep
+    # Non-deleted, display-ordered payouts come from the selector's filtered
+    # Prefetch (get_monthly_profit_by_period) — the declared `payouts` field
+    # reads that prefetched cache directly. The old to_representation
+    # re-filter here discarded the prefetch and re-queried once per share.
 
 
 class OwnerProfitPayoutReadSerializer(serializers.ModelSerializer):
@@ -148,12 +145,8 @@ class MonthlyProfitOwnerShareSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
-    def to_representation(self, instance):
-        rep = super().to_representation(instance)
-        rep["payouts"] = OwnerProfitPayoutReadSerializer(
-            instance.payouts.filter(is_deleted=False).order_by("-payout_date", "-created_at"), many=True,
-        ).data
-        return rep
+    # Same as MonthlyProfitInvestorShareSerializer — payouts are filtered and
+    # ordered by the selector's Prefetch, read straight from its cache.
 
 
 class InvestorMonthlyShareListItemSerializer(serializers.ModelSerializer):

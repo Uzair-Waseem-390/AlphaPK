@@ -139,13 +139,31 @@ def get_all_monthly_profits(*, year: str = None):
 
 
 def get_monthly_profit_by_period(period: str):
+    from django.db.models import Prefetch
     from django.shortcuts import get_object_or_404
-    from .models import MonthlyProfit
+    from .models import InvestorProfitPayout, MonthlyProfit, OwnerProfitPayout
     from .services import catch_up_monthly_profits
 
     catch_up_monthly_profits()
+    # Prefetch payouts ALREADY filtered/ordered the way the detail serializer
+    # displays them (and with created_by joined for its StringRelatedField) —
+    # a bare prefetch was useless before because the serializer re-filtered
+    # with .filter(is_deleted=False), which discards the prefetch cache and
+    # re-queries per share (hidden N+1). investor FK is serialized as a plain
+    # id + name snapshot, so no investor join is needed at all.
     return get_object_or_404(
-        MonthlyProfit.objects.prefetch_related("investor_shares__payouts", "investor_shares__investor"),
+        MonthlyProfit.objects.prefetch_related(
+            Prefetch(
+                "investor_shares__payouts",
+                queryset=InvestorProfitPayout.objects.filter(is_deleted=False)
+                .select_related("created_by").order_by("-payout_date", "-created_at"),
+            ),
+            Prefetch(
+                "owner_share__payouts",
+                queryset=OwnerProfitPayout.objects.filter(is_deleted=False)
+                .select_related("created_by").order_by("-payout_date", "-created_at"),
+            ),
+        ),
         period=period,
     )
 
@@ -296,8 +314,10 @@ def get_all_investor_profit_payouts():
     """
     from .models import InvestorProfitPayout
 
+    # share__investor deliberately NOT joined — the list serializer reads the
+    # name SNAPSHOT stored on the share itself, never the live investor row.
     return InvestorProfitPayout.objects.filter(is_deleted=False).select_related(
-        "share__investor", "share__monthly_profit", "created_by",
+        "share__monthly_profit", "created_by",
     ).order_by("-created_at")
 
 
