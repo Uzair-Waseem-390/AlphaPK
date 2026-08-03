@@ -18,12 +18,10 @@ from .models import CashFlow, CashMovement, Expense, ExpenseCategory
 
 def get_cashflow_stats() -> dict:
     """
-    Returns all 18 dashboard stats from the CashFlow singleton.
-    Counts use .count() on the source models — never summed in runtime.
+    Returns all dashboard stats from the CashFlow singleton — every number,
+    counts included, is a stored field (fully O(1); the counts used to be
+    three live COUNT queries over growing tables on every dashboard load).
     """
-    from billing.models import Invoice
-    from purchases.models import PurchaseOrder
-
     cf = CashFlow.get_instance()
 
     return {
@@ -34,9 +32,7 @@ def get_cashflow_stats() -> dict:
         "customer_outstanding"      : cf.customer_outstanding,
         # total_invoices_cash: GROSS collected from customers (never reduced by expenses/payments)
         "total_invoices_cash"       : cf.total_invoices_cash,
-        "total_number_of_invoices"  : Invoice.objects.filter(
-                                          is_deleted=False, is_data_entry=False,
-                                      ).exclude(status="draft").count(),
+        "total_number_of_invoices"  : cf.total_invoices_count,
 
         # Payables
         # total_paid_payables: total cash ever paid to suppliers
@@ -45,15 +41,11 @@ def get_cashflow_stats() -> dict:
         "total_outstanding_payable"     : cf.supplier_payable_outstanding,
         # total_purchases_cash: total purchase value confirmed (paid + outstanding)
         "total_purchases_cash"          : cf.total_purchases_cash,
-        "total_number_of_purchases"     : PurchaseOrder.objects.filter(
-                                              is_deleted=False,
-                                              is_data_entry=False,
-                                              status="confirmed",
-                                          ).count(),
+        "total_number_of_purchases"     : cf.total_purchases_count,
 
         # Expenses
         "total_expenses_amount"     : cf.total_expenses_amount,
-        "total_number_of_expenses"  : Expense.objects.filter(is_deleted=False).count(),
+        "total_number_of_expenses"  : cf.total_expenses_count,
         "total_recurring_expenses_paid" : cf.total_recurring_expenses_paid,
 
         # Lost inventory — gross fields stay gross (never decrease); net is

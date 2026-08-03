@@ -31,6 +31,9 @@ def _adjust_cashflow(
     total_invoice_revenue_delta        : Decimal = Decimal("0"),
     total_invoice_cogs_delta           : Decimal = Decimal("0"),
     total_gross_profit_delta           : Decimal = Decimal("0"),
+    total_invoices_count_delta         : int = 0,
+    total_purchases_count_delta        : int = 0,
+    total_expenses_count_delta         : int = 0,
     user,
 ) -> CashFlow:
     """
@@ -118,6 +121,15 @@ def _adjust_cashflow(
         )
         cf.total_gross_profit = max(
             Decimal("0"), cf.total_gross_profit + total_gross_profit_delta
+        )
+        cf.total_invoices_count = max(
+            0, cf.total_invoices_count + total_invoices_count_delta
+        )
+        cf.total_purchases_count = max(
+            0, cf.total_purchases_count + total_purchases_count_delta
+        )
+        cf.total_expenses_count = max(
+            0, cf.total_expenses_count + total_expenses_count_delta
         )
         cf.last_updated_by = user
         cf.save()
@@ -447,6 +459,7 @@ def create_expense(
         cash_in_hand_delta          = -amount,
         total_cash_outflow_delta    = +amount,
         total_expenses_amount_delta = +amount,
+        total_expenses_count_delta  = +1,
         user=user,
     )
     record_cash_movement(expense)
@@ -527,6 +540,7 @@ def delete_expense(*, pk: int, user) -> None:
         cash_in_hand_delta          = +amount,
         total_cash_outflow_delta    = -amount,
         total_expenses_amount_delta = -amount,
+        total_expenses_count_delta  = -1,
         user=user,
     )
     reverse_cash_movement(expense)
@@ -555,6 +569,7 @@ def sync_invoice_confirmed(
         total_invoice_revenue_delta = +grand_total,
         total_invoice_cogs_delta    = +total_cogs,
         total_gross_profit_delta    = +gross_profit,
+        total_invoices_count_delta  = +1,
         user=user,
     )
 
@@ -621,6 +636,7 @@ def sync_purchase_order_confirmed(*, net_payable: Decimal, advance_amount: Decim
         supplier_payable_outstanding_delta = +(net_payable - advance_amount),
         total_paid_payables_delta          = +advance_amount,
         total_purchases_cash_delta         = +net_payable,
+        total_purchases_count_delta        = +1,
         user=user,
     )
 

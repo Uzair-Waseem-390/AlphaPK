@@ -187,6 +187,20 @@ class CashMovementOracleTests(CashFlowTestBase):
         totals = get_cash_flow_totals_up_to(None)
         self.assertEqual((totals["inflow"], totals["outflow"]), (oracle_in, oracle_out))
 
+        # Stored dashboard counters equal what the old live COUNT queries
+        # would have returned (same filters).
+        from billing.models import Invoice
+        from purchases.models import PurchaseOrder
+        self.assertEqual(
+            cf.total_invoices_count,
+            Invoice.objects.filter(is_deleted=False, is_data_entry=False).exclude(status="draft").count(),
+        )
+        self.assertEqual(
+            cf.total_purchases_count,
+            PurchaseOrder.objects.filter(is_deleted=False, is_data_entry=False, status="confirmed").count(),
+        )
+        self.assertEqual(cf.total_expenses_count, 1)
+
         # The view responds with the same rows and DB-aggregated totals.
         request = self.factory.get("/cash-flow/breakdown/cash-in-hand/", {"date_to": "2026-06-30"})
         force_authenticate(request, user=self.admin)
@@ -225,6 +239,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
             expense_date=timezone.now().date(), user=self.admin,
         )
         self.assertEqual(self.cash(), cash_start - Decimal("2000"))
+        self.assertEqual(CashFlow.get_instance().total_expenses_count, 1)
         event = CashMovement.objects.get(source_model="cash_flow.expense", source_id=expense.id)
         self.assertEqual((event.direction, event.movement_type, event.amount, event.is_deleted),
                          ("outflow", "expense", Decimal("2000.0000"), False))
@@ -239,6 +254,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
 
         delete_expense(pk=expense.pk, user=self.admin)
         self.assertEqual(self.cash(), cash_start)
+        self.assertEqual(CashFlow.get_instance().total_expenses_count, 0)
         event.refresh_from_db()
         self.assertTrue(event.is_deleted)
         self.assertEqual(len(_event_rows(movement_type="outflow")), 0)
@@ -320,3 +336,14 @@ class DraftAdvanceQuirkFixTests(CashFlowTestBase):
         self.assertEqual(SupplierLedgerEntry.objects.filter(supplier_payment=payment).count(), 0)
         event.refresh_from_db()
         self.assertTrue(event.is_deleted)
+
+        # Confirming a real order bumps the stored dashboard counter.
+        from purchases.services import confirm_purchase_order
+        order2 = create_purchase_order(
+            supplier_id=supplier.id,
+            items=[{"product_id": product.id, "quantity": 5, "unit_price": Decimal("100")}],
+            user=self.admin,
+        )
+        self.assertEqual(CashFlow.get_instance().total_purchases_count, 0)
+        confirm_purchase_order(order_id=order2.id, user=self.admin)
+        self.assertEqual(CashFlow.get_instance().total_purchases_count, 1)

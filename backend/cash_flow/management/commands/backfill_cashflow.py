@@ -39,6 +39,9 @@ class Command(BaseCommand):
         cf.total_invoice_revenue      = Decimal("0")
         cf.total_invoice_cogs         = Decimal("0")
         cf.total_gross_profit         = Decimal("0")
+        cf.total_invoices_count       = 0
+        cf.total_purchases_count      = 0
+        cf.total_expenses_count       = 0
         cf.save()
 
         # 1. Customer outstanding = sum of credit_outstanding on confirmed invoices
@@ -319,6 +322,17 @@ class Command(BaseCommand):
         cf.total_cash_outflow = totals["outflow"]
         self.stdout.write(f"  total_cash_inflow: {cf.total_cash_inflow}")
         self.stdout.write(f"  total_cash_outflow: {cf.total_cash_outflow}")
+
+        # 12. Dashboard counts — stored so get_cashflow_stats() never runs a
+        #     live COUNT. Same filters the selector used before the counters.
+        cf.total_invoices_count = invoices.filter(is_data_entry=False).count()
+        cf.total_purchases_count = PurchaseOrder.objects.filter(
+            is_deleted=False, is_data_entry=False, status="confirmed",
+        ).count()
+        cf.total_expenses_count = Expense.objects.filter(is_deleted=False).count()
+        self.stdout.write(f"  total_invoices_count: {cf.total_invoices_count}")
+        self.stdout.write(f"  total_purchases_count: {cf.total_purchases_count}")
+        self.stdout.write(f"  total_expenses_count: {cf.total_expenses_count}")
 
         cf.save()
         self.stdout.write(self.style.SUCCESS("\nCashFlow backfill complete."))

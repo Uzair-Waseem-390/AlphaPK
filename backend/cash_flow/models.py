@@ -242,6 +242,14 @@ class CashFlow(models.Model):
     total_gross_profit    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                 help_text="Total gross profit across all confirmed invoices. Only ever increases.")
 
+    # ---- Dashboard counts (O(1) — no live COUNT queries) ----
+    total_invoices_count  = models.IntegerField(default=0,
+                                help_text="Confirmed, non-data-entry invoices. +1 in sync_invoice_confirmed; confirmed invoices are undeletable, so it never decrements.")
+    total_purchases_count = models.IntegerField(default=0,
+                                help_text="Confirmed, non-data-entry purchase orders. +1 in sync_purchase_order_confirmed; confirmed orders are undeletable, so it never decrements.")
+    total_expenses_count  = models.IntegerField(default=0,
+                                help_text="Non-deleted expenses. +1 on create_expense, -1 on delete_expense.")
+
     # ---- Last sync metadata ----
     last_updated_at = models.DateTimeField(auto_now=True)
     last_updated_by = models.ForeignKey(
