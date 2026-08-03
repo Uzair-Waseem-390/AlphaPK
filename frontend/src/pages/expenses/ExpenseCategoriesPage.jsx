@@ -49,9 +49,15 @@ const ExpenseCategoriesPage = () => {
     };
 
     const handleDelete = async (id) => {
-        await deleteCategory(id);
-        setDeleteConfirm(null);
-        refetch();
+        try {
+            await deleteCategory(id);
+            refetch();
+        } catch (error) {
+            console.error('Failed to delete category:', error);
+            alert(error.response?.data?.detail || 'Failed to delete category');
+        } finally {
+            setDeleteConfirm(null);
+        }
     };
 
     const resetForm = () => {
