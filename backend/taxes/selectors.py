@@ -1,5 +1,7 @@
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+
+from backend.search import search_q
 
 from .models import TaxFlow, TaxPayment, WHTPayment
 
@@ -53,7 +55,7 @@ def get_all_tax_payments(
     )
 
     if _clean(search):
-        qs = qs.filter(Q(note__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "note"))
     if _clean(date_from):
         qs = qs.filter(payment_date__gte=_clean(date_from))
     if _clean(date_to):
@@ -88,7 +90,7 @@ def get_all_wht_payments(
     )
 
     if _clean(search):
-        qs = qs.filter(Q(note__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "note"))
     if _clean(date_from):
         qs = qs.filter(payment_date__gte=_clean(date_from))
     if _clean(date_to):
