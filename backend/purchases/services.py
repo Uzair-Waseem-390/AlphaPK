@@ -1,6 +1,6 @@
 from decimal import Decimal
 from django.db import transaction
-from django.db.models import F
+from django.db.models import F, Q, Sum
 from django.utils import timezone
 
 from .models import (
@@ -48,25 +48,34 @@ def _adjust_stock_movement(
     increase (none of the six source events are ever undone in this
     codebase), so no floor-at-0 logic is needed — plain PositiveIntegerField
     addition.
-    """
-    with transaction.atomic():
-        row, _ = ProductStockMovement.objects.select_for_update().get_or_create(product_id=product_id)
-        row.total_purchased         += purchased_delta
-        row.total_purchase_returned += purchase_returned_delta
-        row.total_sold               += sold_delta
-        row.total_sale_returned      += sale_returned_delta
-        row.total_lost                += lost_delta
-        row.total_found               += found_delta
-        row.save()
 
-        flow = StockMovementFlow.get_instance()
-        flow.total_purchased         += purchased_delta
-        flow.total_purchase_returned += purchase_returned_delta
-        flow.total_sold               += sold_delta
-        flow.total_sale_returned      += sale_returned_delta
-        flow.total_lost                += lost_delta
-        flow.total_found               += found_delta
-        flow.save()
+    Additions run inside the database via F() expressions, so two stock
+    events committing at the same instant can never overwrite each other's
+    counter update (the old read-add-save on the flow singleton could lose
+    one side's addition). No row lock needed. .update() bypasses auto_now,
+    hence last_updated_at is set explicitly — same field, same meaning.
+    """
+    deltas = {
+        "total_purchased"        : purchased_delta,
+        "total_purchase_returned": purchase_returned_delta,
+        "total_sold"             : sold_delta,
+        "total_sale_returned"    : sale_returned_delta,
+        "total_lost"             : lost_delta,
+        "total_found"            : found_delta,
+    }
+    with transaction.atomic():
+        now = timezone.now()
+        ProductStockMovement.objects.get_or_create(product_id=product_id)
+        ProductStockMovement.objects.filter(product_id=product_id).update(
+            last_updated_at=now,
+            **{field: F(field) + delta for field, delta in deltas.items()},
+        )
+
+        StockMovementFlow.get_instance()
+        StockMovementFlow.objects.filter(pk=1).update(
+            last_updated_at=now,
+            **{field: F(field) + delta for field, delta in deltas.items()},
+        )
 
 
 # Model + reference field that each counter doc_type seeds its legacy max from.
@@ -187,16 +196,15 @@ def _sync_order_payable(order: PurchaseOrder) -> None:
         - Return credit notes (negative payments) reduce payable_outstanding further
         - payment_status = unpaid / partial / paid
     """
-    payments = SupplierPayment.objects.filter(order=order, is_deleted=False)
-
-    total_paid     = Decimal("0")
-    return_credits = Decimal("0")
-
-    for p in payments:
-        if p.amount > 0:
-            total_paid += p.amount
-        else:
-            return_credits += abs(p.amount)
+    # One conditional aggregate instead of loading every payment row into
+    # Python — same numbers, one query (mirrors billing's
+    # _sync_invoice_payment_summary).
+    agg = SupplierPayment.objects.filter(order=order, is_deleted=False).aggregate(
+        paid=Sum("amount", filter=Q(amount__gt=0)),
+        credits=Sum("amount", filter=Q(amount__lt=0)),
+    )
+    total_paid     = agg["paid"] or Decimal("0")
+    return_credits = abs(agg["credits"] or Decimal("0"))
 
     payable_outstanding = max(
         Decimal("0"),
@@ -1161,8 +1169,14 @@ def _validate_lost_stock(*, product: Product, requested_qty: int) -> None:
     """Guard: ensures enough FIFO stock exists before consuming it. Mirrors billing._validate_stock."""
     from rest_framework.exceptions import ValidationError
 
-    batches = get_available_purchase_items_for_fifo(product.id)
-    available = sum(b.remaining_quantity for b in batches)
+    # Single aggregate instead of loading every batch row to sum in Python
+    # (mirrors billing's _validate_stock). Deliberately unlocked — it's a
+    # pre-check; the locked walk in _consume_fifo_for_loss has its own
+    # ran-out guard for the race.
+    available = (
+        get_available_purchase_items_for_fifo(product.id)
+        .aggregate(total=Sum("remaining_quantity"))["total"] or 0
+    )
     if available < requested_qty:
         raise ValidationError({
             "quantity": (

@@ -9,13 +9,17 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 
 from users.models import User
 
+from rest_framework.exceptions import ValidationError
+
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow, Product,
-    PurchaseOrder, Shelf, Supplier,
+    ProductStockMovement, PurchaseOrder, Shelf, StockMovementFlow, Supplier,
 )
 from .services import (
-    confirm_purchase_order, create_lost_inventory_record, create_purchase_order,
-    create_supplier, delete_product, mark_lost_inventory_found, sync_inventory,
+    accept_purchase_return, confirm_purchase_order, create_lost_inventory_record,
+    create_purchase_order, create_purchase_return, create_supplier,
+    create_supplier_payment, delete_product, delete_supplier_payment,
+    mark_lost_inventory_found, sync_inventory,
 )
 from .views import (
     DraftPurchaseOrderListView, InventoryListView, InventoryStatsView,
@@ -260,6 +264,94 @@ class QueryCountStabilityTests(PurchasesTestBase):
             sync_inventory(product=p, quantity_delta=5, user=self.admin)
         grown = self.count_queries(view, "/purchases/inventory/")
         self.assertEqual(baseline, grown)
+
+
+class StockMovementCounterTests(PurchasesTestBase):
+    def test_counters_match_backfill_after_full_cycle(self):
+        # Exercises every purchases-side counter through the real services
+        # after the F()-expression rewrite, then uses the backfill command
+        # (which recomputes from source records) as the consistency oracle.
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10)          # purchased 10
+        item = order.items.first()
+
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 2}],
+            user=self.admin,
+        )
+        accept_purchase_return(return_id=ret.id, user=self.admin)        # returned 2
+
+        record = create_lost_inventory_record(
+            items=[{"product_id": product.id, "quantity": 3}], user=self.admin,
+        )                                                                # lost 3
+        mark_lost_inventory_found(
+            lost_item_id=record.items.first().id, quantity=1, user=self.admin,
+        )                                                                # found 1
+
+        def snapshot():
+            row = ProductStockMovement.objects.get(product_id=product.id)
+            flow = StockMovementFlow.get_instance()
+            return (
+                (row.total_purchased, row.total_purchase_returned, row.total_lost, row.total_found),
+                (flow.total_purchased, flow.total_purchase_returned, flow.total_lost, flow.total_found),
+            )
+
+        live = snapshot()
+        self.assertEqual(live[0], (10, 2, 3, 1))
+        self.assertEqual(live[1], (10, 2, 3, 1))
+
+        call_command("backfill_stock_movement")
+        self.assertEqual(snapshot(), live)
+
+
+class OrderPayableSyncTests(PurchasesTestBase):
+    def test_payment_and_credit_note_math_unchanged(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="50")  # net 500
+
+        payment = create_supplier_payment(
+            order_id=order.id, amount=Decimal("200"), method="cash",
+            payment_date=timezone.now().date(), user=self.admin,
+        )
+        order.refresh_from_db()
+        self.assertEqual(order.total_paid, Decimal("200"))
+        self.assertEqual(order.payable_outstanding, Decimal("300"))
+        self.assertEqual(order.payment_status, PurchaseOrder.PaymentStatus.PARTIAL)
+
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 2}],
+            user=self.admin,
+        )
+        accept_purchase_return(return_id=ret.id, user=self.admin)  # credit note -100
+        order.refresh_from_db()
+        self.assertEqual(order.payable_outstanding, Decimal("200"))
+        self.assertEqual(order.payment_status, PurchaseOrder.PaymentStatus.PARTIAL)
+
+        delete_supplier_payment(payment_id=payment.id, user=self.admin)
+        order.refresh_from_db()
+        self.assertEqual(order.total_paid, Decimal("0"))
+        self.assertEqual(order.payable_outstanding, Decimal("400"))
+        # Return credit still counts → partial, not unpaid.
+        self.assertEqual(order.payment_status, PurchaseOrder.PaymentStatus.PARTIAL)
+
+
+class LostStockValidationTests(PurchasesTestBase):
+    def test_validation_boundary_unchanged(self):
+        product = self.make_product()
+        self.make_confirmed_order(product, quantity=10)
+
+        # Exactly the available quantity passes…
+        create_lost_inventory_record(
+            items=[{"product_id": product.id, "quantity": 10}], user=self.admin,
+        )
+        # …one more unit is rejected with the same validation error.
+        with self.assertRaises(ValidationError):
+            create_lost_inventory_record(
+                items=[{"product_id": product.id, "quantity": 1}], user=self.admin,
+            )
 
 
 class OrderDateFilterTests(PurchasesTestBase):
