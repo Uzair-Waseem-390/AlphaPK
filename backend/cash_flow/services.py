@@ -395,9 +395,19 @@ def update_expense_category(*, pk: int, name: str = None, description: str = Non
 
 
 def delete_expense_category(*, pk: int) -> None:
+    from django.db.models import ProtectedError
     from django.shortcuts import get_object_or_404
+    from rest_framework.exceptions import ValidationError
     category = get_object_or_404(ExpenseCategory, pk=pk)
-    category.delete()
+    try:
+        category.delete()
+    except ProtectedError:
+        # Expense.category is on_delete=PROTECT — the DB refuses to delete a
+        # category that still has expenses (including soft-deleted ones).
+        # Surface that as a friendly 400 instead of an unhandled 500.
+        raise ValidationError({
+            "detail": "Cannot delete this category — it has expenses recorded against it."
+        })
 
 
 # ---------------------------------------------------------------------------

@@ -243,6 +243,25 @@ class ExpenseRoundTripTests(CashFlowTestBase):
         self.assertTrue(event.is_deleted)
         self.assertEqual(len(_event_rows(movement_type="outflow")), 0)
 
+    def test_delete_category_with_expenses_returns_400_not_500(self):
+        from rest_framework.exceptions import ValidationError
+        from .models import ExpenseCategory
+        from .services import create_expense_category, delete_expense_category
+
+        create_expense(
+            name="Internet", category_id=self.category.id, amount=Decimal("100"),
+            expense_date=timezone.now().date(), user=self.admin,
+        )
+        # Used category → friendly validation error (was an unhandled 500).
+        with self.assertRaises(ValidationError):
+            delete_expense_category(pk=self.category.pk)
+        self.assertTrue(ExpenseCategory.objects.filter(pk=self.category.pk).exists())
+
+        # Empty category still deletes fine.
+        empty = create_expense_category(name="Unused", user=self.admin)
+        delete_expense_category(pk=empty.pk)
+        self.assertFalse(ExpenseCategory.objects.filter(pk=empty.pk).exists())
+
     def test_create_expense_rolls_back_completely_if_cash_sync_fails(self):
         cash_start = self.cash()
         with patch("cash_flow.services._adjust_cashflow", side_effect=RuntimeError("boom")):
