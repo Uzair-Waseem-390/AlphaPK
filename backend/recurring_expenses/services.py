@@ -132,6 +132,7 @@ def delete_recurring_expense_category(*, pk: int, user) -> None:
 # RecurringExpense (template) services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_recurring_expense(
     *, name: str, category_id: int, amount: Decimal, start_date, note: str = "", user,
 ) -> RecurringExpense:
@@ -160,6 +161,7 @@ def create_recurring_expense(
     return template
 
 
+@transaction.atomic
 def update_recurring_expense(
     *, pk: int, name: str = None, category_id: int = None, amount: Decimal = None,
     start_date=None, is_active: bool = None, note: str = None, user,
@@ -216,6 +218,7 @@ def update_recurring_expense(
     return template
 
 
+@transaction.atomic
 def delete_recurring_expense(*, pk: int, user) -> None:
     """Soft-deletes a template. Past assignments/payments are untouched."""
     from django.shortcuts import get_object_or_404

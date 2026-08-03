@@ -1,5 +1,7 @@
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
+
+from backend.search import search_q
 
 from .models import (
     RecurringExpense, RecurringExpenseAssignment, RecurringExpenseAssignmentPayment,
@@ -19,9 +21,11 @@ def _clean(value):
 # ---------------------------------------------------------------------------
 
 def get_all_recurring_expense_categories(*, search: str = None) -> QuerySet:
-    qs = RecurringExpenseCategory.objects.filter(is_deleted=False)
+    # created_by is serialized on every row — select_related avoids one
+    # extra query per category (N+1).
+    qs = RecurringExpenseCategory.objects.filter(is_deleted=False).select_related("created_by")
     if _clean(search):
-        qs = qs.filter(name__icontains=_clean(search))
+        qs = qs.filter(search_q(_clean(search), "name"))
     return qs.order_by("name")
 
 
@@ -37,7 +41,7 @@ def get_all_recurring_expenses(*, search: str = None, category_id: str = None, i
     qs = RecurringExpense.objects.filter(is_deleted=False).select_related("category", "created_by", "updated_by")
 
     if _clean(search):
-        qs = qs.filter(name__icontains=_clean(search))
+        qs = qs.filter(search_q(_clean(search), "name"))
     if _clean(category_id):
         qs = qs.filter(category_id=_clean(category_id))
     if _clean(is_active) is not None:
@@ -112,7 +116,7 @@ def get_all_recurring_expense_assignments(
     if _clean(payment_status):
         qs = qs.filter(payment_status=_clean(payment_status))
     if _clean(search):
-        qs = qs.filter(Q(name_snapshot__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "name_snapshot"))
 
     return qs.order_by("-period", "-assigned_at")
 
@@ -131,8 +135,10 @@ def get_recurring_expense_assignment_by_id(pk: int) -> RecurringExpenseAssignmen
 def get_all_recurring_expense_payments(
     *, assignment_id: str = None, date_from: str = None, date_to: str = None,
 ) -> QuerySet:
+    # The read serializer outputs only the assignment's ID (no join needed),
+    # created_by and updated_by — select exactly those.
     qs = RecurringExpenseAssignmentPayment.objects.filter(is_deleted=False).select_related(
-        "assignment", "created_by", "updated_by",
+        "created_by", "updated_by",
     )
 
     if _clean(assignment_id):
