@@ -18,7 +18,7 @@ const ProductsPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data, meta, page, setPage, loading, create, update, delete: deleteProduct, refetch } = useCRUD(
+    const { data, meta, page, setPage, loading, filters, setFilters, create, update, delete: deleteProduct, refetch } = useCRUD(
         purchasesApi.products,
         { search: '', category: '', shelf: '' }
     );
@@ -62,12 +62,10 @@ const ProductsPage = () => {
         }
     };
 
+    // Search now goes to the backend (see handleSearch) — only category/shelf
+    // are still narrowed client-side, over whatever page the backend returned.
     const filteredData = data.filter(item => {
         let matches = true;
-        if (searchTerm) {
-            matches = item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-                item.code.toLowerCase().includes(searchTerm.toLowerCase());
-        }
         const catId = activeFilters.category || categoryFilter;
         const shelfId = activeFilters.shelf || shelfFilter;
         if (catId) {
@@ -78,6 +76,11 @@ const ProductsPage = () => {
         }
         return matches;
     });
+
+    const handleSearch = (value) => {
+        setSearchTerm(value);
+        setFilters({ ...filters, search: value });
+    };
 
     const handleApplyFilters = (filterValues) => {
         setActiveFilters(filterValues);
@@ -90,6 +93,7 @@ const ProductsPage = () => {
         setCategoryFilter('');
         setShelfFilter('');
         setSearchTerm('');
+        setFilters({ ...filters, search: '' });
     };
 
     const columns = [
@@ -222,7 +226,7 @@ const ProductsPage = () => {
             <div className="space-y-4">
                 <div className="flex gap-4">
                     <SearchBar
-                        onSearch={setSearchTerm}
+                        onSearch={handleSearch}
                         placeholder="Search products..."
                         className="flex-1"
                     />
