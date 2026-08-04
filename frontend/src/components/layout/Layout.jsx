@@ -121,6 +121,8 @@ const Layout = ({ children }) => {
         { name: 'Rates', path: '/rates', icon: '💰' },
         // Ledger app is admin/superuser-only end to end
         { name: 'Ledger', path: '/ledger', icon: '📒', adminOnly: true },
+        // Cash Calculator — available to all authenticated roles
+        { name: 'Cash Calculator', path: '/cash-calculator', icon: '🧮' },
         // One-time bootstrap tool — superuser only
         { name: 'Data Entry', path: '/data-entry', icon: '📥', superuserOnly: true },
     ].filter(item => (!item.adminOnly || isAdmin) && (!item.superuserOnly || isSuperuser));

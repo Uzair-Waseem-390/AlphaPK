@@ -119,6 +119,9 @@ import RecurringExpenseMonthlyStatsPage from './pages/recurringExpenses/Recurrin
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
 
+// Cash Calculator (frontend-only utility, all roles)
+import CashCalculatorPage from './pages/cashCalculator/CashCalculatorPage';
+
 import './App.css';
 
 const AppContent = () => {
@@ -871,6 +874,15 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <DataEntryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Cash Calculator — frontend-only utility, all authenticated roles */}
+        <Route path="/cash-calculator" element={
+          <ProtectedRoute>
+            <Layout>
+              <CashCalculatorPage />
             </Layout>
           </ProtectedRoute>
         } />
