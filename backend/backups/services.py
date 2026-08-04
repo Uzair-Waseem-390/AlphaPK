@@ -237,6 +237,32 @@ def _ensure_remote_schema_synced() -> bool:
     return True
 
 
+_PRUNE_BATCH_SIZE = 1000
+
+
+def _prune_remote_model(model, seen_pks: set) -> None:
+    """
+    Deletes every row of `model` on the remote whose pk is NOT in `seen_pks`
+    — same end result as `exclude(pk__in=seen_pks).delete()`, but without
+    ever building one query carrying the full seen_pks list, or one DELETE
+    matched against every other remote row at once. For a table that has
+    grown to tens of thousands of rows, a single unbounded NOT IN/EXCLUDE
+    query gets slow and memory-heavy; this reads the remote's existing pks
+    (chunked, via .iterator(), read-only) into a plain list first — so no
+    write happens while that read cursor is still open — then deletes the
+    unseen ones in bounded batches.
+    """
+    remote_pks = list(
+        _base_queryset(model).using("backup_remote")
+        .order_by("pk").values_list("pk", flat=True)
+        .iterator(chunk_size=_PRUNE_BATCH_SIZE)
+    )
+    to_delete = [pk for pk in remote_pks if pk not in seen_pks]
+    for i in range(0, len(to_delete), _PRUNE_BATCH_SIZE):
+        batch = to_delete[i:i + _PRUNE_BATCH_SIZE]
+        _base_queryset(model).using("backup_remote").filter(pk__in=batch).delete()
+
+
 def run_remote_backup(*, backup_type: str, user) -> dict:
     """
     Validates (and if needed, brings up to date) the remote database's
@@ -284,9 +310,7 @@ def run_remote_backup(*, backup_type: str, user) -> dict:
                 # an incremental filter can see, so hard deletes only
                 # propagate to the remote on the next full backup.
                 for model in _iter_backup_models():
-                    _base_queryset(model).using("backup_remote").exclude(
-                        pk__in=seen_pks.get(model, set())
-                    ).delete()
+                    _prune_remote_model(model, seen_pks.get(model, set()))
     except Exception as exc:
         BackupHistory.objects.create(
             backup_type=backup_type, destination=BackupHistory.Destination.REMOTE,
