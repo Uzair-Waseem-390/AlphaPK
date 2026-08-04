@@ -1,8 +1,10 @@
-from django.db.models import Q, QuerySet
+from django.db.models import QuerySet
 from django.shortcuts import get_object_or_404
 
+from backend.search import search_q
+
 from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetValuationEntry
-from .services import _catch_up_asset_depreciation
+from .services import _catch_up_asset_depreciation, catch_up_all_asset_depreciation
 
 
 def _clean(value):
@@ -17,9 +19,11 @@ def _clean(value):
 # ---------------------------------------------------------------------------
 
 def get_all_asset_categories(*, search: str = None) -> QuerySet:
-    qs = AssetCategory.objects.all()
+    # created_by is serialized on every row — select_related avoids one
+    # extra query per category (N+1).
+    qs = AssetCategory.objects.select_related("created_by")
     if _clean(search):
-        qs = qs.filter(name__icontains=_clean(search))
+        qs = qs.filter(search_q(_clean(search), "name"))
     return qs.order_by("name")
 
 
@@ -39,7 +43,15 @@ def get_all_assets(
     is_disposed      : str = None,
     search           : str = None,
 ) -> QuerySet:
-    qs = Asset.objects.filter(is_deleted=False).select_related("category")
+    # Depreciation is kept current via the O(1) month-marker sweep (covers
+    # every active asset — a superset of the old per-matched-row loop, which
+    # also evaluated the queryset twice). created_by/updated_by are
+    # serialized on every row — joined here to avoid two queries per asset.
+    catch_up_all_asset_depreciation()
+
+    qs = Asset.objects.filter(is_deleted=False).select_related(
+        "category", "created_by", "updated_by",
+    )
 
     if _clean(category_id):
         qs = qs.filter(category_id=_clean(category_id))
@@ -48,18 +60,16 @@ def get_all_assets(
     if is_disposed is not None and _clean(is_disposed) is not None:
         qs = qs.filter(is_disposed=_clean(is_disposed).lower() == "true")
     if _clean(search):
-        qs = qs.filter(Q(name__icontains=_clean(search)))
+        qs = qs.filter(search_q(_clean(search), "name"))
 
-    qs = qs.order_by("-acquisition_date", "-created_at")
-
-    for asset in qs:
-        _catch_up_asset_depreciation(asset)
-
-    return qs
+    return qs.order_by("-acquisition_date", "-created_at")
 
 
 def get_asset_by_id(pk: int) -> Asset:
-    asset = get_object_or_404(Asset.objects.select_related("category"), pk=pk, is_deleted=False)
+    asset = get_object_or_404(
+        Asset.objects.select_related("category", "created_by", "updated_by"),
+        pk=pk, is_deleted=False,
+    )
     _catch_up_asset_depreciation(asset)
     asset.refresh_from_db()
     return asset
@@ -101,12 +111,11 @@ def get_all_asset_disposals(*, disposal_type: str = None, category_id: str = Non
 
 def get_asset_stats() -> dict:
     """
-    Runs catch-up for every active asset (cheap at real-world scale — a
-    store has dozens of fixed assets, not thousands), then reads the
-    AssetFlow singleton — O(1) after catch-up, always current, no cron.
+    Ensures depreciation is current (O(1) month-marker check — the per-asset
+    sweep only actually runs on the first read of each month, or after a
+    rate edit), then reads the AssetFlow singleton — always current, no cron.
     """
-    for asset in Asset.objects.filter(is_deleted=False, is_disposed=False).select_related("category"):
-        _catch_up_asset_depreciation(asset)
+    catch_up_all_asset_depreciation()
 
     af = AssetFlow.get_instance()
     return {

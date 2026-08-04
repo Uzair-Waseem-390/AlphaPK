@@ -293,6 +293,7 @@ def update_investor(
 
     investor = get_object_or_404(Investor, pk=pk, is_deleted=False)
 
+    rate_changed = False
     if name is not None:
         if not name.strip():
             raise ValidationError({"name": "Investor name cannot be blank."})
@@ -306,10 +307,19 @@ def update_investor(
     if growth_rate is not None:
         if growth_rate < 0:
             raise ValidationError({"growth_rate": "Growth rate cannot be negative."})
+        rate_changed = investor.growth_rate != growth_rate
         investor.growth_rate = growth_rate
 
     investor.updated_by = user
     investor.save(update_fields=["name", "contact_number", "email", "note", "growth_rate", "updated_by", "updated_at"])
+
+    if rate_changed:
+        # Reset the month marker so the next read re-runs the catch-up sweep
+        # with the NEW rate — preserves the pre-marker timing exactly (a rate
+        # edit takes effect on the next read, never delayed to month-end;
+        # already-posted months are immune via their rate_applied snapshot).
+        CashManagementFlow.objects.filter(pk=1).update(growth_caught_up_through="")
+
     return investor
 
 

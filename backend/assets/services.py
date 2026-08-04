@@ -1,7 +1,7 @@
 from datetime import date
 from decimal import ROUND_HALF_UP, Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 
 from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetValuationEntry
@@ -120,17 +120,27 @@ def _catch_up_asset_depreciation(asset: Asset, user=None) -> None:
         worth_after = worth_before - monthly_depreciation
         period_str = f"{next_date.year:04d}-{next_date.month:02d}"
 
-        AssetValuationEntry.objects.create(
-            asset=asset,
-            entry_type=AssetValuationEntry.EntryType.DEPRECIATION,
-            period=period_str,
-            rate_applied=rate,
-            worth_before=worth_before,
-            worth_after=worth_after,
-            amount=-monthly_depreciation,
-            note="Auto-posted monthly depreciation (catch-up)",
-            created_by=user,
-        )
+        try:
+            # Savepoint so a unique-constraint hit doesn't poison an outer
+            # transaction (catch-up runs inside atomic services too).
+            with transaction.atomic():
+                AssetValuationEntry.objects.create(
+                    asset=asset,
+                    entry_type=AssetValuationEntry.EntryType.DEPRECIATION,
+                    period=period_str,
+                    rate_applied=rate,
+                    worth_before=worth_before,
+                    worth_after=worth_after,
+                    amount=-monthly_depreciation,
+                    note="Auto-posted monthly depreciation (catch-up)",
+                    created_by=user,
+                )
+        except IntegrityError:
+            # uniq_asset_depreciation_period: a concurrent catch-up already
+            # posted this month (and everything after it) — pick up its
+            # result and stop instead of double-depreciating.
+            asset.refresh_from_db(fields=["current_worth"])
+            return
 
         asset.current_worth = worth_after
         asset.save(update_fields=["current_worth"])
@@ -143,6 +153,31 @@ def _catch_up_asset_depreciation(asset: Asset, user=None) -> None:
 
         ny2, nm2 = _add_months(next_date.year, next_date.month, 1)
         next_date = date(ny2, nm2, 1)
+
+
+def catch_up_all_asset_depreciation(user=None) -> None:
+    """
+    Runs depreciation catch-up for every active asset, gated by an O(1)
+    month marker on AssetFlow: depreciation only ever becomes due at a month
+    boundary (a new asset's first entry is due the month AFTER acquisition,
+    and 'existing' assets are fully back-filled inside create_asset), so
+    once everything is posted through the current month there is nothing to
+    check until the 1st of the next month. update_asset_category resets the
+    marker on a rate change, so a new rate still takes effect on the very
+    next read — same timing as before the marker. Posting math unchanged.
+    """
+    today = timezone.localdate()
+    current_period = f"{today.year:04d}-{today.month:02d}"
+
+    af = AssetFlow.get_instance()
+    if af.depreciation_caught_up_through == current_period:
+        return
+
+    for asset in Asset.objects.filter(is_deleted=False, is_disposed=False).select_related("category"):
+        _catch_up_asset_depreciation(asset, user=user)
+
+    # update() — not save() — so the marker stamp doesn't touch last_updated_at.
+    AssetFlow.objects.filter(pk=1).update(depreciation_caught_up_through=current_period)
 
 
 # ---------------------------------------------------------------------------
@@ -190,14 +225,24 @@ def update_asset_category(
             raise ValidationError({"name": "Category name cannot be blank."})
         category.name = name.strip()
 
+    rate_changed = False
     if depreciation_rate is not None:
         if category.valuation_method != AssetCategory.ValuationMethod.DEPRECIATION:
             raise ValidationError({"depreciation_rate": "Only depreciation-method categories have a rate."})
         if depreciation_rate <= 0:
             raise ValidationError({"depreciation_rate": "Depreciation rate must be greater than zero."})
+        rate_changed = category.depreciation_rate != depreciation_rate
         category.depreciation_rate = depreciation_rate
 
     category.save(update_fields=["name", "depreciation_rate", "updated_at"])
+
+    if rate_changed:
+        # Reset the month marker so the next read re-runs the catch-up sweep
+        # with the NEW rate — a rate edit takes effect on the next read (from
+        # the current month forward), never delayed to month-end; already-
+        # posted months are immune via their rate_applied snapshot.
+        AssetFlow.objects.filter(pk=1).update(depreciation_caught_up_through="")
+
     return category
 
 

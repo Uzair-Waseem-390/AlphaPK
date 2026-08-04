@@ -152,6 +152,17 @@ class AssetValuationEntry(models.Model):
         indexes = [
             models.Index(fields=["asset", "entry_type", "-period"], name="idx_asset_valuation_lookup"),
         ]
+        constraints = [
+            # Two concurrent catch-up runs at a month boundary could otherwise
+            # both post the same depreciation month for the same asset —
+            # the DB now makes that physically impossible. DEPRECIATION only:
+            # multiple manual REVALUATIONS in one month are legitimate.
+            models.UniqueConstraint(
+                fields=["asset", "period"],
+                condition=models.Q(entry_type="depreciation"),
+                name="uniq_asset_depreciation_period",
+            ),
+        ]
 
     def __str__(self):
         return f"{self.asset.name} — {self.get_entry_type_display()} {self.period}: {self.amount}"
@@ -220,6 +231,14 @@ class AssetFlow(models.Model):
                                          help_text="Sum of positive gain_loss across all sold disposals (gross).")
     total_loss_on_disposal        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                          help_text="Sum of absolute negative gain_loss across all sold disposals (gross).")
+
+    depreciation_caught_up_through = models.CharField(max_length=7, blank=True, default="",
+                                        help_text="YYYY-MM through which EVERY active asset's depreciation is posted. "
+                                                  "Depreciation only becomes due at month boundaries, so while this equals "
+                                                  "the current month the per-asset catch-up loop can be skipped entirely "
+                                                  "(O(1) staleness check — same pattern as CashManagementFlow."
+                                                  "growth_caught_up_through). Reset to '' by update_asset_category on a "
+                                                  "rate change so the new rate takes effect on the very next read.")
 
     last_updated_at = models.DateTimeField(auto_now=True)
     last_updated_by = models.ForeignKey(
