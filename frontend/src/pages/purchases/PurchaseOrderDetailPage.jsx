@@ -36,7 +36,6 @@ const PurchaseOrderDetailPage = () => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [products, setProducts] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
 
     useEffect(() => {
@@ -181,19 +180,21 @@ const PurchaseOrderDetailPage = () => {
     const handleOpenEdit = async () => {
         // Loaded lazily — most order views are confirmed orders that never
         // need this, so no point fetching it on every page load.
-        if (products.length === 0 || suppliers.length === 0) {
+        if (suppliers.length === 0) {
             try {
-                const [productsRes, suppliersRes] = await Promise.all([
-                    purchasesApi.products.getAll({ page_size: 500 }),
-                    purchasesApi.suppliers.getAll(),
-                ]);
-                setProducts(productsRes.results || productsRes || []);
+                const suppliersRes = await purchasesApi.suppliers.getAll();
                 setSuppliers(suppliersRes || []);
             } catch (error) {
-                console.error('Failed to load products/suppliers:', error);
+                console.error('Failed to load suppliers:', error);
             }
         }
         setShowEditModal(true);
+    };
+
+    const searchProducts = async (query) => {
+        const res = await purchasesApi.products.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }));
     };
 
     const handleUpdateOrder = async (payload) => {
@@ -460,7 +461,7 @@ const PurchaseOrderDetailPage = () => {
                     isOpen={showEditModal}
                     onClose={() => setShowEditModal(false)}
                     onSubmit={handleUpdateOrder}
-                    products={products}
+                    onSearchProducts={searchProducts}
                     suppliers={suppliers}
                     title="Edit Purchase Order"
                     submitLabel="Save Changes"
@@ -471,6 +472,7 @@ const PurchaseOrderDetailPage = () => {
                         description: order.description || '',
                         items: (order.items || []).map((item) => ({
                             product: item.product,
+                            product_label: item.product_code ? `${item.product_code} - ${item.product_name}` : item.product_name,
                             quantity: item.quantity,
                             unit_price: item.unit_price,
                             gst: item.gst,

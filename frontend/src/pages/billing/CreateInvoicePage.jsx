@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -8,48 +8,38 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Card from '../../components/ui/Card';
-import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import LineItemRow from '../../components/billing/LineItemRow';
 
 const CreateInvoicePage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const [loading, setLoading] = useState(false);
-    const [customers, setCustomers] = useState([]);
-    const [products, setProducts] = useState([]);
+    const [selectedCustomerLabel, setSelectedCustomerLabel] = useState('');
 
     const [formData, setFormData] = useState({
         customer_id: '',
         items: [],
     });
 
-    useEffect(() => {
-        loadInitialData();
-    }, []);
+    const searchCustomers = async (query) => {
+        const res = await billingApi.customers.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map(c => ({ value: c.id, label: `${c.code} - ${c.name}` }));
+    };
 
-    const loadInitialData = async () => {
-        setLoading(true);
-        try {
-            // Products come from the rate list, not the Purchases app — normal
-            // users have no Purchases access, but rates are viewable by everyone,
-            // and every rate already carries its product + selling price.
-            const [customersData, ratesData] = await Promise.all([
-                billingApi.customers.getAll({ page_size: 500 }),
-                ratesApi.getAll({ page_size: 500 }),
-            ]);
-            const customersList = customersData?.results ?? customersData ?? [];
-            const ratesList = ratesData?.results ?? ratesData ?? [];
-            const productsWithRates = ratesList
-                .filter(rate => rate.product?.id)
-                .map(rate => ({ ...rate.product, rate }));
-
-            setCustomers(customersList);
-            setProducts(productsWithRates);
-        } catch (error) {
-            console.error('Failed to load initial data:', error);
-        } finally {
-            setLoading(false);
-        }
+    // Products come from the rate list, not the Purchases app — normal users
+    // have no Purchases access, but rates are viewable by everyone, and every
+    // rate already carries its product + selling price.
+    const searchProducts = async (query) => {
+        const res = await ratesApi.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results
+            .filter(rate => rate.product?.id)
+            .map(rate => ({
+                value: rate.product.id,
+                label: `${rate.product.code} - ${rate.product.name} (${rate.selling_price ?? 'No price'})`,
+                sellingPrice: rate.selling_price || 0,
+            }));
     };
 
     const handleAddItem = () => {
@@ -67,13 +57,7 @@ const CreateInvoicePage = () => {
             ...prev,
             items: prev.items.map((item, i) => {
                 if (i === index) {
-                    const updatedItem = { ...item, [field]: value };
-                    // If product changes, update selling price
-                    if (field === 'product_id') {
-                        const product = products.find(p => p.id === parseInt(value));
-                        updatedItem.selling_price = product?.rate?.selling_price || 0;
-                    }
-                    return updatedItem;
+                    return { ...item, [field]: value };
                 }
                 return item;
             })
@@ -145,14 +129,6 @@ const CreateInvoicePage = () => {
         navigate('/billing/invoices');
     };
 
-    if (loading && customers.length === 0) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <LoadingSpinner size="lg" />
-            </div>
-        );
-    }
-
     const totals = calculateTotals();
 
     return (
@@ -178,8 +154,12 @@ const CreateInvoicePage = () => {
                         <SearchableSelect
                             label="Customer"
                             value={formData.customer_id}
-                            onChange={(value) => setFormData(prev => ({ ...prev, customer_id: value }))}
-                            options={customers.map(c => ({ value: c.id, label: `${c.code} - ${c.name}` }))}
+                            selectedLabel={selectedCustomerLabel}
+                            onChange={(value, option) => {
+                                setFormData(prev => ({ ...prev, customer_id: value }));
+                                setSelectedCustomerLabel(option?.label ?? '');
+                            }}
+                            onSearch={searchCustomers}
                             placeholder="Search customer by name or code"
                             required
                         />
@@ -203,7 +183,7 @@ const CreateInvoicePage = () => {
                                     key={index}
                                     index={index}
                                     item={item}
-                                    products={products}
+                                    onSearchProducts={searchProducts}
                                     onUpdate={handleUpdateItem}
                                     onRemove={handleRemoveItem}
                                     canEdit={true}

@@ -7,7 +7,7 @@ import Button from '../ui/Button';
 const LineItemRow = ({
     index,
     item,
-    products,
+    onSearchProducts,
     onUpdate,
     onRemove,
     canEdit = true,
@@ -23,11 +23,6 @@ const LineItemRow = ({
     const totals = calculateTotals();
     const effectivePrice = (item.selling_price || 0) - (item.discount || 0);
 
-    const productOptions = products.map(p => ({
-        value: p.id,
-        label: `${p.code} - ${p.name} (${p.rate?.selling_price || 'No price'})`,
-    }));
-
     return (
         <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -41,8 +36,13 @@ const LineItemRow = ({
                     <SearchableSelect
                         label="Product"
                         value={item.product_id || ''}
-                        onChange={(value) => onUpdate(index, 'product_id', parseInt(value))}
-                        options={productOptions}
+                        selectedLabel={item.product_label}
+                        onChange={(value, option) => {
+                            onUpdate(index, 'product_id', parseInt(value));
+                            onUpdate(index, 'product_label', option?.label ?? '');
+                            onUpdate(index, 'selling_price', option?.sellingPrice ?? 0);
+                        }}
+                        onSearch={onSearchProducts}
                         placeholder="Search product by name or code"
                         disabled={!canEdit}
                         required
@@ -143,7 +143,7 @@ const LineItemRow = ({
 LineItemRow.propTypes = {
     index: PropTypes.number.isRequired,
     item: PropTypes.object.isRequired,
-    products: PropTypes.array.isRequired,
+    onSearchProducts: PropTypes.func.isRequired,
     onUpdate: PropTypes.func.isRequired,
     onRemove: PropTypes.func.isRequired,
     canEdit: PropTypes.bool,

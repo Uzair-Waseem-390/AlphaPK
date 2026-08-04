@@ -40,7 +40,6 @@ const PurchaseOrdersPage = () => {
         filters, setFilters, refetch: fetchOrders,
     } = usePaginatedList(fetchOrdersPage, {}, 25, [activeTab, searchTerm]);
 
-    const [products, setProducts] = useState([]);
     const [suppliers, setSuppliers] = useState([]);
 
     const tabs = [
@@ -56,16 +55,17 @@ const PurchaseOrdersPage = () => {
 
     const loadInitialData = async () => {
         try {
-            // page_size override — dropdown needs every product, not just one page.
-            const [productsRes, suppliersRes] = await Promise.all([
-                purchasesApi.products.getAll({ page_size: 500 }),
-                purchasesApi.suppliers.getAll(),
-            ]);
-            setProducts(productsRes.results || productsRes || []);
+            const suppliersRes = await purchasesApi.suppliers.getAll();
             setSuppliers(suppliersRes || []);
         } catch (error) {
             console.error('Failed to load initial data:', error);
         }
+    };
+
+    const searchProducts = async (query) => {
+        const res = await purchasesApi.products.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }));
     };
 
     const handleApplyFilters = (filterValues) => {
@@ -263,7 +263,7 @@ const PurchaseOrdersPage = () => {
                 isOpen={showCreateModal}
                 onClose={() => setShowCreateModal(false)}
                 onSubmit={handleCreateOrder}
-                products={products}
+                onSearchProducts={searchProducts}
                 suppliers={suppliers}
                 title="Create Purchase Order"
                 submitLabel="Create Draft"

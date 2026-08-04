@@ -20,7 +20,7 @@ const emptyFormData = {
 // supplier change (PurchaseOrderUpdateSerializer has no supplier field),
 // so the supplier selector is read-only whenever initialData is provided.
 const PurchaseOrderFormModal = ({
-    isOpen, onClose, onSubmit, products, suppliers,
+    isOpen, onClose, onSubmit, onSearchProducts, suppliers,
     initialData, title, submitLabel,
 }) => {
     const isEdit = Boolean(initialData);
@@ -56,14 +56,13 @@ const PurchaseOrderFormModal = ({
 
     const calculatePreview = () => {
         const items = formData.items.map(item => {
-            const product = products.find(p => p.id === parseInt(item.product));
             const gross = (item.quantity || 0) * (item.unit_price || 0);
             const gstAmount = gross * ((item.gst || 0) / 100);
             const whtAmount = gross * ((item.wht || 0) / 100);
             const total = gross + gstAmount - whtAmount;
 
             return {
-                product_name: product?.name || 'Unknown',
+                product_name: item.product_label || 'Unknown',
                 quantity: item.quantity || 0,
                 line_total: total,
                 rate_missing: false,
@@ -216,7 +215,7 @@ const PurchaseOrderFormModal = ({
                                     key={index}
                                     index={index}
                                     item={item}
-                                    products={products}
+                                    onSearchProducts={onSearchProducts}
                                     onUpdate={handleUpdateItem}
                                     onRemove={handleRemoveItem}
                                     canEdit={true}
@@ -253,7 +252,7 @@ PurchaseOrderFormModal.propTypes = {
     isOpen: PropTypes.bool.isRequired,
     onClose: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
-    products: PropTypes.array.isRequired,
+    onSearchProducts: PropTypes.func.isRequired,
     suppliers: PropTypes.array.isRequired,
     initialData: PropTypes.object,
     title: PropTypes.string.isRequired,

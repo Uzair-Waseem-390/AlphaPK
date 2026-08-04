@@ -7,7 +7,7 @@ import Button from '../ui/Button';
 const LineItemRow = ({
     index,
     item,
-    products,
+    onSearchProducts,
     onUpdate,
     onRemove,
     canEdit = true,
@@ -22,11 +22,6 @@ const LineItemRow = ({
 
     const totals = calculateTotals();
 
-    const productOptions = products.map(p => ({
-        value: p.id,
-        label: `${p.code} - ${p.name}`,
-    }));
-
     return (
         <motion.div
             initial={{ opacity: 0, x: -20 }}
@@ -40,8 +35,12 @@ const LineItemRow = ({
                     <SearchableSelect
                         label="Product"
                         value={item.product}
-                        onChange={(value) => onUpdate(index, 'product', value)}
-                        options={productOptions}
+                        selectedLabel={item.product_label}
+                        onChange={(value, option) => {
+                            onUpdate(index, 'product', value);
+                            onUpdate(index, 'product_label', option?.label ?? '');
+                        }}
+                        onSearch={onSearchProducts}
                         placeholder="Search product by name or code"
                         disabled={!canEdit}
                         required
@@ -143,7 +142,7 @@ const LineItemRow = ({
 LineItemRow.propTypes = {
     index: PropTypes.number.isRequired,
     item: PropTypes.object.isRequired,
-    products: PropTypes.array.isRequired,
+    onSearchProducts: PropTypes.func.isRequired,
     onUpdate: PropTypes.func.isRequired,
     onRemove: PropTypes.func.isRequired,
     canEdit: PropTypes.bool,
