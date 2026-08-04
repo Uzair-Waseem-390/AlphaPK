@@ -1,6 +1,6 @@
 from decimal import Decimal
 
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
@@ -48,10 +48,19 @@ def create_supplier_opening_balance(*, supplier_id: int, amount: Decimal, note: 
         user=user,
     )
 
-    return SupplierOpeningBalance.objects.create(
-        supplier=supplier, amount=amount, note=note or "",
-        purchase_order=order, created_by=user,
-    )
+    try:
+        # Savepoint: the OneToOneField already guarantees at most one
+        # opening balance per supplier at the DB level — this converts a
+        # rare check-then-act race (two near-simultaneous creates for the
+        # same supplier) into the same friendly ValidationError the .exists()
+        # check above raises, instead of an unhandled IntegrityError (500).
+        with transaction.atomic():
+            return SupplierOpeningBalance.objects.create(
+                supplier=supplier, amount=amount, note=note or "",
+                purchase_order=order, created_by=user,
+            )
+    except IntegrityError:
+        raise ValidationError({"supplier": "This supplier already has an opening balance."})
 
 
 # ---------------------------------------------------------------------------
@@ -86,10 +95,17 @@ def create_customer_opening_balance(*, customer_id: int, amount: Decimal, note: 
 
     sync_data_entry_customer_opening_balance(amount=amount, user=user)
 
-    return CustomerOpeningBalance.objects.create(
-        customer=customer, amount=amount, note=note or "",
-        invoice=invoice, created_by=user,
-    )
+    try:
+        # Same IntegrityError guard as create_supplier_opening_balance —
+        # the OneToOneField already prevents a real duplicate; this just
+        # keeps a rare check-then-act race from surfacing as a 500.
+        with transaction.atomic():
+            return CustomerOpeningBalance.objects.create(
+                customer=customer, amount=amount, note=note or "",
+                invoice=invoice, created_by=user,
+            )
+    except IntegrityError:
+        raise ValidationError({"customer": "This customer already has an opening balance."})
 
 
 # ---------------------------------------------------------------------------
