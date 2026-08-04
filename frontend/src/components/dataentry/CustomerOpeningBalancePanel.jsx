@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { dataEntryApi, extractApiError } from '../../services/dataEntryApi';
 import { billingApi } from '../../services/billingApi';
 import Card from '../ui/Card';
@@ -10,7 +10,7 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 const fmt = (v) => Number(v || 0).toFixed(2);
 
 const CustomerOpeningBalancePanel = () => {
-    const [customers, setCustomers] = useState([]);
+    const [selectedCustomerLabel, setSelectedCustomerLabel] = useState('');
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -31,14 +31,22 @@ const CustomerOpeningBalancePanel = () => {
         (async () => {
             setLoading(true);
             try {
-                const cus = await billingApi.customers.getAll({ page_size: 500 });
-                setCustomers(cus?.results ?? cus ?? []);
                 await loadRecords();
             } finally {
                 setLoading(false);
             }
         })();
     }, [loadRecords]);
+
+    const usedCustomerIds = useMemo(() => new Set(records.map(r => r.customer)), [records]);
+
+    const searchCustomers = useCallback(async (query) => {
+        const res = await billingApi.customers.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results
+            .filter(c => !usedCustomerIds.has(c.id))
+            .map(c => ({ value: c.id, label: `${c.name} (${c.code})` }));
+    }, [usedCustomerIds]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -54,6 +62,7 @@ const CustomerOpeningBalancePanel = () => {
             });
             setSuccess('Customer opening balance recorded.');
             setForm({ customer_id: '', amount: '', note: '' });
+            setSelectedCustomerLabel('');
             await loadRecords();
         } catch (err) {
             setError(extractApiError(err, 'Failed to record opening balance.'));
@@ -61,11 +70,6 @@ const CustomerOpeningBalancePanel = () => {
             setSaving(false);
         }
     };
-
-    const usedCustomerIds = new Set(records.map(r => r.customer));
-    const customerOptions = customers
-        .filter(c => !usedCustomerIds.has(c.id))
-        .map(c => ({ value: c.id, label: `${c.name} (${c.code})` }));
 
     if (loading) {
         return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
@@ -79,8 +83,12 @@ const CustomerOpeningBalancePanel = () => {
                     <SearchableSelect
                         label="Customer"
                         value={form.customer_id}
-                        onChange={(v) => setForm(f => ({ ...f, customer_id: v }))}
-                        options={customerOptions}
+                        selectedLabel={selectedCustomerLabel}
+                        onChange={(v, option) => {
+                            setForm(f => ({ ...f, customer_id: v }));
+                            setSelectedCustomerLabel(option?.label ?? '');
+                        }}
+                        onSearch={searchCustomers}
                         placeholder="Search customer..."
                         required
                     />

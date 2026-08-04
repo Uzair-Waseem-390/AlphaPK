@@ -199,7 +199,7 @@ class ProductListCreateView(ReadWriteSerializerMixin, generics.ListCreateAPIView
     write_serializer_class = ProductWriteSerializer
 
     def get_queryset(self):
-        return get_all_products()
+        return get_all_products(search=self.request.query_params.get("search"))
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

@@ -97,8 +97,11 @@ _PRODUCT_RELATED = (
     "shelf__created_by", "shelf__updated_by",
 )
 
-def get_all_products():
-    return Product.objects.select_related(*_PRODUCT_RELATED).filter(is_deleted=False)
+def get_all_products(*, search: str = None) -> QuerySet:
+    qs = Product.objects.select_related(*_PRODUCT_RELATED).filter(is_deleted=False)
+    if search:
+        qs = qs.filter(search_q(search, "name", "code"))
+    return qs
 
 def get_product_by_id(pk: int) -> Product:
     return get_object_or_404(

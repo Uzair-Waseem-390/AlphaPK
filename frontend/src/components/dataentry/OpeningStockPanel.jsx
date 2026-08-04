@@ -8,10 +8,9 @@ import SearchableSelect from '../ui/SearchableSelect';
 import LoadingSpinner from '../ui/LoadingSpinner';
 
 const fmt = (v) => Number(v || 0).toFixed(2);
-const emptyRow = () => ({ product_id: '', quantity: '', unit_price: '', gst: '0', wht: '0', description: '' });
+const emptyRow = () => ({ product_id: '', product_label: '', quantity: '', unit_price: '', gst: '0', wht: '0', description: '' });
 
 const OpeningStockPanel = () => {
-    const [products, setProducts] = useState([]);
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -32,8 +31,6 @@ const OpeningStockPanel = () => {
         (async () => {
             setLoading(true);
             try {
-                const prod = await purchasesApi.products.getAll({ page_size: 500 });
-                setProducts(prod?.results ?? prod ?? []);
                 await loadRecords();
             } finally {
                 setLoading(false);
@@ -41,7 +38,11 @@ const OpeningStockPanel = () => {
         })();
     }, [loadRecords]);
 
-    const productOptions = products.map(p => ({ value: p.id, label: `${p.name} (${p.code})` }));
+    const searchProducts = useCallback(async (query) => {
+        const res = await purchasesApi.products.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map(p => ({ value: p.id, label: `${p.name} (${p.code})` }));
+    }, []);
 
     const updateRow = (i, key, val) => setRows(rs => rs.map((r, idx) => idx === i ? { ...r, [key]: val } : r));
     const addRow = () => setRows(rs => [...rs, emptyRow()]);
@@ -97,8 +98,12 @@ const OpeningStockPanel = () => {
                                 <SearchableSelect
                                     label={i === 0 ? 'Product' : undefined}
                                     value={row.product_id}
-                                    onChange={(v) => updateRow(i, 'product_id', v)}
-                                    options={productOptions}
+                                    selectedLabel={row.product_label}
+                                    onChange={(v, option) => {
+                                        updateRow(i, 'product_id', v);
+                                        updateRow(i, 'product_label', option?.label ?? '');
+                                    }}
+                                    onSearch={searchProducts}
                                     placeholder="Search product..."
                                 />
                             </div>

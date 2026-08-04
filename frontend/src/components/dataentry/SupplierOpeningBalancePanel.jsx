@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+import { useState, useEffect, useCallback, useMemo } from 'react';
 import { dataEntryApi, extractApiError } from '../../services/dataEntryApi';
 import { purchasesApi } from '../../services/purchasesApi';
 import Card from '../ui/Card';
@@ -10,7 +10,7 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 const fmt = (v) => Number(v || 0).toFixed(2);
 
 const SupplierOpeningBalancePanel = () => {
-    const [suppliers, setSuppliers] = useState([]);
+    const [selectedSupplierLabel, setSelectedSupplierLabel] = useState('');
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -31,14 +31,22 @@ const SupplierOpeningBalancePanel = () => {
         (async () => {
             setLoading(true);
             try {
-                const sup = await purchasesApi.suppliers.getAll({ page_size: 500 });
-                setSuppliers(sup?.results ?? sup ?? []);
                 await loadRecords();
             } finally {
                 setLoading(false);
             }
         })();
     }, [loadRecords]);
+
+    const usedSupplierIds = useMemo(() => new Set(records.map(r => r.supplier)), [records]);
+
+    const searchSuppliers = useCallback(async (query) => {
+        const res = await purchasesApi.suppliers.getAll({ search: query });
+        const results = res?.results ?? res ?? [];
+        return results
+            .filter(s => !usedSupplierIds.has(s.id))
+            .map(s => ({ value: s.id, label: `${s.name} (${s.code})` }));
+    }, [usedSupplierIds]);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -54,6 +62,7 @@ const SupplierOpeningBalancePanel = () => {
             });
             setSuccess('Supplier opening balance recorded.');
             setForm({ supplier_id: '', amount: '', note: '' });
+            setSelectedSupplierLabel('');
             await loadRecords();
         } catch (err) {
             setError(extractApiError(err, 'Failed to record opening balance.'));
@@ -61,12 +70,6 @@ const SupplierOpeningBalancePanel = () => {
             setSaving(false);
         }
     };
-
-    // Suppliers that already have an opening balance can't get another.
-    const usedSupplierIds = new Set(records.map(r => r.supplier));
-    const supplierOptions = suppliers
-        .filter(s => !usedSupplierIds.has(s.id))
-        .map(s => ({ value: s.id, label: `${s.name} (${s.code})` }));
 
     if (loading) {
         return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
@@ -80,8 +83,12 @@ const SupplierOpeningBalancePanel = () => {
                     <SearchableSelect
                         label="Supplier"
                         value={form.supplier_id}
-                        onChange={(v) => setForm(f => ({ ...f, supplier_id: v }))}
-                        options={supplierOptions}
+                        selectedLabel={selectedSupplierLabel}
+                        onChange={(v, option) => {
+                            setForm(f => ({ ...f, supplier_id: v }));
+                            setSelectedSupplierLabel(option?.label ?? '');
+                        }}
+                        onSearch={searchSuppliers}
                         placeholder="Search supplier..."
                         required
                     />

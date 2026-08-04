@@ -10,7 +10,7 @@ import LoadingSpinner from '../ui/LoadingSpinner';
 const fmt = (v) => Number(v || 0).toFixed(2);
 
 const OpeningInvestorInvestmentPanel = () => {
-    const [investors, setInvestors] = useState([]);
+    const [selectedInvestorLabel, setSelectedInvestorLabel] = useState('');
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
     const [saving, setSaving] = useState(false);
@@ -31,14 +31,18 @@ const OpeningInvestorInvestmentPanel = () => {
         (async () => {
             setLoading(true);
             try {
-                const inv = await cashManagementApi.investors.getAll({ page_size: 500 });
-                setInvestors(inv?.results ?? inv ?? []);
                 await loadRecords();
             } finally {
                 setLoading(false);
             }
         })();
     }, [loadRecords]);
+
+    const searchInvestors = useCallback(async (query) => {
+        const res = await cashManagementApi.investors.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map(i => ({ value: i.id, label: i.name }));
+    }, []);
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -54,6 +58,7 @@ const OpeningInvestorInvestmentPanel = () => {
             });
             setSuccess('Opening investor investment recorded.');
             setForm({ investor_id: '', amount: '', note: '' });
+            setSelectedInvestorLabel('');
             await loadRecords();
         } catch (err) {
             setError(extractApiError(err, 'Failed to record investment.'));
@@ -61,8 +66,6 @@ const OpeningInvestorInvestmentPanel = () => {
             setSaving(false);
         }
     };
-
-    const investorOptions = investors.map(i => ({ value: i.id, label: i.name }));
 
     if (loading) {
         return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
@@ -81,8 +84,12 @@ const OpeningInvestorInvestmentPanel = () => {
                     <SearchableSelect
                         label="Investor"
                         value={form.investor_id}
-                        onChange={(v) => setForm(f => ({ ...f, investor_id: v }))}
-                        options={investorOptions}
+                        selectedLabel={selectedInvestorLabel}
+                        onChange={(v, option) => {
+                            setForm(f => ({ ...f, investor_id: v }));
+                            setSelectedInvestorLabel(option?.label ?? '');
+                        }}
+                        onSearch={searchInvestors}
                         placeholder="Search investor..."
                         required
                     />

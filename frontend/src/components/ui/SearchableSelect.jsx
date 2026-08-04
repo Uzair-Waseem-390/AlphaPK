@@ -5,8 +5,11 @@ import PropTypes from 'prop-types';
 const SearchableSelect = ({
     label,
     value,
+    selectedLabel,
     onChange,
     options,
+    onSearch,
+    debounceMs = 300,
     placeholder = 'Search...',
     error,
     required,
@@ -15,9 +18,16 @@ const SearchableSelect = ({
 }) => {
     const [query, setQuery] = useState('');
     const [isOpen, setIsOpen] = useState(false);
+    const [remoteOptions, setRemoteOptions] = useState([]);
+    const [searching, setSearching] = useState(false);
     const containerRef = useRef(null);
+    const searchSeq = useRef(0);
 
-    const selectedOption = options.find(o => String(o.value) === String(value));
+    const isRemote = typeof onSearch === 'function';
+    const selectedOption = isRemote
+        ? (remoteOptions.find(o => String(o.value) === String(value))
+            ?? (selectedLabel != null ? { value, label: selectedLabel } : undefined))
+        : options.find(o => String(o.value) === String(value));
 
     useEffect(() => {
         const handleClickOutside = (e) => {
@@ -30,12 +40,33 @@ const SearchableSelect = ({
         return () => document.removeEventListener('mousedown', handleClickOutside);
     }, []);
 
-    const filteredOptions = query
-        ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase()))
-        : options;
+    useEffect(() => {
+        if (!isRemote) return undefined;
+        if (!query) {
+            setRemoteOptions([]);
+            setSearching(false);
+            return undefined;
+        }
+        const seq = ++searchSeq.current;
+        setSearching(true);
+        const timer = setTimeout(async () => {
+            try {
+                const results = await onSearch(query);
+                if (searchSeq.current === seq) setRemoteOptions(results || []);
+            } finally {
+                if (searchSeq.current === seq) setSearching(false);
+            }
+        }, debounceMs);
+        return () => clearTimeout(timer);
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [query, isRemote, debounceMs]);
+
+    const filteredOptions = isRemote
+        ? remoteOptions
+        : (query ? options.filter(o => o.label.toLowerCase().includes(query.toLowerCase())) : options);
 
     const handleSelect = (option) => {
-        onChange(option.value);
+        onChange(option.value, option);
         setQuery('');
         setIsOpen(false);
     };
@@ -82,7 +113,11 @@ const SearchableSelect = ({
                         animate={{ opacity: 1, y: 0 }}
                         className="absolute z-20 mt-1 w-full max-h-60 overflow-y-auto bg-white border border-neutral-200 rounded-xl shadow-lg"
                     >
-                        {filteredOptions.length === 0 ? (
+                        {isRemote && searching ? (
+                            <div className="px-4 py-3 text-sm text-neutral-400">Searching...</div>
+                        ) : isRemote && !query ? (
+                            <div className="px-4 py-3 text-sm text-neutral-400">Type to search...</div>
+                        ) : filteredOptions.length === 0 ? (
                             <div className="px-4 py-3 text-sm text-neutral-400">No results found</div>
                         ) : (
                             filteredOptions.map((option) => (
@@ -121,18 +156,25 @@ const SearchableSelect = ({
 SearchableSelect.propTypes = {
     label: PropTypes.string,
     value: PropTypes.any,
+    selectedLabel: PropTypes.string,
     onChange: PropTypes.func.isRequired,
     options: PropTypes.arrayOf(
         PropTypes.shape({
             value: PropTypes.any.isRequired,
             label: PropTypes.string.isRequired,
         })
-    ).isRequired,
+    ),
+    onSearch: PropTypes.func,
+    debounceMs: PropTypes.number,
     placeholder: PropTypes.string,
     error: PropTypes.string,
     required: PropTypes.bool,
     disabled: PropTypes.bool,
     className: PropTypes.string,
+};
+
+SearchableSelect.defaultProps = {
+    options: [],
 };
 
 export default SearchableSelect;
