@@ -140,7 +140,10 @@ class RecurringExpenseAssignment(models.Model):
         settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
         related_name="recurring_expense_assignments_created",
     )
-    assigned_at = models.DateTimeField(auto_now_add=True)
+    # Indexed — this is the field reports.selectors' Recurring Expenses
+    # report filters/orders by (and Meta.ordering's own sort key), mirroring
+    # PurchaseOrder/PurchaseReturn/LostInventoryRecord's same override.
+    assigned_at = models.DateTimeField(auto_now_add=True, db_index=True)
 
     deleted_by  = models.ForeignKey(
         settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,

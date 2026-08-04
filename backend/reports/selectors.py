@@ -3,8 +3,13 @@ from decimal import Decimal
 from django.db.models import Count, DecimalField, F, Q, QuerySet, Sum
 from django.db.models.functions import Coalesce
 
+from backend.search import search_q
 from billing.models import Invoice, Payment, Return
 from cash_flow.models import CashFlow, Expense
+# Shared index-friendly day-boundary helpers (aware datetimes at local
+# midnight) — same ones billing/ledger/cash_flow use for datetime-column
+# date filters.
+from purchases.selectors import _day_start, _next_day_start
 from purchases.models import Inventory, LostInventoryItem, PurchaseItem, PurchaseOrder, PurchaseReturn
 
 
@@ -13,6 +18,27 @@ def _clean(value):
         return None
     s = str(value).strip()
     return s if s else None
+
+
+def _apply_datetime_range_filter(qs, *, field: str, date: str = None, date_from: str = None, date_to: str = None) -> QuerySet:
+    """
+    Half-open [start, next-day) bounds on a DateTimeField column instead of
+    the index-defeating `__date` cast — matches exactly the same local
+    calendar day (settings.TIME_ZONE) the old cast selected, but keeps the
+    column's index usable. `date` narrows to that single day.
+    """
+    if _clean(date):
+        d = _clean(date)
+        return qs.filter(**{f"{field}__gte": _day_start(d), f"{field}__lt": _next_day_start(d)})
+    if _clean(date_from):
+        start = _day_start(_clean(date_from))
+        if start:
+            qs = qs.filter(**{f"{field}__gte": start})
+    if _clean(date_to):
+        end = _next_day_start(_clean(date_to))
+        if end:
+            qs = qs.filter(**{f"{field}__lt": end})
+    return qs
 
 
 # ---------------------------------------------------------------------------
@@ -35,14 +61,7 @@ def get_invoices_report_queryset(
         status=Invoice.Status.DRAFT,
     ).select_related("customer").order_by("-confirmed_at")
 
-    if _clean(date):
-        qs = qs.filter(confirmed_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="confirmed_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_invoices_report_stats(queryset: QuerySet) -> dict:
@@ -172,14 +191,9 @@ def get_lost_inventory_report_queryset(
         "record", "product",
     ).order_by("-record__created_at")
 
-    if _clean(date):
-        qs = qs.filter(record__created_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(record__created_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(record__created_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(
+        qs, field="record__created_at", date=date, date_from=date_from, date_to=date_to,
+    )
 
 
 def get_lost_inventory_report_stats(queryset: QuerySet) -> dict:
@@ -226,14 +240,7 @@ def get_purchase_returns_report_queryset(
         is_deleted=False, status=PurchaseReturn.Status.ACCEPTED,
     ).select_related("order__supplier").order_by("-accepted_at")
 
-    if _clean(date):
-        qs = qs.filter(accepted_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="accepted_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_purchase_returns_report_stats(queryset: QuerySet) -> dict:
@@ -274,14 +281,7 @@ def get_customer_returns_report_queryset(
         is_deleted=False, status=Return.Status.ACCEPTED,
     ).select_related("invoice__customer").order_by("-accepted_at")
 
-    if _clean(date):
-        qs = qs.filter(accepted_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(accepted_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(accepted_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="accepted_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_customer_returns_report_stats(queryset: QuerySet) -> dict:
@@ -327,14 +327,7 @@ def get_profit_margin_report_queryset(
         status=Invoice.Status.DRAFT,
     ).select_related("customer").order_by("-confirmed_at")
 
-    if _clean(date):
-        qs = qs.filter(confirmed_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="confirmed_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_profit_margin_report_stats(
@@ -417,9 +410,7 @@ def get_inventory_valuation_report_data(*, search: str = None) -> list[dict]:
     ).order_by("product__name")
 
     if _clean(search):
-        inventory_qs = inventory_qs.filter(
-            Q(product__name__icontains=_clean(search)) | Q(product__code__icontains=_clean(search))
-        )
+        inventory_qs = inventory_qs.filter(search_q(_clean(search), "product__name", "product__code"))
 
     inventories = list(inventory_qs)
     product_ids = [inv.product_id for inv in inventories]
@@ -481,14 +472,7 @@ def get_input_tax_report_queryset(
         is_deleted=False, is_data_entry=False, status="confirmed",
     ).select_related("supplier").order_by("-confirmed_at")
 
-    if _clean(date):
-        qs = qs.filter(confirmed_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="confirmed_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_input_tax_report_stats(queryset: QuerySet) -> dict:
@@ -532,14 +516,7 @@ def get_output_tax_report_queryset(
         status=Invoice.Status.DRAFT,
     ).select_related("customer").order_by("-confirmed_at")
 
-    if _clean(date):
-        qs = qs.filter(confirmed_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(confirmed_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(confirmed_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="confirmed_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_output_tax_report_stats(queryset: QuerySet) -> dict:
@@ -600,14 +577,7 @@ def get_recurring_expenses_report_queryset(
         "category",
     ).order_by("-assigned_at")
 
-    if _clean(date):
-        qs = qs.filter(assigned_at__date=_clean(date))
-    if _clean(date_from):
-        qs = qs.filter(assigned_at__date__gte=_clean(date_from))
-    if _clean(date_to):
-        qs = qs.filter(assigned_at__date__lte=_clean(date_to))
-
-    return qs
+    return _apply_datetime_range_filter(qs, field="assigned_at", date=date, date_from=date_from, date_to=date_to)
 
 
 def get_recurring_expenses_report_stats(queryset: QuerySet) -> dict:
@@ -757,13 +727,7 @@ def get_asset_depreciation_report_stats_all_time() -> dict:
 # ---------------------------------------------------------------------------
 
 def _stock_movement_date_filter(qs, *, field: str, date: str = None, date_from: str = None, date_to: str = None) -> QuerySet:
-    if _clean(date):
-        qs = qs.filter(**{f"{field}__date": _clean(date)})
-    if _clean(date_from):
-        qs = qs.filter(**{f"{field}__date__gte": _clean(date_from)})
-    if _clean(date_to):
-        qs = qs.filter(**{f"{field}__date__lte": _clean(date_to)})
-    return qs
+    return _apply_datetime_range_filter(qs, field=field, date=date, date_from=date_from, date_to=date_to)
 
 
 def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None, date_to: str = None) -> dict:
@@ -911,7 +875,7 @@ def get_stock_movement_report_rows(
             Q(total_lost__gt=0) | Q(total_found__gt=0)
         )
         if _clean(search):
-            qs = qs.filter(Q(product__name__icontains=_clean(search)) | Q(product__code__icontains=_clean(search)))
+            qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
         qs = qs.order_by("product__name")
         return [
             {
@@ -934,7 +898,7 @@ def get_stock_movement_report_rows(
 
     products = Product.objects.filter(id__in=totals.keys())
     if _clean(search):
-        products = products.filter(Q(name__icontains=_clean(search)) | Q(code__icontains=_clean(search)))
+        products = products.filter(search_q(_clean(search), "name", "code"))
     products = products.order_by("name")
 
     return [
