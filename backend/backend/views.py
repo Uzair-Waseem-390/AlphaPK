@@ -1,6 +1,20 @@
-from rest_framework.permissions import BasePermission
+from rest_framework.permissions import AllowAny, BasePermission
 from rest_framework.response import Response
 from rest_framework.views import APIView
+
+
+class PingView(APIView):
+    """
+    GET /api/ping/
+
+    No-op keep-alive endpoint. The frontend calls this periodically while
+    it's open so the Render free-plan backend doesn't spin down from
+    inactivity. No auth required — this must work regardless of login state.
+    """
+    permission_classes = [AllowAny]
+
+    def get(self, request):
+        return Response(status=200)
 
 
 class IsAdminOrSuperuser(BasePermission):

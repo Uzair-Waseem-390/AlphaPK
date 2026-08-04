@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom';
 import { AnimatePresence } from 'framer-motion';
 import { AuthProvider, useAuth } from './context/AuthContext';
+import { useKeepAlive } from './hooks/useKeepAlive';
 import ProtectedRoute from './components/auth/ProtectedRoute';
 import Layout from './components/layout/Layout';
 import Login from './pages/Login';
@@ -901,6 +902,8 @@ const AppContent = () => {
 };
 
 function App() {
+  useKeepAlive();
+
   return (
     <BrowserRouter>
       <AuthProvider>
