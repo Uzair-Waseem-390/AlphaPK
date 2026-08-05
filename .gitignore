@@ -208,6 +208,9 @@ db.sqlite3
 db.sqlite3*
 *db.sqlite3
 
+# Real customer data spreadsheet used by billing.import_customer_data — never committed.
+backend/billing/customer_data/
+
 frontend/node_modules
 frontend/package-lock.json
 frontend/.env
