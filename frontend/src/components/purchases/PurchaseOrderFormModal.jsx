@@ -3,6 +3,7 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
+import SearchableSelect from '../ui/SearchableSelect';
 import Button from '../ui/Button';
 import LineItemRow from './LineItemRow';
 import DraftPreview from './DraftPreview';
@@ -151,12 +152,12 @@ const PurchaseOrderFormModal = ({
         <Modal isOpen={isOpen} onClose={onClose} title={title} size="xl">
             <form onSubmit={handleFormSubmit} className="space-y-6">
                 <div className="space-y-4">
-                    <Select
+                    <SearchableSelect
                         label="Supplier"
                         value={formData.supplier}
-                        onChange={(e) => setFormData({ ...formData, supplier: e.target.value })}
-                        options={suppliers.map(s => ({ value: s.id, label: s.name }))}
-                        placeholder="Select supplier"
+                        onChange={(value) => setFormData({ ...formData, supplier: value })}
+                        options={suppliers.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }))}
+                        placeholder="Search supplier by name or code"
                         disabled={isEdit}
                         required={!isEdit}
                     />
