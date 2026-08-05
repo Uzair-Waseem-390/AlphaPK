@@ -6,10 +6,11 @@ from .models import SavedLedgerPDF, SupplierLedger
 class SupplierLedgerReadSerializer(serializers.ModelSerializer):
     supplier_name = serializers.CharField(read_only=True)
     supplier_code = serializers.CharField(read_only=True)
+    supplier_is_deleted = serializers.BooleanField(source="supplier.is_deleted", read_only=True)
 
     class Meta:
         model  = SupplierLedger
-        fields = ["id", "supplier", "supplier_name", "supplier_code", "created_at"]
+        fields = ["id", "supplier", "supplier_name", "supplier_code", "supplier_is_deleted", "created_at"]
         read_only_fields = fields
 
 

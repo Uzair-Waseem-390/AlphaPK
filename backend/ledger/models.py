@@ -17,6 +17,15 @@ class SupplierLedger(models.Model):
     supplier_code = models.CharField(max_length=100)   # snapshot
     created_at    = models.DateTimeField(auto_now_add=True)
 
+    # Soft delete — only allowed once the linked supplier is itself
+    # soft-deleted (enforced in services.delete_ledger).
+    is_deleted = models.BooleanField(default=False, db_index=True)
+    deleted_at = models.DateTimeField(null=True, blank=True)
+    deleted_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="deleted_supplier_ledgers",
+    )
+
     class Meta:
         verbose_name        = "Supplier Ledger"
         verbose_name_plural = "Supplier Ledgers"

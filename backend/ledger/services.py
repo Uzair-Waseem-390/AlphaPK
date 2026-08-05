@@ -109,6 +109,29 @@ def _recalculate_snapshots_from(ledger: SupplierLedger, from_year_month: str) ->
 # Ledger creation (called when supplier is created)
 # ---------------------------------------------------------------------------
 
+def delete_ledger(*, pk: int, user) -> None:
+    """
+    Soft-deletes a SupplierLedger. Only allowed once the linked supplier is
+    itself soft-deleted — a ledger must never disappear out from under a
+    still-active supplier.
+    """
+    from django.shortcuts import get_object_or_404
+    from rest_framework.exceptions import ValidationError
+
+    ledger = get_object_or_404(
+        SupplierLedger.objects.select_related("supplier"), pk=pk, is_deleted=False,
+    )
+    if not ledger.supplier.is_deleted:
+        raise ValidationError({
+            "detail": "Cannot delete ledger: the supplier must be deleted first.",
+        })
+
+    ledger.is_deleted = True
+    ledger.deleted_at = timezone.now()
+    ledger.deleted_by = user
+    ledger.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+
 def create_ledger_for_supplier(*, supplier) -> SupplierLedger:
     """
     Auto-creates an empty SupplierLedger when a supplier is created.

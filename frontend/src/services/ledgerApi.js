@@ -33,4 +33,7 @@ export const ledgerApi = {
 
     // Delete saved PDF
     deleteSavedPDF: (pdfId) => api.delete(`/ledger/pdf/${pdfId}/`),
+
+    // Delete ledger (soft delete) — only allowed once the supplier is deleted
+    delete: (id) => api.delete(`/ledger/${id}/`),
 };

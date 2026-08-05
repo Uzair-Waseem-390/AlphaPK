@@ -16,18 +16,24 @@ def _clean(value):
 
 def get_all_ledgers(*, search: str = None) -> QuerySet:
     # Hide the internal SYS-OPENING system supplier's ledger from users.
-    qs = SupplierLedger.objects.select_related("supplier").exclude(supplier_code="SYS-OPENING")
+    qs = (
+        SupplierLedger.objects.select_related("supplier")
+        .filter(is_deleted=False)
+        .exclude(supplier_code="SYS-OPENING")
+    )
     if _clean(search):
         qs = qs.filter(search_q(_clean(search), "supplier_name", "supplier_code"))
     return qs
 
 
 def get_ledger_by_id(pk: int) -> SupplierLedger:
-    return get_object_or_404(SupplierLedger.objects.select_related("supplier"), pk=pk)
+    return get_object_or_404(
+        SupplierLedger.objects.select_related("supplier"), pk=pk, is_deleted=False,
+    )
 
 
 def get_ledger_by_supplier_id(supplier_id: int) -> SupplierLedger:
-    return get_object_or_404(SupplierLedger, supplier_id=supplier_id)
+    return get_object_or_404(SupplierLedger, supplier_id=supplier_id, is_deleted=False)
 
 
 def get_ledger_entries(

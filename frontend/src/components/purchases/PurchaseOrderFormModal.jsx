@@ -10,6 +10,7 @@ import DraftPreview from './DraftPreview';
 
 const emptyFormData = {
     supplier: '',
+    supplier_label: '',
     payment_type: 'after_delivery',
     advance_amount: '',
     description: '',
@@ -21,7 +22,7 @@ const emptyFormData = {
 // supplier change (PurchaseOrderUpdateSerializer has no supplier field),
 // so the supplier selector is read-only whenever initialData is provided.
 const PurchaseOrderFormModal = ({
-    isOpen, onClose, onSubmit, onSearchProducts, suppliers,
+    isOpen, onClose, onSubmit, onSearchProducts, onSearchSuppliers,
     initialData, title, submitLabel,
 }) => {
     const isEdit = Boolean(initialData);
@@ -155,8 +156,13 @@ const PurchaseOrderFormModal = ({
                     <SearchableSelect
                         label="Supplier"
                         value={formData.supplier}
-                        onChange={(value) => setFormData({ ...formData, supplier: value })}
-                        options={suppliers.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }))}
+                        selectedLabel={formData.supplier_label}
+                        onChange={(value, option) => setFormData({
+                            ...formData,
+                            supplier: value,
+                            supplier_label: option?.label ?? '',
+                        })}
+                        onSearch={onSearchSuppliers}
                         placeholder="Search supplier by name or code"
                         disabled={isEdit}
                         required={!isEdit}
@@ -254,7 +260,7 @@ PurchaseOrderFormModal.propTypes = {
     onClose: PropTypes.func.isRequired,
     onSubmit: PropTypes.func.isRequired,
     onSearchProducts: PropTypes.func.isRequired,
-    suppliers: PropTypes.array.isRequired,
+    onSearchSuppliers: PropTypes.func.isRequired,
     initialData: PropTypes.object,
     title: PropTypes.string.isRequired,
     submitLabel: PropTypes.string.isRequired,

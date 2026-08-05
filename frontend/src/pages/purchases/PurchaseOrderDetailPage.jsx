@@ -36,7 +36,6 @@ const PurchaseOrderDetailPage = () => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [suppliers, setSuppliers] = useState([]);
 
     useEffect(() => {
         fetchData();
@@ -177,17 +176,7 @@ const PurchaseOrderDetailPage = () => {
         }
     };
 
-    const handleOpenEdit = async () => {
-        // Loaded lazily — most order views are confirmed orders that never
-        // need this, so no point fetching it on every page load.
-        if (suppliers.length === 0) {
-            try {
-                const suppliersRes = await purchasesApi.suppliers.getAll();
-                setSuppliers(suppliersRes || []);
-            } catch (error) {
-                console.error('Failed to load suppliers:', error);
-            }
-        }
+    const handleOpenEdit = () => {
         setShowEditModal(true);
     };
 
@@ -195,6 +184,14 @@ const PurchaseOrderDetailPage = () => {
         const res = await purchasesApi.products.getAll({ search: query, page_size: 25 });
         const results = res?.results ?? res ?? [];
         return results.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }));
+    };
+
+    // Supplier is disabled/read-only on edit (see PurchaseOrderFormModal), so
+    // this only exists to satisfy the shared modal's required prop.
+    const searchSuppliers = async (query) => {
+        const res = await purchasesApi.suppliers.getAll({ search: query });
+        const results = res?.results ?? res ?? [];
+        return results.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }));
     };
 
     const handleUpdateOrder = async (payload) => {
@@ -462,11 +459,12 @@ const PurchaseOrderDetailPage = () => {
                     onClose={() => setShowEditModal(false)}
                     onSubmit={handleUpdateOrder}
                     onSearchProducts={searchProducts}
-                    suppliers={suppliers}
+                    onSearchSuppliers={searchSuppliers}
                     title="Edit Purchase Order"
                     submitLabel="Save Changes"
                     initialData={{
                         supplier: order.supplier?.id || '',
+                        supplier_label: order.supplier?.code ? `${order.supplier.name} (${order.supplier.code})` : order.supplier?.name,
                         payment_type: order.payment_type,
                         advance_amount: order.advance_amount || '',
                         description: order.description || '',

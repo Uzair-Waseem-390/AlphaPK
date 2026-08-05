@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -40,8 +40,6 @@ const PurchaseOrdersPage = () => {
         filters, setFilters, refetch: fetchOrders,
     } = usePaginatedList(fetchOrdersPage, {}, 25, [activeTab, searchTerm]);
 
-    const [suppliers, setSuppliers] = useState([]);
-
     const tabs = [
         { value: 'all', label: 'All Orders' },
         { value: 'drafts', label: 'Drafts' },
@@ -49,23 +47,16 @@ const PurchaseOrdersPage = () => {
         { value: 'outstanding', label: 'Outstanding' },
     ];
 
-    useEffect(() => {
-        loadInitialData();
-    }, []);
-
-    const loadInitialData = async () => {
-        try {
-            const suppliersRes = await purchasesApi.suppliers.getAll();
-            setSuppliers(suppliersRes || []);
-        } catch (error) {
-            console.error('Failed to load initial data:', error);
-        }
-    };
-
     const searchProducts = async (query) => {
         const res = await purchasesApi.products.getAll({ search: query, page_size: 25 });
         const results = res?.results ?? res ?? [];
         return results.map(p => ({ value: p.id, label: `${p.code} - ${p.name}` }));
+    };
+
+    const searchSuppliers = async (query) => {
+        const res = await purchasesApi.suppliers.getAll({ search: query });
+        const results = res?.results ?? res ?? [];
+        return results.map(s => ({ value: s.id, label: `${s.name} (${s.code})` }));
     };
 
     const handleApplyFilters = (filterValues) => {
@@ -264,7 +255,7 @@ const PurchaseOrdersPage = () => {
                 onClose={() => setShowCreateModal(false)}
                 onSubmit={handleCreateOrder}
                 onSearchProducts={searchProducts}
-                suppliers={suppliers}
+                onSearchSuppliers={searchSuppliers}
                 title="Create Purchase Order"
                 submitLabel="Create Draft"
             />

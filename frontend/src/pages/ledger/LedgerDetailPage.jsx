@@ -13,6 +13,7 @@ import SavedPDFDrawer from '../../components/ledger/SavedPDFDrawer';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 const LedgerDetailPage = () => {
     const { id } = useParams();
@@ -43,6 +44,9 @@ const LedgerDetailPage = () => {
     const [showSavePDFModal, setShowSavePDFModal] = useState(false);
     const [showSavedPDFs, setShowSavedPDFs] = useState(false);
     const [pdfLoading, setPdfLoading] = useState(false);
+    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [deleteError, setDeleteError] = useState(null);
 
     // Redirect normal users
     if (!isAdmin) {
@@ -111,6 +115,23 @@ const LedgerDetailPage = () => {
         }
     };
 
+    const handleDeleteLedger = async () => {
+        setDeleteLoading(true);
+        setDeleteError(null);
+        try {
+            await ledgerApi.delete(id);
+            navigate('/ledger');
+        } catch (error) {
+            console.error('Failed to delete ledger:', error);
+            setDeleteError(
+                error.response?.data?.detail || 'Failed to delete ledger. Please try again.'
+            );
+            setShowDeleteConfirm(false);
+        } finally {
+            setDeleteLoading(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
@@ -148,8 +169,35 @@ const LedgerDetailPage = () => {
                     <Button variant="secondary" onClick={() => setShowSavedPDFs(true)}>
                         Saved PDFs
                     </Button>
+                    <Button
+                        variant="danger"
+                        disabled={!ledger.supplier_is_deleted}
+                        title={
+                            ledger.supplier_is_deleted
+                                ? undefined
+                                : 'Delete the supplier first before deleting their ledger.'
+                        }
+                        onClick={() => {
+                            setDeleteError(null);
+                            setShowDeleteConfirm(true);
+                        }}
+                    >
+                        Delete Ledger
+                    </Button>
                 </div>
             </div>
+
+            {!ledger.supplier_is_deleted && (
+                <p className="text-sm text-neutral-500">
+                    This ledger can only be deleted after its supplier has been deleted.
+                </p>
+            )}
+
+            {deleteError && (
+                <div className="bg-error-50 border border-error-200 text-error-700 text-sm rounded-lg px-4 py-3">
+                    {deleteError}
+                </div>
+            )}
 
             {/* Ledger Header */}
             <LedgerHeader ledger={ledger} closingBalance={closingBalance} />
@@ -197,6 +245,16 @@ const LedgerDetailPage = () => {
                 pdfs={savedPDFs}
                 onDelete={handleDeletePDF}
                 loading={pdfsLoading}
+            />
+
+            {/* Delete Ledger Confirm */}
+            <ConfirmDialog
+                isOpen={showDeleteConfirm}
+                onClose={() => setShowDeleteConfirm(false)}
+                onConfirm={handleDeleteLedger}
+                title="Delete Ledger"
+                message={`Are you sure you want to delete the ledger for "${ledger.supplier_name}" (${ledger.supplier_code})? This action cannot be undone.`}
+                loading={deleteLoading}
             />
         </div>
     );

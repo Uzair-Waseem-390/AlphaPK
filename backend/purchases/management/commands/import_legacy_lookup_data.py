@@ -7,17 +7,18 @@ MIGRATION_USER_EMAIL = DATA_GMAIL
 if not MIGRATION_USER_EMAIL:
     raise CommandError("DATA_GMAIL is not set in settings.py")
 
-# Order matters: Product depends on Category/Shelf already existing in the
-# new DB (looked up by name), so those must run first.
-TABLE_ORDER = ["category", "shelf", "supplier", "product"]
+# Order matters: Product depends on Category/Shelf, and Ledger depends on
+# Supplier, already existing in the new DB (looked up by name/code).
+TABLE_ORDER = ["category", "shelf", "supplier", "product", "ledger"]
 
 
 class Command(BaseCommand):
     help = (
         "One-off/reusable import of lookup data (Category, Shelf, Supplier, Product) "
-        "from the legacy DB (settings.DATABASES['legacy']) into the current default DB. "
-        "Schema/relationships are identical between the two DBs; only these four tables "
-        "are copied. Safe to re-run: existing rows (matched by name/code) are skipped."
+        "and supplier ledgers (SupplierLedger + SupplierLedgerEntry) from the legacy DB "
+        "(settings.DATABASES['legacy']) into the current default DB. Schema/relationships "
+        "are identical between the two DBs for these tables. Safe to re-run: existing rows "
+        "are skipped."
     )
 
     def add_arguments(self, parser):
@@ -65,6 +66,8 @@ class Command(BaseCommand):
             summary["product"] = self._import_product(
                 Product, Category, Shelf, migration_user, dry_run, dry_run_names,
             )
+        if "ledger" in requested:
+            summary["ledger"] = self._import_ledger(Supplier, migration_user, dry_run)
 
         self.stdout.write("")
         self.stdout.write(self.style.SUCCESS("Import summary" + (" (dry run)" if dry_run else "") + ":"))
@@ -119,6 +122,95 @@ class Command(BaseCommand):
                     f"  [{model.__name__}] failed to import '{getattr(row, unique_field)}': {exc}"
                 ))
 
+        return {"created": created, "skipped": skipped, "errors": errors}
+
+    def _import_ledger(self, Supplier, migration_user, dry_run):
+        from ledger.models import SupplierLedger, SupplierLedgerEntry
+        from ledger.services import (
+            _get_year_month, _recalculate_snapshots_from, create_ledger_for_supplier,
+        )
+
+        created = skipped = errors = 0
+        entries_created = entries_skipped = 0
+
+        # Legacy schema predates is_deleted/deleted_at/deleted_by on
+        # SupplierLedger (this run is what introduces those fields) — restrict
+        # the SELECT to columns that actually exist in the legacy table.
+        legacy_ledgers = SupplierLedger.objects.using("legacy").values(
+            "id", "supplier_code", "created_at",
+        )
+
+        for legacy_ledger in legacy_ledgers:
+            new_supplier = Supplier.all_objects.filter(code=legacy_ledger["supplier_code"]).first()
+            if new_supplier is None:
+                errors += 1
+                self.stderr.write(self.style.WARNING(
+                    f"  [Ledger] skipping '{legacy_ledger['supplier_code']}': supplier not found "
+                    f"in target DB (import supplier first)"
+                ))
+                continue
+
+            legacy_entries = SupplierLedgerEntry.objects.using("legacy").filter(
+                ledger_id=legacy_ledger["id"],
+            ).order_by("date", "created_at")
+            existing_ledger = SupplierLedger.objects.filter(supplier=new_supplier).first()
+
+            if dry_run:
+                for entry in legacy_entries:
+                    already = existing_ledger and SupplierLedgerEntry.objects.filter(
+                        ledger=existing_ledger, reference=entry.reference,
+                        entry_type=entry.entry_type, date=entry.date,
+                    ).exists()
+                    entries_skipped += 1 if already else 0
+                    entries_created += 0 if already else 1
+                created += 1
+                continue
+
+            try:
+                with transaction.atomic():
+                    new_ledger = create_ledger_for_supplier(supplier=new_supplier)
+                    earliest_affected_month = None
+
+                    for entry in legacy_entries:
+                        if SupplierLedgerEntry.objects.filter(
+                            ledger=new_ledger, reference=entry.reference,
+                            entry_type=entry.entry_type, date=entry.date,
+                        ).exists():
+                            entries_skipped += 1
+                            continue
+
+                        # Source order/payment/return links aren't part of this
+                        # migration — imported entries carry the historical
+                        # amounts/dates only, links left null.
+                        new_entry = SupplierLedgerEntry.objects.create(
+                            ledger=new_ledger,
+                            entry_type=entry.entry_type,
+                            date=entry.date,
+                            details=entry.details,
+                            reference=entry.reference,
+                            debit=entry.debit,
+                            credit=entry.credit,
+                            created_by=migration_user,
+                        )
+                        SupplierLedgerEntry.objects.filter(pk=new_entry.pk).update(
+                            created_at=entry.created_at,
+                        )
+                        entries_created += 1
+                        ym = _get_year_month(entry.date)
+                        if earliest_affected_month is None or ym < earliest_affected_month:
+                            earliest_affected_month = ym
+
+                    if earliest_affected_month is not None:
+                        _recalculate_snapshots_from(new_ledger, earliest_affected_month)
+
+                created += 1
+            except Exception as exc:
+                errors += 1
+                self.stderr.write(self.style.WARNING(
+                    f"  [Ledger] failed to import '{legacy_ledger['supplier_code']}': {exc}"
+                ))
+
+        self.stdout.write(f"    ledger entries: created={entries_created} skipped={entries_skipped}")
         return {"created": created, "skipped": skipped, "errors": errors}
 
     def _import_supplier(self, Supplier, migration_user, dry_run):

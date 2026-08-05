@@ -19,6 +19,7 @@ from .serializers import (
     SupplierLedgerReadSerializer,
 )
 from .services import (
+    delete_ledger,
     delete_ledger_pdf,
     generate_ledger_pdf_bytes,
     save_ledger_pdf,
@@ -104,6 +105,15 @@ class SupplierLedgerDetailView(APIView):
             "results"         : LedgerEntrySerializer(paginated["results"], many=True).data,
         }
         return Response(data)
+
+    def delete(self, request, pk):
+        """
+        DELETE /ledger/<pk>/
+        Soft-deletes the ledger. Only allowed once the linked supplier is
+        itself already deleted.
+        """
+        delete_ledger(pk=pk, user=request.user)
+        return Response({"detail": "Ledger deleted."}, status=status.HTTP_200_OK)
 
 
 class SupplierLedgerBySupplierView(APIView):
