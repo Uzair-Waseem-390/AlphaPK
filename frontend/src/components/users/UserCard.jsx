@@ -57,13 +57,15 @@ const UserCard = ({ user, onDelete, onEdit }) => {
                         </div>
 
                         <div className="flex gap-2 opacity-0 group-hover:opacity-100 transition-opacity">
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                onClick={() => onEdit(user)}
-                            >
-                                Edit
-                            </Button>
+                            {user.role !== 'superuser' && (
+                                <Button
+                                    size="sm"
+                                    variant="outline"
+                                    onClick={() => onEdit(user)}
+                                >
+                                    Edit
+                                </Button>
+                            )}
                             {user.role !== 'superuser' && (
                                 <Button
                                     size="sm"
