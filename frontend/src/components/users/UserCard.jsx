@@ -64,13 +64,15 @@ const UserCard = ({ user, onDelete, onEdit }) => {
                             >
                                 Edit
                             </Button>
-                            <Button
-                                size="sm"
-                                variant="danger"
-                                onClick={() => setShowDeleteModal(true)}
-                            >
-                                Delete
-                            </Button>
+                            {user.role !== 'superuser' && (
+                                <Button
+                                    size="sm"
+                                    variant="danger"
+                                    onClick={() => setShowDeleteModal(true)}
+                                >
+                                    Delete
+                                </Button>
+                            )}
                         </div>
                     </div>
                 </Card>
