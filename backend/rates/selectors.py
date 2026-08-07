@@ -66,6 +66,29 @@ def get_all_rates(
     return qs
 
 
+def get_unpriced_products(*, search: str = None) -> QuerySet:
+    """
+    Products with no ProductRate yet — the "needs a price set" queue.
+    Paginated + searched the same way as get_all_rates, just over Product
+    instead of ProductRate, so it can be browsed independently of the
+    priced-rates list rather than dumped in alongside it.
+    """
+    from backend.search import search_q
+    from purchases.models import Product
+
+    # Mirrors purchases.selectors._PRODUCT_RELATED — ProductReadSerializer
+    # nests category/shelf (each with their own audit users) plus the
+    # product's own audit users; without these every row costs N+1 queries.
+    qs = Product.objects.select_related(
+        "category", "shelf", "created_by", "updated_by",
+        "category__created_by", "category__updated_by",
+        "shelf__created_by", "shelf__updated_by",
+    ).filter(is_deleted=False, rate__isnull=True)
+    if _clean(search):
+        qs = qs.filter(search_q(_clean(search), "name", "code"))
+    return qs
+
+
 def get_rate_by_id(pk: int) -> ProductRate:
     return get_object_or_404(
         ProductRate.objects.select_related(*_RATE_RELATED),

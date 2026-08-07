@@ -1,7 +1,7 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import { useRates } from '../../hooks/useRates';
+import { useRates, useUnpricedProducts } from '../../hooks/useRates';
 import RateTable from '../../components/rates/RateTable';
 import RateFormModal from '../../components/rates/RateFormModal';
 import SearchBar from '../../components/ui/SearchBar';
@@ -21,6 +21,13 @@ const RatesPage = () => {
         filters, setFilters, categories, create, update,
     } = useRates();
 
+    const {
+        data: unpricedProducts, meta: unpricedMeta, page: unpricedPage, setPage: setUnpricedPage,
+        loading: unpricedLoading, filters: unpricedFilters, setFilters: setUnpricedFilters,
+        refetch: refetchUnpriced,
+    } = useUnpricedProducts();
+    const unpricedData = unpricedProducts.map(product => ({ product, rate: null }));
+
     // Modal state
     const [showModal, setShowModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
@@ -37,6 +44,10 @@ const RatesPage = () => {
 
     const handleResetFilters = () => {
         setFilters({});
+    };
+
+    const handleSearchUnpriced = (value) => {
+        setUnpricedFilters({ ...unpricedFilters, search: value });
     };
 
     const handleEdit = (product, rate) => {
@@ -59,12 +70,14 @@ const RatesPage = () => {
                     note: formData.note,
                 });
             } else {
-                // Create new rate
+                // Create new rate — the priced product drops out of the
+                // unpriced queue, so refresh that list too.
                 await create({
                     product_id: selectedProduct.id,
                     selling_price: formData.selling_price,
                     note: formData.note,
                 });
+                await refetchUnpriced();
             }
             setShowModal(false);
             setSelectedProduct(null);
@@ -123,7 +136,10 @@ const RatesPage = () => {
                 )}
             </div>
 
-            {/* Rate Table */}
+            {/* Priced products */}
+            <h2 className="text-lg font-semibold text-neutral-900">
+                Priced Products {meta.count ? `(${meta.count})` : ''}
+            </h2>
             <RateTable
                 rates={data}
                 isAdmin={isAdmin}
@@ -139,6 +155,35 @@ const RatesPage = () => {
                     onPageChange={setPage}
                 />
             )}
+
+            {/* Unpriced products — needs a price set */}
+            <div className="pt-4 border-t border-neutral-200">
+                <h2 className="text-lg font-semibold text-neutral-900 mb-4">
+                    Unpriced Products {unpricedMeta.count ? `(${unpricedMeta.count})` : ''}
+                </h2>
+
+                <SearchBar
+                    onSearch={handleSearchUnpriced}
+                    placeholder="Search unpriced products by name or code..."
+                    className="mb-4"
+                />
+
+                <RateTable
+                    rates={unpricedData}
+                    isAdmin={isAdmin}
+                    onEdit={handleEdit}
+                    onViewHistory={handleViewHistory}
+                    loading={unpricedLoading}
+                />
+
+                {unpricedMeta.totalPages > 1 && (
+                    <Pagination
+                        currentPage={unpricedMeta.currentPage}
+                        totalPages={unpricedMeta.totalPages}
+                        onPageChange={setUnpricedPage}
+                    />
+                )}
+            </div>
 
             {/* Rate Form Modal */}
             <RateFormModal

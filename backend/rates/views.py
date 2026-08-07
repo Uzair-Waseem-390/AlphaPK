@@ -2,11 +2,14 @@ from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 
+from purchases.serializers import ProductReadSerializer
+
 from .permissions import IsAdminOrSuperuserOrReadOnly
 from .selectors import (
     get_all_rates,
     get_history_for_product,
     get_rate_by_id,
+    get_unpriced_products,
 )
 from .serializers import (
     ProductRateCreateSerializer,
@@ -99,6 +102,26 @@ class ProductRateRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             note=d.get("note", ""),
         )
         return Response(ProductRateReadSerializer(rate).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Unpriced products — products with no rate set yet, browsed/searched
+# independently of the (already paginated) rates list above.
+# ---------------------------------------------------------------------------
+
+class UnpricedProductListView(generics.ListAPIView):
+    """
+    GET /rates/unpriced/       — products with no ProductRate yet
+
+    Query params:
+        search : product name or code (partial, case-insensitive)
+    """
+
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+    serializer_class = ProductReadSerializer
+
+    def get_queryset(self):
+        return get_unpriced_products(search=self.request.query_params.get("search"))
 
 
 # ---------------------------------------------------------------------------
