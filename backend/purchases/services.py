@@ -392,13 +392,19 @@ def delete_supplier(*, pk: int, user) -> None:
 # Product services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_product(*, name: str, code: str, category_id: int, shelf_id: int, user) -> Product:
     get_category_by_id(category_id)
     get_shelf_by_id(shelf_id)
-    return Product.objects.create(
+    product = Product.objects.create(
         name=name, code=code, category_id=category_id,
         shelf_id=shelf_id, created_by=user, updated_by=user,
     )
+    # A brand-new product has no price yet — queue it for the Rates app.
+    # Lazy import: purchases stays unaware rates exists at module load time.
+    from rates.services import add_to_unpriced_queue
+    add_to_unpriced_queue(product)
+    return product
 
 
 def update_product(
@@ -425,6 +431,9 @@ def update_product(
 def delete_product(*, pk: int, user) -> None:
     product = get_product_by_id(pk)
     _soft_delete(product, user)
+    # A deleted product no longer belongs in the "needs a price" queue.
+    from rates.services import remove_from_unpriced_queue
+    remove_from_unpriced_queue(product)
     # Stats count inventory rows of NON-deleted products only (mirrors the
     # inventory list's product__is_deleted=False filter), so a soft-deleted
     # product leaves the totals and its current bucket.

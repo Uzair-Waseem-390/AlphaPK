@@ -66,12 +66,14 @@ def get_all_rates(
     return qs
 
 
-def get_unpriced_products(*, search: str = None) -> QuerySet:
+def get_unpriced_products(*, search: str = None, category_id: str = None) -> QuerySet:
     """
     Products with no ProductRate yet — the "needs a price set" queue.
-    Paginated + searched the same way as get_all_rates, just over Product
-    instead of ProductRate, so it can be browsed independently of the
-    priced-rates list rather than dumped in alongside it.
+    Joins through UnpricedProduct (a materialized, explicitly-synced set —
+    see rates.models.UnpricedProduct), not a live rate__isnull=True scan
+    over the whole product catalog: as more products get priced over time,
+    this join gets cheaper instead of staying proportional to catalog size.
+    Paginated + searched the same way as get_all_rates.
     """
     from backend.search import search_q
     from purchases.models import Product
@@ -83,9 +85,11 @@ def get_unpriced_products(*, search: str = None) -> QuerySet:
         "category", "shelf", "created_by", "updated_by",
         "category__created_by", "category__updated_by",
         "shelf__created_by", "shelf__updated_by",
-    ).filter(is_deleted=False, rate__isnull=True)
+    ).filter(is_deleted=False, unpriced_entry__isnull=False)
     if _clean(search):
         qs = qs.filter(search_q(_clean(search), "name", "code"))
+    if _clean(category_id):
+        qs = qs.filter(category_id=_clean(category_id))
     return qs
 
 

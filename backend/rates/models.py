@@ -39,6 +39,33 @@ class ProductRate(models.Model):
         return f"{self.product.name} — {self.selling_price}"
 
 
+class UnpricedProduct(models.Model):
+    """
+    One row per product that has no ProductRate yet — the "needs a price
+    set" queue. Kept in sync explicitly (never a live join over the full
+    product catalog): purchases.services.create_product() adds a row here,
+    purchases.services.delete_product() removes it, and
+    rates.services.create_rate() removes it once a price is set. Mirrors the
+    cash_flow.CashMovement pattern — a materialized set instead of a
+    recomputed-on-every-read join.
+    """
+
+    product = models.OneToOneField(
+        "purchases.Product",
+        on_delete=models.CASCADE,
+        related_name="unpriced_entry",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name = "Unpriced Product"
+        verbose_name_plural = "Unpriced Products"
+        ordering = ["product__name"]
+
+    def __str__(self):
+        return f"{self.product.name} — no price set"
+
+
 class ProductRateHistory(models.Model):
     """
     Append-only audit log. A new row is inserted on every price change.

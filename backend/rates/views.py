@@ -114,14 +114,16 @@ class UnpricedProductListView(generics.ListAPIView):
     GET /rates/unpriced/       — products with no ProductRate yet
 
     Query params:
-        search : product name or code (partial, case-insensitive)
+        search   : product name or code (partial, case-insensitive)
+        category : category id
     """
 
     permission_classes = [IsAdminOrSuperuserOrReadOnly]
     serializer_class = ProductReadSerializer
 
     def get_queryset(self):
-        return get_unpriced_products(search=self.request.query_params.get("search"))
+        p = self.request.query_params
+        return get_unpriced_products(search=p.get("search"), category_id=p.get("category"))
 
 
 # ---------------------------------------------------------------------------

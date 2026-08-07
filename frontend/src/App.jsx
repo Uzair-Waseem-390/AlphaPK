@@ -31,6 +31,7 @@ import PurchasePaymentDetailPage from './pages/purchases/PurchasePaymentDetailPa
 
 // Rates pages
 import RatesPage from './pages/rates/RatesPage';
+import UnpricedProductsPage from './pages/rates/UnpricedProductsPage';
 import PriceHistoryPage from './pages/rates/PriceHistoryPage';
 
 // Billing pages
@@ -320,6 +321,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <RatesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/rates/unpriced" element={
+          <ProtectedRoute>
+            <Layout>
+              <UnpricedProductsPage />
             </Layout>
           </ProtectedRoute>
         } />

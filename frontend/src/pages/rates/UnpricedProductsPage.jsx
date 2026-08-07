@@ -1,42 +1,44 @@
 import { useState, useEffect } from 'react';
-import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
-import { useRates } from '../../hooks/useRates';
+import { useUnpricedProducts } from '../../hooks/useRates';
 import { ratesApi } from '../../services/ratesApi';
+import { purchasesApi } from '../../services/purchasesApi';
 import RateTable from '../../components/rates/RateTable';
 import RateFormModal from '../../components/rates/RateFormModal';
 import SearchBar from '../../components/ui/SearchBar';
 import Select from '../../components/ui/Select';
-import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import { useNavigate, Link } from 'react-router-dom';
 
-const RatesPage = () => {
+const UnpricedProductsPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
     const {
-        data, meta, page, setPage, loading,
-        filters, setFilters, categories, create, update,
-    } = useRates();
+        data: products, meta, page, setPage, loading,
+        filters, setFilters, refetch,
+    } = useUnpricedProducts();
+    const data = products.map(product => ({ product, rate: null }));
 
-    // Just the count for the button label — page_size:1 keeps this a cheap,
-    // count-only request rather than fetching a full page we won't render.
-    const [unpricedCount, setUnpricedCount] = useState(null);
+    // Small, bounded list (same pattern as Products/Suppliers pages) — just
+    // for the category filter dropdown, fetched once.
+    const [categories, setCategories] = useState([]);
     useEffect(() => {
         let cancelled = false;
-        ratesApi.getUnpriced({ page_size: 1 })
-            .then(res => { if (!cancelled) setUnpricedCount(res?.count ?? 0); })
-            .catch(() => { if (!cancelled) setUnpricedCount(null); });
+        purchasesApi.categories.getAll({ page_size: 500 })
+            .then(res => {
+                if (cancelled) return;
+                const cats = res?.results || res || [];
+                setCategories(cats.filter(c => !c.is_deleted));
+            })
+            .catch(() => { if (!cancelled) setCategories([]); });
         return () => { cancelled = true; };
     }, []);
 
-    // Modal state
     const [showModal, setShowModal] = useState(false);
     const [selectedProduct, setSelectedProduct] = useState(null);
-    const [selectedRate, setSelectedRate] = useState(null);
     const [formLoading, setFormLoading] = useState(false);
 
     const handleSearch = (value) => {
@@ -51,9 +53,8 @@ const RatesPage = () => {
         setFilters({});
     };
 
-    const handleEdit = (product, rate) => {
+    const handleEdit = (product) => {
         setSelectedProduct(product);
-        setSelectedRate(rate || null);
         setShowModal(true);
     };
 
@@ -64,22 +65,14 @@ const RatesPage = () => {
     const handleSubmit = async (formData) => {
         setFormLoading(true);
         try {
-            if (selectedRate) {
-                // Update existing rate
-                await update(selectedRate.id, {
-                    selling_price: formData.selling_price,
-                    note: formData.note,
-                });
-            } else {
-                await create({
-                    product_id: selectedProduct.id,
-                    selling_price: formData.selling_price,
-                    note: formData.note,
-                });
-            }
+            await ratesApi.create({
+                product_id: selectedProduct.id,
+                selling_price: formData.selling_price,
+                note: formData.note,
+            });
+            await refetch();
             setShowModal(false);
             setSelectedProduct(null);
-            setSelectedRate(null);
         } catch (error) {
             console.error('Failed to save rate:', error);
             alert(error.response?.data?.detail || 'Failed to save rate');
@@ -98,21 +91,16 @@ const RatesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Product Rates</h1>
-                    <p className="text-neutral-500 mt-1">
-                        Manage selling prices for all products
-                    </p>
-                    <p className="text-sm text-neutral-400 mt-1">
-                        {isAdmin ? 'Admin users can set and edit prices' : 'View-only mode'}
-                    </p>
-                </div>
-                <Link to="/rates/unpriced">
-                    <Button variant="secondary">
-                        Unpriced Products{unpricedCount !== null ? ` (${unpricedCount})` : ''}
-                    </Button>
+            <div>
+                <Link to="/rates" className="text-sm text-primary-600 hover:text-primary-700">
+                    ← Back to Product Rates
                 </Link>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-1">
+                    Unpriced Products {meta.count ? `(${meta.count})` : ''}
+                </h1>
+                <p className="text-neutral-500 mt-1">
+                    Products that don't have a selling price set yet
+                </p>
             </div>
 
             {/* Filters */}
@@ -141,7 +129,6 @@ const RatesPage = () => {
                 )}
             </div>
 
-            {/* Rate Table */}
             <RateTable
                 rates={data}
                 isAdmin={isAdmin}
@@ -158,21 +145,19 @@ const RatesPage = () => {
                 />
             )}
 
-            {/* Rate Form Modal */}
             <RateFormModal
                 isOpen={showModal}
                 onClose={() => {
                     setShowModal(false);
                     setSelectedProduct(null);
-                    setSelectedRate(null);
                 }}
                 onSubmit={handleSubmit}
                 product={selectedProduct}
-                existingRate={selectedRate}
+                existingRate={null}
                 loading={formLoading}
             />
         </div>
     );
 };
 
-export default RatesPage;
+export default UnpricedProductsPage;

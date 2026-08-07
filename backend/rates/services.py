@@ -5,7 +5,7 @@ from django.db import IntegrityError, transaction
 from purchases.models import Product
 from purchases.selectors import get_product_by_id
 
-from .models import ProductRate, ProductRateHistory
+from .models import ProductRate, ProductRateHistory, UnpricedProduct
 from .selectors import get_rate_by_id
 
 
@@ -25,6 +25,22 @@ def _log_rate_history(*, product: Product, selling_price: Decimal, user, note: s
         changed_by=user,
         note=note,
     )
+
+
+# ---------------------------------------------------------------------------
+# Unpriced-products queue — kept in sync explicitly by whoever changes
+# pricing status (see rates.models.UnpricedProduct for the full picture).
+# purchases.services.create_product()/delete_product() call these via a
+# lazy import (mirrors the lazy purchases-model imports already used
+# elsewhere in this app) so purchases stays unaware rates exists.
+# ---------------------------------------------------------------------------
+
+def add_to_unpriced_queue(product: Product) -> None:
+    UnpricedProduct.objects.get_or_create(product=product)
+
+
+def remove_from_unpriced_queue(product: Product) -> None:
+    UnpricedProduct.objects.filter(product=product).delete()
 
 
 # ---------------------------------------------------------------------------
@@ -70,6 +86,7 @@ def create_rate(*, product_id: int, selling_price: Decimal, user, note: str = ""
 
     # Log the initial price setting as first history entry
     _log_rate_history(product=product, selling_price=selling_price, user=user, note=note or "Initial price set.")
+    remove_from_unpriced_queue(product)
     return rate
 
 

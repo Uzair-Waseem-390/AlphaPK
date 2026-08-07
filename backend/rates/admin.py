@@ -1,6 +1,6 @@
 from django.contrib import admin
 
-from .models import ProductRate, ProductRateHistory
+from .models import ProductRate, ProductRateHistory, UnpricedProduct
 
 
 @admin.register(ProductRate)
@@ -18,6 +18,21 @@ class ProductRateAdmin(admin.ModelAdmin):
 
     def has_delete_permission(self, request, obj=None):
         # Rates are never deleted — only updated
+        return False
+
+
+@admin.register(UnpricedProduct)
+class UnpricedProductAdmin(admin.ModelAdmin):
+    list_display = ["product", "created_at"]
+    search_fields = ["product__name", "product__code"]
+    list_filter = ["product__category", "product__shelf"]
+    readonly_fields = ["product", "created_at"]
+
+    def has_add_permission(self, request):
+        # Kept in sync by services only — never manually created/edited.
+        return False
+
+    def has_change_permission(self, request, obj=None):
         return False
 
 
