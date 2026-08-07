@@ -14,10 +14,14 @@ from .models import Customer, Invoice, InvoiceItem, Payment, Return
 # Customer
 # ---------------------------------------------------------------------------
 
-def get_all_customers(*, search: str = None) -> QuerySet:
+def get_all_customers(*, search: str = None, name: str = None, code: str = None) -> QuerySet:
     qs = Customer.objects.filter(is_deleted=False)
     if search:
         qs = qs.filter(search_q(search, "name", "code", "mobile"))
+    if name:
+        qs = qs.filter(search_q(name, "name"))
+    if code:
+        qs = qs.filter(search_q(code, "code"))
     return qs
 
 

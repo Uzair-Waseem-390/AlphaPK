@@ -46,7 +46,9 @@ from .services import (
 
 class CustomerListCreateView(generics.ListCreateAPIView):
     """
-    GET  /billing/customers/       — list all customers (search: ?search=)
+    GET  /billing/customers/       — list all customers
+                                      (search: ?search= across name/code/mobile,
+                                      or narrow with ?name= / ?code= individually)
     POST /billing/customers/       — create customer (all authenticated)
     """
     permission_classes = [IsAuthenticated]
@@ -55,7 +57,8 @@ class CustomerListCreateView(generics.ListCreateAPIView):
         return CustomerWriteSerializer if self.request.method == "POST" else CustomerReadSerializer
 
     def get_queryset(self):
-        return get_all_customers(search=self.request.query_params.get("search"))
+        p = self.request.query_params
+        return get_all_customers(search=p.get("search"), name=p.get("name"), code=p.get("code"))
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)

@@ -22,19 +22,26 @@ const CustomersPage = () => {
         billingApi.customers
     );
 
-    const [searchTerm, setSearchTerm] = useState('');
+    const [nameSearch, setNameSearch] = useState('');
+    const [codeSearch, setCodeSearch] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [formLoading, setFormLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
-    const handleSearch = (value) => {
-        setSearchTerm(value);
-        setFilters({ search: value });
+    const handleSearchName = (value) => {
+        setNameSearch(value);
+        setFilters({ name: value, code: codeSearch });
+    };
+
+    const handleSearchCode = (value) => {
+        setCodeSearch(value);
+        setFilters({ name: nameSearch, code: value });
     };
 
     const handleResetFilters = () => {
-        setSearchTerm('');
+        setNameSearch('');
+        setCodeSearch('');
         resetFilters();
     };
 
@@ -103,12 +110,18 @@ const CustomersPage = () => {
 
             <div className="flex gap-4">
                 <SearchBar
-                    onSearch={handleSearch}
-                    placeholder="Search customers by name or code..."
+                    onSearch={handleSearchName}
+                    placeholder="Search by name..."
                     className="flex-1"
-                    value={searchTerm}
+                    value={nameSearch}
                 />
-                {searchTerm && (
+                <SearchBar
+                    onSearch={handleSearchCode}
+                    placeholder="Search by code..."
+                    className="flex-1"
+                    value={codeSearch}
+                />
+                {(nameSearch || codeSearch) && (
                     <button
                         onClick={handleResetFilters}
                         className="px-4 py-2.5 bg-neutral-100 text-neutral-700 rounded-xl hover:bg-neutral-200 transition-colors"
