@@ -5,6 +5,7 @@ import { billingApi } from '../../services/billingApi';
 import { ratesApi } from '../../services/ratesApi';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
+import Select from '../../components/ui/Select';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -22,6 +23,8 @@ const EditInvoicePage = () => {
 
     const [formData, setFormData] = useState({
         customer_id: '',
+        payment_type: 'after_delivery',
+        advance_amount: '',
         items: [],
     });
 
@@ -38,6 +41,8 @@ const EditInvoicePage = () => {
             // Populate form data
             setFormData({
                 customer_id: invoiceData.customer?.id || '',
+                payment_type: invoiceData.payment_type || 'after_delivery',
+                advance_amount: invoiceData.advance_amount || '',
                 items: invoiceData.items?.map(item => ({
                     product_id: item.product,
                     product_label: item.product_code ? `${item.product_code} - ${item.product_name}` : item.product_name,
@@ -109,6 +114,8 @@ const EditInvoicePage = () => {
         setSaving(true);
         try {
             const data = {
+                payment_type: formData.payment_type,
+                advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
                 items: formData.items.map(item => ({
                     product_id: parseInt(item.product_id),
                     quantity: parseInt(item.quantity) || 0,
@@ -184,6 +191,32 @@ const EditInvoicePage = () => {
                             disabled={true}
                             required
                         />
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-4 max-w-md mt-4">
+                        <Select
+                            label="Payment Type"
+                            value={formData.payment_type}
+                            onChange={(e) => setFormData(prev => ({ ...prev, payment_type: e.target.value }))}
+                            options={[
+                                { value: 'advance', label: 'Advance' },
+                                { value: 'after_delivery', label: 'After Delivery' },
+                            ]}
+                            required
+                        />
+
+                        {formData.payment_type === 'advance' && (
+                            <Input
+                                label="Advance Amount (PKR)"
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                value={formData.advance_amount}
+                                onChange={(e) => setFormData(prev => ({ ...prev, advance_amount: e.target.value }))}
+                                placeholder="Enter advance amount"
+                                required
+                            />
+                        )}
                     </div>
                 </Card>
 

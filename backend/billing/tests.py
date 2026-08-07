@@ -19,7 +19,8 @@ from users.models import User
 from .models import Invoice, Payment
 from .services import (
     accept_return, confirm_invoice, create_customer, create_invoice,
-    create_payment, create_return, delete_payment,
+    create_payment, create_return, delete_invoice, delete_payment,
+    update_invoice_items,
 )
 from .views import DraftInvoiceListView, InvoiceConfirmView, InvoiceListCreateView
 
@@ -283,3 +284,184 @@ class BillingPermissionTests(BillingTestBase):
         force_authenticate(request, user=make_normal_user())
         response = InvoiceConfirmView.as_view()(request, pk=invoice.id)
         self.assertEqual(response.status_code, 403)
+
+
+class InvoiceAdvancePaymentTests(BillingTestBase):
+    """Mirrors purchases.tests's advance-payment coverage for PurchaseOrder."""
+
+    def test_advance_added_to_cash_in_hand_immediately_on_draft(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product()
+        cash_before = CashFlow.objects.get(pk=1).cash_in_hand
+
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        self.assertEqual(invoice.payment_type, "advance")
+        self.assertEqual(invoice.advance_amount, Decimal("300"))
+
+        cash_after = CashFlow.objects.get(pk=1).cash_in_hand
+        self.assertEqual(cash_after, cash_before + Decimal("300"))
+
+        adv_payment = Payment.objects.get(invoice=invoice)
+        self.assertTrue(adv_payment.note.startswith("Advance payment"))
+        self.assertEqual(adv_payment.amount, Decimal("300"))
+
+    def test_advance_amount_edit_on_draft_adjusts_cash_by_delta(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        cash_after_create = CashFlow.objects.get(pk=1).cash_in_hand
+
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            advance_amount=Decimal("500"), user=self.admin,
+        )
+        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_after_create + Decimal("200"))
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.advance_amount, Decimal("500"))
+
+        # Exactly one advance Payment row must exist (updated in place, not duplicated).
+        self.assertEqual(
+            Payment.objects.filter(invoice=invoice, note__startswith="Advance payment").count(), 1,
+        )
+
+    def test_switch_from_advance_to_after_delivery_refunds_cash(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        cash_before_switch = CashFlow.objects.get(pk=1).cash_in_hand
+
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="after_delivery", user=self.admin,
+        )
+        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before_switch - Decimal("300"))
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.advance_amount, Decimal("0"))
+        self.assertFalse(
+            Payment.objects.filter(invoice=invoice, note__startswith="Advance payment", is_deleted=False).exists(),
+        )
+
+    def test_confirm_advance_invoice_reduces_credit_outstanding_by_advance(self):
+        product = self.make_stocked_product(stock=10, unit_cost="50", selling_price="100")
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 4}],  # grand_total 400
+            payment_type="advance", advance_amount=Decimal("150"),
+            user=self.admin,
+        )
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        self.assertEqual(invoice.grand_total, Decimal("400"))
+        self.assertEqual(invoice.cash_received, Decimal("150"))
+        self.assertEqual(invoice.total_paid, Decimal("150"))
+        self.assertEqual(invoice.credit_outstanding, Decimal("250"))
+        self.assertEqual(invoice.remaining_amount, Decimal("250"))
+        self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.PARTIAL)
+
+    def test_confirm_caps_advance_exceeding_grand_total(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product(stock=10, unit_cost="50", selling_price="100")
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],  # grand_total 100
+            payment_type="advance", advance_amount=Decimal("100"),
+            user=self.admin,
+        )
+        # Simulate the advance having been recorded before line items grew smaller
+        # than the advance — directly shrink grand_total's future value by using
+        # a 1-quantity item with a 100 advance is already exactly at the edge, so
+        # bump the advance past what confirm will compute.
+        Invoice.objects.filter(pk=invoice.pk).update(advance_amount=Decimal("500"))
+        Payment.objects.filter(invoice=invoice).update(amount=Decimal("500"))
+
+        cash_before_confirm = CashFlow.objects.get(pk=1).cash_in_hand
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        self.assertEqual(invoice.grand_total, Decimal("100"))
+        self.assertEqual(invoice.advance_amount, Decimal("100"))  # capped
+        self.assertEqual(invoice.credit_outstanding, Decimal("0"))
+        self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.PAID)
+        # Confirming never moves cash_in_hand — only draft-creation/delete/edit do.
+        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before_confirm)
+
+        # The underlying advance Payment row must be capped too, or a later
+        # _sync_invoice_payment_summary call would sum the uncapped amount.
+        adv_payment = Payment.objects.get(invoice=invoice)
+        self.assertEqual(adv_payment.amount, Decimal("100"))
+
+    def test_delete_draft_advance_invoice_refunds_cash_and_soft_deletes_payment(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product()
+        cash_before = CashFlow.objects.get(pk=1).cash_in_hand
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before + Decimal("300"))
+
+        delete_invoice(invoice_id=invoice.id, user=self.admin)
+
+        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before)
+        invoice.refresh_from_db()
+        self.assertTrue(invoice.is_deleted)
+        adv_payment = Payment.all_objects.get(invoice=invoice)
+        self.assertTrue(adv_payment.is_deleted)
+
+    def test_cash_movement_recorded_for_advance_on_draft_invoice(self):
+        from cash_flow.models import CashMovement
+
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        payment = Payment.objects.get(invoice=invoice)
+        movement = CashMovement.objects.get(source_model="billing.payment", source_id=payment.id)
+        self.assertEqual(movement.movement_type, "advance_payment")
+        self.assertEqual(movement.direction, "inflow")
+        self.assertEqual(movement.amount, Decimal("300"))
+
+    def test_backfill_cashflow_idempotent_with_draft_advance_invoice(self):
+        from django.core.management import call_command
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product()
+        create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_type="advance", advance_amount=Decimal("300"),
+            user=self.admin,
+        )
+        call_command("backfill_cashflow", verbosity=0)
+        first_run_cash = CashFlow.objects.get(pk=1).cash_in_hand
+
+        call_command("backfill_cashflow", verbosity=0)
+        second_run_cash = CashFlow.objects.get(pk=1).cash_in_hand
+
+        self.assertEqual(first_run_cash, second_run_cash)

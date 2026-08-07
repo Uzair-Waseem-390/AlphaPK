@@ -136,6 +136,8 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
         invoice = create_invoice(
             customer_id=d["customer_id"],
             items=d["items"],
+            payment_type=d.get("payment_type", "after_delivery"),
+            advance_amount=d.get("advance_amount", 0),
             user=request.user,
         )
         return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_201_CREATED)
@@ -194,6 +196,8 @@ class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         invoice = update_invoice_items(
             invoice_id=self.kwargs["pk"],
             items=serializer.validated_data["items"],
+            payment_type=serializer.validated_data.get("payment_type"),
+            advance_amount=serializer.validated_data.get("advance_amount"),
             user=request.user,
         )
         return Response(InvoiceReadSerializer(invoice).data)

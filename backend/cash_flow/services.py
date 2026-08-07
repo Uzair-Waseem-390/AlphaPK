@@ -161,10 +161,14 @@ def _payload_opening_cash(e):
 
 
 def _payload_invoice_payment(p):
-    if p.amount <= 0 or p.invoice.status == "draft" or p.invoice.is_deleted:
+    if p.amount <= 0 or p.invoice.is_deleted:
+        return None
+    is_advance = p.note.startswith("Advance payment")
+    if p.invoice.status == "draft" and not is_advance:
         return None
     return dict(
-        direction="inflow", movement_type="invoice_payment",
+        direction="inflow",
+        movement_type="advance_payment" if is_advance else "invoice_payment",
         date=p.payment_date, occurred_at=p.created_at,
         description=f"Received from {p.invoice.customer.name} ({p.invoice.bill_number})",
         reference=p.reference_number, amount=p.amount, method=p.method,
@@ -551,13 +555,16 @@ def delete_expense(*, pk: int, user) -> None:
 # ---------------------------------------------------------------------------
 
 def sync_invoice_confirmed(
-    *, grand_total: Decimal, total_cogs: Decimal = Decimal("0"),
+    *, grand_total: Decimal, advance_amount: Decimal = Decimal("0"),
+    total_cogs: Decimal = Decimal("0"),
     gross_profit: Decimal = Decimal("0"), user,
 ) -> None:
     """
     Called when an invoice is confirmed.
-    Full grand_total moves from nowhere → customer_outstanding.
-    (Cash hasn't arrived yet — customer owes it.)
+    customer_outstanding = grand_total - advance (advance already collected
+    on draft creation). total_invoices_cash += advance (it was already
+    received from cash_in_hand on draft, mirroring total_paid_payables on
+    the purchases side).
     total_invoice_revenue/total_invoice_cogs/total_gross_profit are the
     all-time running totals for the Profit/Margin report — returns don't
     reduce these (Invoice.total_cogs/gross_profit are unaffected by returns,
@@ -565,7 +572,8 @@ def sync_invoice_confirmed(
     place they're ever incremented.
     """
     _adjust_cashflow(
-        customer_outstanding_delta = +grand_total,
+        customer_outstanding_delta = +(grand_total - advance_amount),
+        total_invoices_cash_delta   = +advance_amount,
         total_invoice_revenue_delta = +grand_total,
         total_invoice_cogs_delta    = +total_cogs,
         total_gross_profit_delta    = +gross_profit,
@@ -716,6 +724,44 @@ def sync_advance_payment_updated(*, old_amount: Decimal, new_amount: Decimal, us
     _adjust_cashflow(
         cash_in_hand_delta       = delta,
         total_cash_outflow_delta = -delta,
+        user=user,
+    )
+
+
+def sync_invoice_advance_payment_created(*, advance_amount: Decimal, user) -> None:
+    """
+    Called when a DRAFT invoice is created with payment_type=advance.
+    Immediately adds the advance to cash_in_hand (customer paid us early).
+    Recorded in payment history separately.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta      = +advance_amount,
+        total_cash_inflow_delta = +advance_amount,
+        user=user,
+    )
+
+
+def sync_invoice_advance_payment_updated(*, old_amount: Decimal, new_amount: Decimal, user) -> None:
+    """
+    Called when advance_amount is edited on a draft invoice.
+    Adjusts cash_in_hand by the difference.
+    """
+    delta = new_amount - old_amount  # positive = extra cash in, negative = refund out
+    _adjust_cashflow(
+        cash_in_hand_delta      = delta,
+        total_cash_inflow_delta = delta,
+        user=user,
+    )
+
+
+def sync_invoice_advance_payment_deleted(*, advance_amount: Decimal, user) -> None:
+    """
+    Called when an advance-payment invoice is deleted (or switched away from
+    advance) while still a draft. Reverses the cash addition.
+    """
+    _adjust_cashflow(
+        cash_in_hand_delta      = -advance_amount,
+        total_cash_inflow_delta = -advance_amount,
         user=user,
     )
 

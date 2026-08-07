@@ -75,6 +75,22 @@ class Command(BaseCommand):
         self.stdout.write(f"  cash_in_hand (before expenses/advances): {cf.cash_in_hand}")
         self.stdout.write(f"  total_invoices_cash: {cf.total_invoices_cash}")
 
+        # 2b. Advance payments on invoices still draft — already added to
+        #     cash_in_hand at draft creation but excluded from the loop
+        #     above (which only covers confirmed invoices). Not counted
+        #     toward total_invoices_cash until the invoice is confirmed
+        #     (mirrors sync_invoice_advance_payment_created/sync_invoice_confirmed).
+        draft_advance_payments = Payment.objects.filter(
+            is_deleted=False,
+            amount__gt=0,
+            note__startswith="Advance payment",
+            invoice__is_deleted=False,
+            invoice__status="draft",
+        )
+        for ap in draft_advance_payments:
+            cf.cash_in_hand += ap.amount
+        self.stdout.write(f"  cash_in_hand (draft invoice advances added): {cf.cash_in_hand}")
+
         # 3. Supplier payable outstanding = sum of payable_outstanding on confirmed orders
         #    (includes data-entry opening-balance orders — those DO count as real
         #    outstanding debt, per sync_data_entry_supplier_opening_balance).

@@ -305,6 +305,12 @@ const InvoiceDetailPage = () => {
                         <p className="text-sm text-neutral-500">Mobile</p>
                         <p className="font-medium">{invoice.customer?.mobile || 'N/A'}</p>
                     </div>
+                    {invoice.payment_type === 'advance' && parseFloat(invoice.advance_amount) > 0 && (
+                        <div>
+                            <p className="text-sm text-neutral-500">Advance Amount (PKR)</p>
+                            <p className="font-medium">{parseFloat(invoice.advance_amount).toFixed(2)}</p>
+                        </div>
+                    )}
                 </div>
             </Card>
 
@@ -489,6 +495,12 @@ const InvoiceDetailPage = () => {
                     <p className="text-neutral-600">
                         Are you sure you want to delete this draft invoice? This action cannot be undone.
                     </p>
+                    {invoice.payment_type === 'advance' && parseFloat(invoice.advance_amount) > 0 && (
+                        <p className="text-sm text-warning-600 bg-warning-50 border border-warning-200 rounded-lg p-3">
+                            This invoice has an advance payment of PKR {parseFloat(invoice.advance_amount).toFixed(2)} —
+                            deleting it will refund this amount by removing it from cash-in-hand.
+                        </p>
+                    )}
                     <div className="flex justify-end gap-3 pt-4">
                         <Button
                             variant="secondary"

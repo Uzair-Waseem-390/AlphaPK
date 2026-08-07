@@ -215,6 +215,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             "id", "bill_number", "customer", "status",
+            "payment_type", "advance_amount",
             "subtotal", "gst_total", "wht_total", "grand_total",
             "total_cogs", "gross_profit",
             # payment summary inline on every invoice response
@@ -233,8 +234,31 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
 
 
 class InvoiceCreateSerializer(serializers.Serializer):
-    customer_id = serializers.IntegerField()
-    items       = InvoiceItemWriteSerializer(many=True)
+    customer_id    = serializers.IntegerField()
+    payment_type   = serializers.ChoiceField(
+        choices=["advance", "after_delivery"],
+        default="after_delivery",
+        required=False,
+        help_text="advance: received before delivery. after_delivery: received after.",
+    )
+    advance_amount = serializers.DecimalField(
+        max_digits=18, decimal_places=4, default=0, required=False,
+        help_text="Required when payment_type=advance. Immediately added to cash in hand.",
+    )
+    items = InvoiceItemWriteSerializer(many=True)
+
+    def validate(self, attrs):
+        payment_type   = attrs.get("payment_type", "after_delivery")
+        advance_amount = attrs.get("advance_amount", 0)
+        if payment_type == "after_delivery" and advance_amount and advance_amount > 0:
+            raise serializers.ValidationError(
+                {"advance_amount": "advance_amount must be 0 when payment_type is after_delivery."}
+            )
+        if payment_type == "advance" and (not advance_amount or advance_amount <= 0):
+            raise serializers.ValidationError(
+                {"advance_amount": "advance_amount is required and must be > 0 when payment_type is advance."}
+            )
+        return attrs
 
     def validate_items(self, value):
         if not value:
@@ -243,7 +267,15 @@ class InvoiceCreateSerializer(serializers.Serializer):
 
 
 class InvoiceUpdateSerializer(serializers.Serializer):
-    """Only items can be changed on a draft invoice."""
+    """Items, payment_type, and advance_amount can be changed on a draft invoice."""
+    payment_type   = serializers.ChoiceField(
+        choices=["advance", "after_delivery"],
+        required=False,
+    )
+    advance_amount = serializers.DecimalField(
+        max_digits=18, decimal_places=4, required=False,
+        help_text="Update the advance amount. Only valid when payment_type=advance.",
+    )
     items = InvoiceItemWriteSerializer(many=True)
 
     def validate_items(self, value):

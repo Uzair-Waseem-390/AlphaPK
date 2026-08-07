@@ -17,6 +17,12 @@ from .selectors import (
     get_return_by_id,
 )
 
+# Single source of truth for identifying the system-generated advance
+# Payment row (no dedicated is_advance field — see purchases.services'
+# identical SupplierPayment convention). Every create/filter site below
+# must use this constant so they can never drift out of sync.
+ADVANCE_PAYMENT_NOTE = "Advance payment on draft invoice creation."
+
 
 # ---------------------------------------------------------------------------
 # Internal helpers
@@ -354,7 +360,10 @@ def delete_customer(*, pk: int, user) -> None:
 # ---------------------------------------------------------------------------
 
 @transaction.atomic
-def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
+def create_invoice(
+    *, customer_id: int, items: list[dict],
+    payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"), user,
+) -> Invoice:
     """
     Creates a DRAFT invoice with line items.
     items = [{"product_id": 1, "quantity": 5}, ...]
@@ -362,6 +371,10 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
     Stock validation runs here so user sees errors immediately,
     but stock is NOT deducted yet (that happens on confirmation).
     Rate list validation also runs here.
+
+    If payment_type=advance and advance_amount > 0:
+        - advance_amount immediately added to cash_in_hand
+        - A Payment record is auto-created for the advance
     """
     from purchases.selectors import get_product_by_id
     from rest_framework.exceptions import ValidationError
@@ -370,6 +383,11 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
 
     if not items:
         raise ValidationError({"items": "At least one item is required."})
+
+    if payment_type == "after_delivery":
+        advance_amount = Decimal("0")
+    if advance_amount < 0:
+        raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
 
     # Validate all products + stock before creating anything
     validated_items = []
@@ -393,9 +411,27 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
         bill_number=_generate_bill_number(),
         customer_id=customer_id,
         status=Invoice.Status.DRAFT,
+        payment_type=payment_type,
+        advance_amount=advance_amount,
         created_by=user,
         updated_by=user,
     )
+
+    # If advance payment: add to cash_in_hand and record in payment history
+    if payment_type == "advance" and advance_amount > 0:
+        adv_payment = Payment.objects.create(
+            invoice=invoice,
+            reference_number=_generate_payment_reference(),
+            amount=advance_amount,
+            method=Payment.Method.CASH,
+            payment_date=timezone.localtime(timezone.now()).date(),
+            note=ADVANCE_PAYMENT_NOTE,
+            created_by=user,
+            updated_by=user,
+        )
+        from cash_flow.services import record_cash_movement, sync_invoice_advance_payment_created
+        sync_invoice_advance_payment_created(advance_amount=advance_amount, user=user)
+        record_cash_movement(adv_payment)
 
     for product, quantity, discount, gst, wht in validated_items:
         InvoiceItem.objects.create(
@@ -412,11 +448,16 @@ def create_invoice(*, customer_id: int, items: list[dict], user) -> Invoice:
 
 
 @transaction.atomic
-def update_invoice_items(*, invoice_id: int, items: list[dict], user) -> Invoice:
+def update_invoice_items(
+    *, invoice_id: int, items: list[dict],
+    payment_type: str = None, advance_amount: Decimal = None, user,
+) -> Invoice:
     """
     Replaces all line items on a DRAFT invoice.
     Only allowed while status=DRAFT.
     Customer is immutable after creation.
+    payment_type and advance_amount can also be updated while in draft.
+    advance_amount changes auto-adjust cash_in_hand.
     """
     from purchases.selectors import get_product_by_id
     from rest_framework.exceptions import ValidationError
@@ -458,17 +499,107 @@ def update_invoice_items(*, invoice_id: int, items: list[dict], user) -> Invoice
             wht=wht,
         )
 
+    # Handle payment_type change
+    if payment_type is not None:
+        old_payment_type = invoice.payment_type
+        invoice.payment_type = payment_type
+        # If switching from advance to after_delivery — refund advance
+        if old_payment_type == "advance" and payment_type == "after_delivery":
+            old_advance = invoice.advance_amount
+            if old_advance > 0:
+                _cancel_advance_payment(invoice=invoice, user=user)
+                invoice.advance_amount = Decimal("0")
+
+    # Handle advance_amount change
+    if advance_amount is not None and invoice.payment_type == "advance":
+        if advance_amount < 0:
+            raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
+        old_advance = invoice.advance_amount
+        if advance_amount != old_advance:
+            _update_advance_payment(invoice=invoice, old_amount=old_advance, new_amount=advance_amount, user=user)
+            invoice.advance_amount = advance_amount
+
     invoice.updated_by = user
-    invoice.save(update_fields=["updated_by", "updated_at"])
+    invoice.save(update_fields=["payment_type", "advance_amount", "updated_by", "updated_at"])
     return invoice
 
 
+@transaction.atomic
 def delete_invoice(*, invoice_id: int, user) -> None:
+    """Only DRAFT invoices can be deleted. Refunds advance payment if applicable."""
     from rest_framework.exceptions import ValidationError
     invoice = get_invoice_by_id(invoice_id)
     if invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": "Only draft invoices can be deleted."})
+
+    # Refund advance if this was an advance invoice
+    if invoice.payment_type == "advance" and invoice.advance_amount > 0:
+        if not _cancel_advance_payment(invoice=invoice, user=user):
+            from cash_flow.services import sync_invoice_advance_payment_deleted
+            sync_invoice_advance_payment_deleted(advance_amount=invoice.advance_amount, user=user)
+
     _soft_delete(invoice, user)
+
+
+# ---------------------------------------------------------------------------
+# Invoice — advance payment helpers (mirrors purchases.services pattern)
+# ---------------------------------------------------------------------------
+
+def _cancel_advance_payment(*, invoice, user) -> bool:
+    """
+    Cancels any existing advance Payment on this invoice and reverses cash.
+    Returns True if an advance payment was found and cancelled.
+    """
+    advance_payment = Payment.objects.filter(
+        invoice=invoice,
+        note__startswith=ADVANCE_PAYMENT_NOTE,
+        amount__gt=0,
+        is_deleted=False,
+    ).first()
+    if advance_payment:
+        from cash_flow.services import reverse_cash_movement, sync_invoice_advance_payment_deleted
+        sync_invoice_advance_payment_deleted(advance_amount=advance_payment.amount, user=user)
+
+        advance_payment.is_deleted = True
+        advance_payment.deleted_by = user
+        advance_payment.deleted_at = timezone.now()
+        advance_payment.save(update_fields=["is_deleted", "deleted_by", "deleted_at"])
+        reverse_cash_movement(advance_payment)
+        return True
+    return False
+
+
+def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal, user) -> None:
+    """Updates the advance Payment record and adjusts cash_in_hand."""
+    advance_payment = Payment.objects.filter(
+        invoice=invoice,
+        note__startswith=ADVANCE_PAYMENT_NOTE,
+        amount__gt=0,
+        is_deleted=False,
+    ).first()
+
+    if advance_payment:
+        advance_payment.amount = new_amount
+        advance_payment.save(update_fields=["amount"])
+
+        from cash_flow.services import refresh_cash_movement
+        refresh_cash_movement(advance_payment)
+    else:
+        adv_payment = Payment.objects.create(
+            invoice=invoice,
+            reference_number=_generate_payment_reference(),
+            amount=new_amount,
+            method=Payment.Method.CASH,
+            payment_date=timezone.localtime(timezone.now()).date(),
+            note=ADVANCE_PAYMENT_NOTE,
+            created_by=user,
+            updated_by=user,
+        )
+        from cash_flow.services import record_cash_movement
+        record_cash_movement(adv_payment)
+
+    from cash_flow.services import sync_invoice_advance_payment_updated
+    sync_invoice_advance_payment_updated(old_amount=old_amount, new_amount=new_amount, user=user)
 
 
 # ---------------------------------------------------------------------------
@@ -556,20 +687,53 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     invoice.updated_by   = user
     invoice.save(update_fields=["status", "confirmed_by", "confirmed_at", "updated_by", "updated_at"])
 
-    # Auto-credit the full grand_total to the customer on confirmation.
-    # credit_outstanding starts equal to grand_total (customer owes the full amount).
-    # Every payment received reduces this. remaining_amount always mirrors it.
-    invoice.refresh_from_db(fields=["grand_total"])
-    invoice.credit_outstanding = invoice.grand_total
-    invoice.remaining_amount   = invoice.grand_total
-    invoice.payment_status     = Invoice.PaymentStatus.UNPAID
-    invoice.save(update_fields=["credit_outstanding", "remaining_amount", "payment_status"])
+    # Auto-credit the customer for whatever isn't already covered by an
+    # advance payment. credit_outstanding starts at grand_total minus any
+    # advance (advance was already collected at draft creation). Every
+    # further payment received reduces this. remaining_amount mirrors it.
+    invoice.refresh_from_db(fields=["grand_total", "advance_amount", "payment_type"])
+    advance = invoice.advance_amount if invoice.payment_type == "advance" else Decimal("0")
 
-    # Sync CashFlow: customer owes full grand_total; total_invoice_revenue/cogs/gross_profit increase
+    # Cap advance at grand_total (safety guard — advance was recorded
+    # against the draft before line items/totals were locked in). The
+    # underlying advance Payment row must be capped too, or a later call to
+    # _sync_invoice_payment_summary would sum the uncapped Payment.amount
+    # and silently raise cash_received/credit_outstanding back up.
+    if advance > invoice.grand_total:
+        advance = invoice.grand_total
+        invoice.advance_amount = advance
+        invoice.save(update_fields=["advance_amount"])
+
+        advance_payment = Payment.objects.filter(
+            invoice=invoice, note__startswith=ADVANCE_PAYMENT_NOTE,
+            amount__gt=0, is_deleted=False,
+        ).first()
+        if advance_payment:
+            advance_payment.amount = advance
+            advance_payment.save(update_fields=["amount"])
+            from cash_flow.services import refresh_cash_movement
+            refresh_cash_movement(advance_payment)
+
+    credit_outstanding = max(Decimal("0"), invoice.grand_total - advance)
+    invoice.cash_received      = advance
+    invoice.total_paid         = advance
+    invoice.credit_outstanding = credit_outstanding
+    invoice.remaining_amount   = credit_outstanding
+    invoice.payment_status = (
+        Invoice.PaymentStatus.PAID if credit_outstanding == 0
+        else Invoice.PaymentStatus.PARTIAL if advance > 0
+        else Invoice.PaymentStatus.UNPAID
+    )
+    invoice.save(update_fields=[
+        "cash_received", "total_paid", "credit_outstanding",
+        "remaining_amount", "payment_status",
+    ])
+
+    # Sync CashFlow: customer owes (grand_total - advance); advance already in cash
     from cash_flow.services import sync_invoice_confirmed
     sync_invoice_confirmed(
-        grand_total=invoice.grand_total, total_cogs=invoice.total_cogs,
-        gross_profit=invoice.gross_profit, user=user,
+        grand_total=invoice.grand_total, advance_amount=advance,
+        total_cogs=invoice.total_cogs, gross_profit=invoice.gross_profit, user=user,
     )
 
     # Sync TaxFlow: GST charged to customer + WHT withheld by customer

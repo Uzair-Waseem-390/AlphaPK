@@ -151,6 +151,17 @@ def get_invoice_payments_breakdown(
     """
     Breakdown of all POSITIVE invoice payments received from customers.
     This is the total_invoices_cash breakdown (gross collections only).
+    Includes advance payments on draft invoices — mirrors
+    get_supplier_payments_breakdown, which includes supplier advances the
+    same way for total_paid_payables.
+
+    NOTE: an advance payment's amount is only folded into
+    CashFlow.total_invoices_cash at invoice CONFIRMATION (sync_invoice_confirmed),
+    not at draft creation (sync_invoice_advance_payment_created only touches
+    cash_in_hand). So while an advance invoice is still draft, this breakdown's
+    sum can be temporarily higher than the total_invoices_cash card it drills
+    into — intentional, self-corrects on confirm or delete, mirrors the same
+    lag on the purchases/total_paid_payables side.
     For full cash_in_hand movements (expenses, supplier payments) use get_cash_in_hand_breakdown().
     """
     from billing.models import Payment
@@ -159,9 +170,7 @@ def get_invoice_payments_breakdown(
         is_deleted=False,
         amount__gt=0,
         invoice__is_deleted=False,
-    ).select_related("invoice__customer", "created_by").exclude(
-        invoice__status="draft"
-    )
+    ).select_related("invoice__customer", "created_by")
 
     if _clean(customer_name):
         qs = qs.filter(search_q(_clean(customer_name), "invoice__customer__name"))
@@ -256,10 +265,15 @@ def get_cash_in_hand_breakdown_from_sources(
         pass
 
     # --- Inflows: positive invoice payments ---
+    # No draft-status exclusion (unlike a plain regular payment, an advance
+    # payment DOES exist on a draft invoice) — advance vs regular is
+    # distinguished by the note prefix instead, mirroring sup_qs below.
     inv_qs = Payment.objects.filter(
         is_deleted=False, amount__gt=0,
         invoice__is_deleted=False,
-    ).exclude(invoice__status="draft").select_related("invoice__customer")
+    ).filter(
+        Q(note__startswith="Advance payment") | ~Q(invoice__status="draft")
+    ).select_related("invoice__customer")
 
     if _clean(date_from):
         inv_qs = inv_qs.filter(payment_date__gte=_clean(date_from))
@@ -267,9 +281,10 @@ def get_cash_in_hand_breakdown_from_sources(
         inv_qs = inv_qs.filter(payment_date__lte=_clean(date_to))
 
     for p in inv_qs:
+        ptype = "advance_payment" if p.note.startswith("Advance payment") else "invoice_payment"
         movements.append({
             "direction"  : "inflow",
-            "type"       : "invoice_payment",
+            "type"       : ptype,
             "date"       : str(p.payment_date),
             "created_at" : p.created_at,
             "description": f"Received from {p.invoice.customer.name} ({p.invoice.bill_number})",
@@ -600,7 +615,9 @@ def get_cash_flow_totals_up_to(as_of_date=None) -> dict:
 
     inflow += _sum(_lte(Payment.objects.filter(
         is_deleted=False, amount__gt=0, invoice__is_deleted=False,
-    ).exclude(invoice__status="draft"), "payment_date"))
+    ).filter(
+        Q(note__startswith="Advance payment") | ~Q(invoice__status="draft")
+    ), "payment_date"))
 
     outflow += _sum(_lte(Expense.objects.filter(is_deleted=False), "expense_date"))
 

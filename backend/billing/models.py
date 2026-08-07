@@ -95,6 +95,24 @@ class Invoice(AuditMixin):
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
+    class PaymentType(models.TextChoices):
+        ADVANCE        = "advance",        "Advance Payment"
+        AFTER_DELIVERY = "after_delivery", "Payment After Delivery"
+
+    payment_type = models.CharField(
+        max_length=20, choices=PaymentType.choices,
+        default=PaymentType.AFTER_DELIVERY,
+        help_text="Advance payment or payment after delivery.",
+    )
+    advance_amount = models.DecimalField(
+        max_digits=18, decimal_places=4, default=0,
+        help_text=(
+            "Amount received in advance (only when payment_type=advance). "
+            "Immediately added to cash_in_hand on draft creation. "
+            "Capped at grand_total on confirmation."
+        ),
+    )
+
     class PaymentStatus(models.TextChoices):
         UNPAID  = "unpaid",  "Unpaid"
         PARTIAL = "partial", "Partial"
