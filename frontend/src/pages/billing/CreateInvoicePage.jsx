@@ -95,12 +95,11 @@ const CreateInvoicePage = () => {
             const gst = parseFloat(item.gst) || 0;
             const wht = parseFloat(item.wht) || 0;
 
-            const lineTotal = quantity * sellingPrice;
-            const discountAmount = lineTotal * (discount / 100);
-            const afterDiscount = lineTotal - discountAmount;
-            const gstAmount = afterDiscount * (gst / 100);
-            const whtAmount = afterDiscount * (wht / 100);
-            const total = afterDiscount + gstAmount - whtAmount;
+            const effectivePrice = sellingPrice - discount;
+            const lineTotal = quantity * effectivePrice;
+            const gstAmount = lineTotal * (gst / 100);
+            const whtAmount = lineTotal * (wht / 100);
+            const total = lineTotal + gstAmount - whtAmount;
 
             subtotal += lineTotal;
             gstTotal += gstAmount;
