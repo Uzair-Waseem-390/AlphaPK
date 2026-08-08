@@ -17,9 +17,15 @@ from .models import Customer, Invoice, InvoiceItem, Payment, Return
 def get_all_customers(
     *, search: str = None, name: str = None, code: str = None, tier: str = None,
 ) -> QuerySet:
-    # select_related("credit_score") — one JOIN, not a per-row query, so the
-    # score/tier column on the customer list stays O(1) regardless of list size.
-    qs = Customer.objects.filter(is_deleted=False).select_related("credit_score")
+    # select_related: one JOIN each for credit_score (score/tier column) and
+    # created_by/updated_by (CustomerReadSerializer's StringRelatedField
+    # fields) — without the latter two, every row on the page fired two
+    # separate queries to resolve them (N+1; 25 rows = 50 extra queries,
+    # each paying a full network round trip to the DB — measured ~5s of a
+    # ~5.4s page load before this fix).
+    qs = Customer.objects.filter(is_deleted=False).select_related(
+        "credit_score", "created_by", "updated_by",
+    )
     if search:
         qs = qs.filter(search_q(search, "name", "code", "mobile"))
     if name:
@@ -42,14 +48,16 @@ def get_customer_by_id(pk: int) -> Customer:
 
 def _invoice_qs():
     # Exactly what InvoiceReadSerializer outputs — nothing more:
-    #  - customer's audit users (CustomerReadSerializer serializes them)
+    #  - customer's audit users + credit_score (CustomerReadSerializer
+    #    nests the full customer, including credit_score/credit_tier —
+    #    without this JOIN, every row fired its own query for it: N+1)
     #  - items with product (name/code) and product__rate, which the draft
     #    preview reads per item (was a query per item before)
     # Dropped as never-serialized dead weight: items__fifo_layers__purchase
     # (loaded the ENTIRE ever-growing FIFO ledger on every list request),
     # payments, and item category/shelf.
     return Invoice.objects.select_related(
-        "customer", "customer__created_by", "customer__updated_by",
+        "customer", "customer__created_by", "customer__updated_by", "customer__credit_score",
         "created_by", "updated_by", "confirmed_by", "deleted_by",
     ).prefetch_related(
         Prefetch(

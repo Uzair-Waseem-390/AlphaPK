@@ -25,9 +25,10 @@ const CustomersPage = () => {
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
-    const { data, meta, page, setPage, loading, filters, setFilters, resetFilters, create, update, delete: deleteCustomer } = useBillingCRUD(
-        billingApi.customers
-    );
+    const {
+        data, meta, page, setPage, loading, initialLoading,
+        filters, setFilters, resetFilters, create, update, delete: deleteCustomer,
+    } = useBillingCRUD(billingApi.customers);
 
     const [nameSearch, setNameSearch] = useState('');
     const [codeSearch, setCodeSearch] = useState('');
@@ -90,7 +91,11 @@ const CustomersPage = () => {
         navigate(`/billing/customers/${customer.id}`);
     };
 
-    if (loading) {
+    // Full-page spinner ONLY before the very first load completes — a later
+    // filter/tier/search change keeps the page (tabs, search bars, table)
+    // visible instead of blanking it, with a small inline indicator instead
+    // (see the table wrapper below).
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -158,13 +163,20 @@ const CustomersPage = () => {
                 ))}
             </div>
 
-            <CustomerTable
-                customers={data}
-                onRowClick={handleRowClick}
-                onEdit={handleEdit}
-                onDelete={(id) => setDeleteConfirm(id)}
-                isAdmin={isAdmin}
-            />
+            <div className={`relative transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
+                {loading && (
+                    <div className="absolute right-2 top-2 z-10">
+                        <LoadingSpinner size="sm" />
+                    </div>
+                )}
+                <CustomerTable
+                    customers={data}
+                    onRowClick={handleRowClick}
+                    onEdit={handleEdit}
+                    onDelete={(id) => setDeleteConfirm(id)}
+                    isAdmin={isAdmin}
+                />
+            </div>
 
             {meta.totalPages > 1 && (
                 <Pagination

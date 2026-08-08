@@ -5,7 +5,7 @@ import { usePaginatedList } from './usePaginatedList';
 // Generic CRUD hook for billing resources — thin wrapper around usePaginatedList.
 export const useBillingCRUD = (service, initialFilters = {}) => {
     const {
-        data, meta, loading: listLoading, error: listError,
+        data, meta, loading: listLoading, initialLoading, error: listError,
         filters, setFilters, page, setPage, refetch,
     } = usePaginatedList((params) => service.getAll(params), initialFilters);
 
@@ -65,6 +65,10 @@ export const useBillingCRUD = (service, initialFilters = {}) => {
         page,
         setPage,
         loading: listLoading || mutating,
+        // Full-page spinner gate — true only before the very first load
+        // completes. Mutations (create/update/delete) never re-trigger this,
+        // only the initial mount does.
+        initialLoading,
         error: listError || mutationError,
         filters,
         appliedFilters: filters,

@@ -13,6 +13,12 @@ export const usePaginatedList = (fetchFn, initialFilters = {}, pageSize = 25, de
     const [results, setResults] = useState([]);
     const [meta, setMeta] = useState({ count: 0, totalPages: 1, currentPage: 1, pageSize });
     const [loading, setLoading] = useState(false);
+    // True only until the FIRST fetch (success or failure) completes — a
+    // page uses this to gate a full-page blocking spinner on first mount
+    // only. `loading` stays true on every later refetch (filter/tab/page
+    // change) too, but by then the page already has content to keep
+    // showing instead of blanking to a spinner on every interaction.
+    const [hasLoadedOnce, setHasLoadedOnce] = useState(false);
     const [error, setError] = useState(null);
     const [filters, setFiltersState] = useState(initialFilters);
     const [page, setPage] = useState(1);
@@ -59,6 +65,7 @@ export const usePaginatedList = (fetchFn, initialFilters = {}, pageSize = 25, de
             setResults([]);
         } finally {
             setLoading(false);
+            setHasLoadedOnce(true);
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [filters, page, pageSize, ...deps]);
@@ -73,5 +80,12 @@ export const usePaginatedList = (fetchFn, initialFilters = {}, pageSize = 25, de
         setPage(1);
     };
 
-    return { data: results, meta, extra, loading, error, filters, setFilters, page, setPage, refetch: fetchData };
+    return {
+        data: results, meta, extra, loading, error, filters, setFilters, page, setPage, refetch: fetchData,
+        // Only true before the very first fetch completes — use this (not
+        // `loading`) to gate a full-page blocking spinner, so a filter/tab
+        // change on page 2+ keeps the existing content visible instead of
+        // blanking the whole page on every interaction.
+        initialLoading: loading && !hasLoadedOnce,
+    };
 };

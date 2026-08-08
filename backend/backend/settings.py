@@ -99,6 +99,10 @@ DATABASES = {
         "PASSWORD": os.getenv("DB_PASSWORD"),
         "HOST": os.getenv("DB_HOST"),
         "PORT": os.getenv("DB_PORT"),
+        # Reuse a connection to the Supabase Session Pooler for 120s instead
+        # of paying a fresh TCP+TLS+auth handshake on every request (the
+        # dominant cost behind the ~6s customer-list load — see chat).
+        "CONN_MAX_AGE": 120,
     }
 }
 
