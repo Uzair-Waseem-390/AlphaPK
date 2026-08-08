@@ -1,57 +1,36 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { billingApi } from '../../services/billingApi';
 import InvoiceTable from '../../components/billing/InvoiceTable';
 import InvoiceFilterBar from '../../components/billing/InvoiceFilterBar';
 import ExtendDueDateModal from '../../components/billing/ExtendDueDateModal';
-import Tabs from '../../components/ui/Tabs';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
-import { useNavigate } from 'react-router-dom';
 
-const InvoicesPage = () => {
+const DueInvoicesPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
-    const [activeTab, setActiveTab] = useState('all');
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [dueDateInvoice, setDueDateInvoice] = useState(null);
     const [dueDateSaving, setDueDateSaving] = useState(false);
 
-    const fetchInvoicesPage = (params) => {
+    const fetchDueInvoicesPage = (params) => {
         const p = { ...params };
         if (searchTerm) p.bill_number = searchTerm;
-        switch (activeTab) {
-            case 'drafts': return billingApi.invoices.getDrafts(p);
-            case 'confirmed': return billingApi.invoices.getConfirmed(p);
-            case 'outstanding': return billingApi.invoices.getOutstanding(p);
-            case 'due': return billingApi.invoices.getDue(p);
-            default: return billingApi.invoices.getAll(p);
-        }
+        return billingApi.invoices.getDue(p);
     };
 
     const {
         data: invoices, meta, page, setPage, loading,
         filters: filterValues, setFilters: setFilterValues, refetch: fetchInvoices,
-    } = usePaginatedList(fetchInvoicesPage, {}, 25, [activeTab, searchTerm]);
-
-    const tabs = [
-        { value: 'all', label: 'All Invoices' },
-        { value: 'drafts', label: 'Drafts' },
-        { value: 'confirmed', label: 'Confirmed' },
-        { value: 'outstanding', label: 'Outstanding' },
-        { value: 'due', label: 'Due Invoices' },
-    ];
-
-    const handleTabChange = (tab) => {
-        setActiveTab(tab);
-        setPage(1);
-    };
+    } = usePaginatedList(fetchDueInvoicesPage, {}, 25, [searchTerm]);
 
     const handleSearch = (value) => {
         setSearchTerm(value);
@@ -67,30 +46,8 @@ const InvoicesPage = () => {
         setSearchTerm('');
     };
 
-    const handleEdit = (invoice) => {
-        navigate(`/billing/invoices/${invoice.id}/edit`);
-    };
-
-    const handleDelete = async (id) => {
-        if (window.confirm('Are you sure you want to delete this draft invoice?')) {
-            try {
-                await billingApi.invoices.delete(id);
-                fetchInvoices();
-            } catch (error) {
-                console.error('Failed to delete invoice:', error);
-            }
-        }
-    };
-
-    const handleConfirm = async (id) => {
-        if (window.confirm('Are you sure you want to confirm this invoice?')) {
-            try {
-                await billingApi.invoices.confirm(id);
-                fetchInvoices();
-            } catch (error) {
-                console.error('Failed to confirm invoice:', error);
-            }
-        }
+    const handleRowClick = (invoice) => {
+        navigate(`/billing/invoices/${invoice.id}`);
     };
 
     const handlePrint = async (id, isDraft = false) => {
@@ -100,35 +57,19 @@ const InvoicesPage = () => {
                 alert('Please login again to print');
                 return;
             }
-
             const response = await fetch(
                 `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'}/api/billing/invoices/${id}/print/?is_draft=${isDraft}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                    },
-                }
+                { headers: { 'Authorization': `Bearer ${token}` } }
             );
-
-            if (!response.ok) {
-                throw new Error('Failed to print invoice');
-            }
-
+            if (!response.ok) throw new Error('Failed to print invoice');
             const blob = await response.blob();
             const url = window.URL.createObjectURL(blob);
             window.open(url, '_blank');
-
-            setTimeout(() => {
-                window.URL.revokeObjectURL(url);
-            }, 1000);
+            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
         } catch (error) {
             console.error('Failed to print:', error);
             alert('Failed to print invoice. Please try again.');
         }
-    };
-
-    const handleRowClick = (invoice) => {
-        navigate(`/billing/invoices/${invoice.id}`);
     };
 
     const handleExtendDueDate = (invoice) => {
@@ -156,21 +97,14 @@ const InvoicesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Invoices</h1>
-                    <p className="text-neutral-500 mt-1">Manage all invoices</p>
-                </div>
-                <Button
-                    onClick={() => navigate('/billing/invoices/create')}
-                    icon={({ className }) => (
-                        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                    )}
-                >
-                    Create Invoice
-                </Button>
+            <div>
+                <h1 className="text-3xl font-bold text-neutral-900">Due Invoices</h1>
+                <p className="text-neutral-500 mt-1">
+                    Confirmed invoices whose due date has passed and still carry a balance
+                </p>
+                <p className="text-sm text-neutral-400 mt-1">
+                    {meta.count} invoice{meta.count !== 1 ? 's' : ''} past due
+                </p>
             </div>
 
             <div className="space-y-4">
@@ -205,32 +139,35 @@ const InvoicesPage = () => {
                         onReset={handleResetFilters}
                     />
                 )}
-
-                <Tabs
-                    tabs={tabs}
-                    activeTab={activeTab}
-                    onChange={handleTabChange}
-                />
             </div>
 
-            <InvoiceTable
-                invoices={invoices}
-                onRowClick={handleRowClick}
-                onEdit={handleEdit}
-                onDelete={handleDelete}
-                onConfirm={handleConfirm}
-                onPrint={handlePrint}
-                onExtendDueDate={handleExtendDueDate}
-                isAdmin={isAdmin}
-                showActions={true}
-            />
+            {invoices.length === 0 ? (
+                <div className="text-center py-12">
+                    <div className="text-6xl mb-4">✅</div>
+                    <h3 className="text-lg font-semibold text-neutral-900">No Due Invoices</h3>
+                    <p className="text-sm text-neutral-500 mt-1">
+                        Nothing is past its due date right now.
+                    </p>
+                </div>
+            ) : (
+                <>
+                    <InvoiceTable
+                        invoices={invoices}
+                        onRowClick={handleRowClick}
+                        onPrint={handlePrint}
+                        onExtendDueDate={handleExtendDueDate}
+                        isAdmin={isAdmin}
+                        showActions={true}
+                    />
 
-            {meta.totalPages > 1 && (
-                <Pagination
-                    currentPage={meta.currentPage}
-                    totalPages={meta.totalPages}
-                    onPageChange={setPage}
-                />
+                    {meta.totalPages > 1 && (
+                        <Pagination
+                            currentPage={meta.currentPage}
+                            totalPages={meta.totalPages}
+                            onPageChange={setPage}
+                        />
+                    )}
+                </>
             )}
 
             <ExtendDueDateModal
@@ -244,4 +181,4 @@ const InvoicesPage = () => {
     );
 };
 
-export default InvoicesPage;
+export default DueInvoicesPage;

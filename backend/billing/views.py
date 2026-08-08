@@ -18,6 +18,7 @@ from .serializers import (
     CustomerReadSerializer,
     CustomerWriteSerializer,
     InvoiceCreateSerializer,
+    InvoiceDueDateUpdateSerializer,
     InvoiceReadSerializer,
     InvoiceUpdateSerializer,
     PaymentReadSerializer,
@@ -36,6 +37,7 @@ from .services import (
     delete_invoice,
     delete_payment,
     update_customer,
+    update_invoice_due_date,
     update_invoice_items,
 )
 
@@ -58,7 +60,10 @@ class CustomerListCreateView(generics.ListCreateAPIView):
 
     def get_queryset(self):
         p = self.request.query_params
-        return get_all_customers(search=p.get("search"), name=p.get("name"), code=p.get("code"))
+        return get_all_customers(
+            search=p.get("search"), name=p.get("name"), code=p.get("code"),
+            tier=p.get("tier"),
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -138,6 +143,7 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
             items=d["items"],
             payment_type=d.get("payment_type", "after_delivery"),
             advance_amount=d.get("advance_amount", 0),
+            payment_due_date=d.get("payment_due_date"),
             user=request.user,
         )
         return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_201_CREATED)
@@ -158,6 +164,37 @@ class DraftInvoiceListView(generics.ListAPIView):
         p = self.request.query_params
         return get_filtered_invoices(
             status         = Invoice.Status.DRAFT,
+            customer_id    = p.get("customer_id"),
+            customer_name  = p.get("customer_name"),
+            customer_code  = p.get("customer_code"),
+            bill_number    = p.get("bill_number"),
+            date           = p.get("date"),
+            date_from      = p.get("date_from"),
+            date_to        = p.get("date_to"),
+            payment_status = p.get("payment_status"),
+            min_amount     = p.get("min_amount"),
+            max_amount     = p.get("max_amount"),
+        )
+
+
+# ---------------------------------------------------------------------------
+# Due invoices — confirmed, still-outstanding, past their due date
+# ---------------------------------------------------------------------------
+
+class DueInvoiceListView(generics.ListAPIView):
+    """
+    GET /billing/invoices/due/   — invoices whose due date has passed, full
+    filter set (see get_filtered_invoices). Always computed live from
+    payment_due_date <= today — no stale state, correct on every request
+    regardless of how long since the tab was last opened.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = InvoiceReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_filtered_invoices(
+            due_only       = True,
             customer_id    = p.get("customer_id"),
             customer_name  = p.get("customer_name"),
             customer_code  = p.get("customer_code"),
@@ -198,6 +235,7 @@ class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             items=serializer.validated_data["items"],
             payment_type=serializer.validated_data.get("payment_type"),
             advance_amount=serializer.validated_data.get("advance_amount"),
+            payment_due_date=serializer.validated_data.get("payment_due_date"),
             user=request.user,
         )
         return Response(InvoiceReadSerializer(invoice).data)
@@ -205,6 +243,26 @@ class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
     def destroy(self, request, *args, **kwargs):
         delete_invoice(invoice_id=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Invoice deleted."}, status=status.HTTP_200_OK)
+
+
+class InvoiceDueDateUpdateView(generics.GenericAPIView):
+    """
+    PATCH /billing/invoices/<pk>/due-date/   — admin/superuser only.
+    Edits a CONFIRMED invoice's due date at any time (e.g. extending an
+    overdue invoice). Immediately re-runs the customer's credit score.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class = InvoiceDueDateUpdateSerializer
+
+    def patch(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        invoice = update_invoice_due_date(
+            invoice_id=self.kwargs["pk"],
+            new_due_date=serializer.validated_data["payment_due_date"],
+            user=request.user,
+        )
+        return Response(InvoiceReadSerializer(invoice).data)
 
 
 # ---------------------------------------------------------------------------

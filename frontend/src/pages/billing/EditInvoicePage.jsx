@@ -25,6 +25,7 @@ const EditInvoicePage = () => {
         customer_id: '',
         payment_type: 'after_delivery',
         advance_amount: '',
+        payment_due_date: '',
         items: [],
     });
 
@@ -43,6 +44,7 @@ const EditInvoicePage = () => {
                 customer_id: invoiceData.customer?.id || '',
                 payment_type: invoiceData.payment_type || 'after_delivery',
                 advance_amount: invoiceData.advance_amount || '',
+                payment_due_date: invoiceData.payment_due_date || '',
                 items: invoiceData.items?.map(item => ({
                     product_id: item.product,
                     product_label: item.product_code ? `${item.product_code} - ${item.product_name}` : item.product_name,
@@ -116,6 +118,7 @@ const EditInvoicePage = () => {
             const data = {
                 payment_type: formData.payment_type,
                 advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
+                payment_due_date: formData.payment_due_date || undefined,
                 items: formData.items.map(item => ({
                     product_id: parseInt(item.product_id),
                     quantity: parseInt(item.quantity) || 0,
@@ -179,7 +182,7 @@ const EditInvoicePage = () => {
 
             <form onSubmit={handleSubmit} className="space-y-6">
                 <Card className="p-6">
-                    <div className="max-w-md">
+                    <div className="grid grid-cols-2 gap-4 max-w-2xl">
                         <SearchableSelect
                             label="Customer"
                             value={formData.customer_id}
@@ -189,6 +192,14 @@ const EditInvoicePage = () => {
                                 label: invoice.customer.code ? `${invoice.customer.code} - ${invoice.customer.name}` : invoice.customer.name,
                             }] : []}
                             disabled={true}
+                            required
+                        />
+
+                        <Input
+                            label="Due Date"
+                            type="date"
+                            value={formData.payment_due_date}
+                            onChange={(e) => setFormData(prev => ({ ...prev, payment_due_date: e.target.value }))}
                             required
                         />
                     </div>

@@ -9,7 +9,9 @@ from .views import (
     CustomerOutstandingView,
     CustomerRetrieveUpdateDestroyView,
     DraftInvoiceListView,
+    DueInvoiceListView,
     InvoiceConfirmView,
+    InvoiceDueDateUpdateView,
     InvoiceFilteredListView,
     InvoiceListCreateView,
     InvoicePaymentSummaryView,
@@ -33,8 +35,10 @@ urlpatterns = [
     # Invoices
     path("invoices/", InvoiceListCreateView.as_view(), name="invoice-list-create"),
     path("invoices/drafts/", DraftInvoiceListView.as_view(), name="invoice-drafts"),
+    path("invoices/due/", DueInvoiceListView.as_view(), name="invoice-due"),
     path("invoices/<int:pk>/", InvoiceRetrieveUpdateDestroyView.as_view(), name="invoice-detail"),
     path("invoices/<int:pk>/confirm/", InvoiceConfirmView.as_view(), name="invoice-confirm"),
+    path("invoices/<int:pk>/due-date/", InvoiceDueDateUpdateView.as_view(), name="invoice-due-date-update"),
 
     # Payments (nested under invoice)
     path("invoices/<int:invoice_id>/payments/", PaymentListCreateView.as_view(), name="payment-list-create"),

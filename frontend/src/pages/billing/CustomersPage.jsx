@@ -13,6 +13,13 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import { useNavigate } from 'react-router-dom';
 
+const TIER_TABS = [
+    { value: '', label: 'All' },
+    { value: 'good', label: 'Good (70+)' },
+    { value: 'average', label: 'Average (31-69)' },
+    { value: 'poor', label: 'Poor (≤30)' },
+];
+
 const CustomersPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
@@ -24,6 +31,7 @@ const CustomersPage = () => {
 
     const [nameSearch, setNameSearch] = useState('');
     const [codeSearch, setCodeSearch] = useState('');
+    const [tierFilter, setTierFilter] = useState('');
     const [showModal, setShowModal] = useState(false);
     const [editingCustomer, setEditingCustomer] = useState(null);
     const [formLoading, setFormLoading] = useState(false);
@@ -31,17 +39,23 @@ const CustomersPage = () => {
 
     const handleSearchName = (value) => {
         setNameSearch(value);
-        setFilters({ name: value, code: codeSearch });
+        setFilters({ name: value, code: codeSearch, tier: tierFilter || undefined });
     };
 
     const handleSearchCode = (value) => {
         setCodeSearch(value);
-        setFilters({ name: nameSearch, code: value });
+        setFilters({ name: nameSearch, code: value, tier: tierFilter || undefined });
+    };
+
+    const handleTierChange = (tier) => {
+        setTierFilter(tier);
+        setFilters({ name: nameSearch, code: codeSearch, tier: tier || undefined });
     };
 
     const handleResetFilters = () => {
         setNameSearch('');
         setCodeSearch('');
+        setTierFilter('');
         resetFilters();
     };
 
@@ -121,7 +135,7 @@ const CustomersPage = () => {
                     className="flex-1"
                     value={codeSearch}
                 />
-                {(nameSearch || codeSearch) && (
+                {(nameSearch || codeSearch || tierFilter) && (
                     <button
                         onClick={handleResetFilters}
                         className="px-4 py-2.5 bg-neutral-100 text-neutral-700 rounded-xl hover:bg-neutral-200 transition-colors"
@@ -129,6 +143,19 @@ const CustomersPage = () => {
                         Clear
                     </button>
                 )}
+            </div>
+
+            <div className="flex gap-2 flex-wrap">
+                {TIER_TABS.map((tab) => (
+                    <Button
+                        key={tab.value || 'all'}
+                        size="sm"
+                        variant={tierFilter === tab.value ? 'primary' : 'secondary'}
+                        onClick={() => handleTierChange(tab.value)}
+                    >
+                        {tab.label}
+                    </Button>
+                ))}
             </div>
 
             <CustomerTable

@@ -36,6 +36,12 @@ export const billingApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/billing/invoices/outstanding/${query ? `?${query}` : ''}`);
         },
+        getDue: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/billing/invoices/due/${query ? `?${query}` : ''}`);
+        },
+        updateDueDate: (id, payment_due_date) =>
+            api.patch(`/billing/invoices/${id}/due-date/`, { payment_due_date }),
         getSearch: (params = {}) => {
             const query = new URLSearchParams(params).toString();
             return api.get(`/billing/invoices/search/${query ? `?${query}` : ''}`);

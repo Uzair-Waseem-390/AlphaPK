@@ -37,6 +37,7 @@ import PriceHistoryPage from './pages/rates/PriceHistoryPage';
 // Billing pages
 import CustomersPage from './pages/billing/CustomersPage';
 import CustomerDetailPage from './pages/billing/CustomerDetailPage';
+import CustomerCreditScorePage from './pages/billing/CustomerCreditScorePage';
 import CustomerOutstandingPage from './pages/billing/CustomerOutstandingPage';
 import InvoicesPage from './pages/billing/InvoicesPage';
 import CreateInvoicePage from './pages/billing/CreateInvoicePage';
@@ -45,6 +46,7 @@ import InvoiceDetailPage from './pages/billing/InvoiceDetailPage';
 import BillingPaymentsPage from "./pages/billing/PaymentsPage";
 import PaymentDetailPage from './pages/billing/PaymentDetailPage';
 import OutstandingInvoicesPage from './pages/billing/OutstandingInvoicesPage';
+import DueInvoicesPage from './pages/billing/DueInvoicesPage';
 import BillingReturnsPage from './pages/billing/ReturnsPage';
 import ReturnDetailPage from './pages/billing/ReturnDetailPage';
 
@@ -74,6 +76,7 @@ import RecurringExpensesReportPage from './pages/reports/RecurringExpensesReport
 import NetProfitReportPage from './pages/reports/NetProfitReportPage';
 import AssetDepreciationReportPage from './pages/reports/AssetDepreciationReportPage';
 import StockMovementReportPage from './pages/reports/StockMovementReportPage';
+import CreditCustomerReportPage from './pages/reports/CreditCustomerReportPage';
 
 // Taxes pages
 import TaxesPage from './pages/taxes/TaxesPage';
@@ -358,6 +361,14 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
+        <Route path="/billing/customers/:id/credit-score" element={
+          <ProtectedRoute>
+            <Layout>
+              <CustomerCreditScorePage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
         <Route path="/billing/customers/outstanding" element={
           <ProtectedRoute>
             <Layout>
@@ -434,6 +445,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <OutstandingInvoicesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/billing/invoices/due" element={
+          <ProtectedRoute>
+            <Layout>
+              <DueInvoicesPage />
             </Layout>
           </ProtectedRoute>
         } />
@@ -604,6 +623,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <StockMovementReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/reports/credit-customers" element={
+          <ProtectedRoute>
+            <Layout>
+              <CreditCustomerReportPage />
             </Layout>
           </ProtectedRoute>
         } />

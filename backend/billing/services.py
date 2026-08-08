@@ -1,6 +1,9 @@
+from datetime import timedelta
 from decimal import Decimal
 from django.db import transaction
 from django.utils import timezone
+
+DEFAULT_DUE_DATE_DAYS = 7
 
 from rates.selectors import get_price_at_date
 
@@ -318,14 +321,20 @@ def _recalculate_invoice_totals(invoice: Invoice) -> None:
 # Customer services
 # ---------------------------------------------------------------------------
 
+@transaction.atomic
 def create_customer(*, name: str, code: str, address: str, mobile: str = "", user) -> Customer:
     from rest_framework.exceptions import ValidationError
     if Customer.objects.filter(code__iexact=code, is_deleted=False).exists():
         raise ValidationError({"code": "A customer with this code already exists."})
-    return Customer.objects.create(
+    customer = Customer.objects.create(
         name=name, code=code.upper(), address=address,
         mobile=mobile, created_by=user, updated_by=user,
     )
+
+    from credit_score.services import initialize_credit_score
+    initialize_credit_score(customer, user)
+
+    return customer
 
 
 def update_customer(
@@ -362,7 +371,8 @@ def delete_customer(*, pk: int, user) -> None:
 @transaction.atomic
 def create_invoice(
     *, customer_id: int, items: list[dict],
-    payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"), user,
+    payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"),
+    payment_due_date=None, user,
 ) -> Invoice:
     """
     Creates a DRAFT invoice with line items.
@@ -375,6 +385,9 @@ def create_invoice(
     If payment_type=advance and advance_amount > 0:
         - advance_amount immediately added to cash_in_hand
         - A Payment record is auto-created for the advance
+
+    payment_due_date defaults to today + DEFAULT_DUE_DATE_DAYS when omitted,
+    and is carried through unchanged at confirmation.
     """
     from purchases.selectors import get_product_by_id
     from rest_framework.exceptions import ValidationError
@@ -388,6 +401,9 @@ def create_invoice(
         advance_amount = Decimal("0")
     if advance_amount < 0:
         raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
+
+    if payment_due_date is None:
+        payment_due_date = timezone.localtime(timezone.now()).date() + timedelta(days=DEFAULT_DUE_DATE_DAYS)
 
     # Validate all products + stock before creating anything
     validated_items = []
@@ -413,6 +429,7 @@ def create_invoice(
         status=Invoice.Status.DRAFT,
         payment_type=payment_type,
         advance_amount=advance_amount,
+        payment_due_date=payment_due_date,
         created_by=user,
         updated_by=user,
     )
@@ -450,14 +467,18 @@ def create_invoice(
 @transaction.atomic
 def update_invoice_items(
     *, invoice_id: int, items: list[dict],
-    payment_type: str = None, advance_amount: Decimal = None, user,
+    payment_type: str = None, advance_amount: Decimal = None,
+    payment_due_date=None, user,
 ) -> Invoice:
     """
     Replaces all line items on a DRAFT invoice.
     Only allowed while status=DRAFT.
     Customer is immutable after creation.
-    payment_type and advance_amount can also be updated while in draft.
-    advance_amount changes auto-adjust cash_in_hand.
+    payment_type, advance_amount, and payment_due_date can also be updated
+    while in draft. advance_amount changes auto-adjust cash_in_hand.
+    Editing the due date while still draft never touches the credit score —
+    only a CONFIRMED invoice's due date affects a customer's score (see
+    update_invoice_due_date for that path).
     """
     from purchases.selectors import get_product_by_id
     from rest_framework.exceptions import ValidationError
@@ -519,8 +540,13 @@ def update_invoice_items(
             _update_advance_payment(invoice=invoice, old_amount=old_advance, new_amount=advance_amount, user=user)
             invoice.advance_amount = advance_amount
 
+    if payment_due_date is not None:
+        invoice.payment_due_date = payment_due_date
+
     invoice.updated_by = user
-    invoice.save(update_fields=["payment_type", "advance_amount", "updated_by", "updated_at"])
+    invoice.save(update_fields=[
+        "payment_type", "advance_amount", "payment_due_date", "updated_by", "updated_at",
+    ])
     return invoice
 
 
@@ -539,6 +565,39 @@ def delete_invoice(*, invoice_id: int, user) -> None:
             sync_invoice_advance_payment_deleted(advance_amount=invoice.advance_amount, user=user)
 
     _soft_delete(invoice, user)
+
+
+@transaction.atomic
+def update_invoice_due_date(*, invoice_id: int, new_due_date, user) -> Invoice:
+    """
+    Extends (or otherwise edits) a CONFIRMED invoice's due date. Draft due-date
+    edits go through update_invoice_items instead, and never reach here.
+    Allowed on CONFIRMED, PARTIAL (partially returned, may still carry a
+    real balance), and RETURNED (harmless — no outstanding balance left to
+    matter) — anything except DRAFT.
+
+    Immediately re-runs the customer's credit score so an extension is
+    reflected right away rather than waiting for the next catch-up sweep.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    invoice = get_invoice_by_id(invoice_id)
+    if invoice.status == Invoice.Status.DRAFT:
+        raise ValidationError({"status": "Draft invoices are edited via the normal invoice edit endpoint."})
+    if not new_due_date:
+        raise ValidationError({"payment_due_date": "A due date is required."})
+
+    invoice.payment_due_date = new_due_date
+    invoice.updated_by = user
+    invoice.save(update_fields=["payment_due_date", "updated_by", "updated_at"])
+
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="due_date_extended", reference=invoice.bill_number,
+    )
+
+    return invoice
 
 
 # ---------------------------------------------------------------------------
@@ -740,6 +799,12 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     from taxes.services import sync_invoice_tax
     sync_invoice_tax(gst_amount=invoice.gst_total, wht_amount=invoice.wht_total, user=user)
 
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="invoice_confirmed", reference=invoice.bill_number,
+    )
+
     return invoice
 
 
@@ -758,8 +823,13 @@ def create_opening_balance_invoice(*, customer, amount: Decimal, user) -> Invoic
     other CashFlow sync. The CashFlow adjustment for a customer opening balance
     is handled separately by
     cash_flow.services.sync_data_entry_customer_opening_balance().
+
+    Still gets the same +7-day payment_due_date default and counts toward
+    the customer's credit score like any other confirmed invoice — opening
+    balances are real carried-forward debt, not excluded from scoring.
     """
-    return Invoice.objects.create(
+    confirmed_at = timezone.now()
+    invoice = Invoice.objects.create(
         bill_number        = _generate_bill_number(),
         customer           = customer,
         status             = Invoice.Status.CONFIRMED,
@@ -769,11 +839,20 @@ def create_opening_balance_invoice(*, customer, amount: Decimal, user) -> Invoic
         credit_outstanding = amount,
         remaining_amount   = amount,
         payment_status     = Invoice.PaymentStatus.UNPAID,
+        payment_due_date   = timezone.localtime(confirmed_at).date() + timedelta(days=DEFAULT_DUE_DATE_DAYS),
         confirmed_by       = user,
-        confirmed_at       = timezone.now(),
+        confirmed_at       = confirmed_at,
         created_by         = user,
         updated_by         = user,
     )
+
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="invoice_confirmed", reference=invoice.bill_number,
+    )
+
+    return invoice
 
 
 # ---------------------------------------------------------------------------
@@ -818,6 +897,12 @@ def create_payment(
     sync_invoice_payment_received(amount=amount, user=user)
     record_cash_movement(payment)
 
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="payment_received", reference=invoice.bill_number,
+    )
+
     return payment
 
 
@@ -833,6 +918,12 @@ def delete_payment(*, payment_id: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_invoice_payment_deleted
     sync_invoice_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)  # no-op for credit notes (never recorded)
+
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="payment_deleted", reference=invoice.bill_number,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -997,6 +1088,12 @@ def accept_return(*, return_id: int, user) -> Return:
     from cash_flow.services import sync_invoice_return_accepted
     sync_invoice_return_accepted(
         return_amount=total_return_amount, return_cogs=total_return_cogs, user=user,
+    )
+
+    from credit_score.services import recalculate_credit_score
+    recalculate_credit_score(
+        customer_id=invoice.customer_id, user=user,
+        trigger="return_accepted", reference=return_record.reference_number,
     )
 
     return return_record

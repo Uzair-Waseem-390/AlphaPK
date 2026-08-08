@@ -137,11 +137,18 @@ const CustomerDetailPage = () => {
                     <h1 className="text-3xl font-bold text-neutral-900 mt-1">{customer.name}</h1>
                     <p className="text-neutral-500">Code: {customer.code}</p>
                 </div>
-                <Link to="/billing/customers">
-                    <Button variant="secondary">
-                        ← Back to Customers
-                    </Button>
-                </Link>
+                <div className="flex gap-2">
+                    <Link to={`/billing/customers/${id}/credit-score`}>
+                        <Button variant="secondary">
+                            Credit Score
+                        </Button>
+                    </Link>
+                    <Link to="/billing/customers">
+                        <Button variant="secondary">
+                            ← Back to Customers
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             {/* Customer Info */}

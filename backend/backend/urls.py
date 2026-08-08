@@ -23,6 +23,7 @@ urlpatterns = [
     path("api/recurring-expenses/", include("recurring_expenses.urls")),
     path("api/profits/", include("profits.urls")),
     path("api/backups/", include("backups.urls")),
+    path("api/credit-score/", include("credit_score.urls")),
     path("api/system/catch-up/", TriggerAllCatchUpsView.as_view(), name="trigger-all-catchups"),
     path("api/ping/", PingView.as_view(), name="ping"),
 ]

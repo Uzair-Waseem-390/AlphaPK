@@ -46,6 +46,7 @@ const Layout = ({ children }) => {
             '/billing/customers/outstanding',
             '/billing/invoices',
             '/billing/invoices/outstanding',
+            '/billing/invoices/due',
             '/billing/payments',
             '/billing/returns',
         ];
@@ -145,6 +146,7 @@ const Layout = ({ children }) => {
         // Hidden from normal users, still visible to admin/superuser
         { name: 'Payments', path: '/billing/payments', icon: '💰', adminOnly: true },
         { name: 'Invoices Outstanding', path: '/billing/invoices/outstanding', icon: '📊', adminOnly: true },
+        { name: 'Due Invoices', path: '/billing/invoices/due', icon: '⏰' },
         { name: 'Customer Outstanding', path: '/billing/customers/outstanding', icon: '📈', adminOnly: true },
     ].filter(item => !item.adminOnly || isAdmin);
 

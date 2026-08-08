@@ -4,12 +4,33 @@ import Table from '../ui/Table';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 
+const TIER_BADGE_VARIANT = {
+    good: 'success',
+    average: 'warning',
+    poor: 'error',
+};
+
 const CustomerTable = ({ customers, onRowClick, onEdit, onDelete, isAdmin }) => {
     const columns = [
         { key: 'code', label: 'Code', width: '120px' },
         { key: 'name', label: 'Name' },
         { key: 'address', label: 'Address' },
         { key: 'mobile', label: 'Mobile', render: (value) => value || 'N/A' },
+        {
+            key: 'credit_score',
+            label: 'Credit Score',
+            width: '140px',
+            render: (value, row) => value === null || value === undefined ? (
+                'N/A'
+            ) : (
+                <span className="flex items-center gap-2">
+                    <span className="font-medium">{value}</span>
+                    <Badge variant={TIER_BADGE_VARIANT[row.credit_tier] || 'default'}>
+                        {row.credit_tier}
+                    </Badge>
+                </span>
+            ),
+        },
         {
             key: 'created_at',
             label: 'Created',

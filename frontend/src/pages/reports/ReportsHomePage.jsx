@@ -81,6 +81,12 @@ const REPORTS = [
         icon: '📦',
         path: '/reports/stock-movement',
     },
+    {
+        title: 'Credit Customer Report',
+        description: 'Customers grouped by their system-calculated credit score — Good, Average, or Poor',
+        icon: '💳',
+        path: '/reports/credit-customers',
+    },
 ];
 
 const ReportsHomePage = () => {

@@ -26,7 +26,16 @@ export const usePaginatedList = (fetchFn, initialFilters = {}, pageSize = 25, de
         setLoading(true);
         setError(null);
         try {
-            const response = await fetchFnRef.current({ ...filters, page, page_size: pageSize });
+            // Strip undefined/null filter values before they reach
+            // URLSearchParams — otherwise `new URLSearchParams({x: undefined})`
+            // serializes the literal string "x=undefined" instead of omitting
+            // the key, which backend filters then match against (finding
+            // nothing) instead of ignoring. Empty string is left as-is since
+            // some callers intentionally send it.
+            const cleanFilters = Object.fromEntries(
+                Object.entries(filters).filter(([, v]) => v !== undefined && v !== null)
+            );
+            const response = await fetchFnRef.current({ ...cleanFilters, page, page_size: pageSize });
             // Some endpoints (e.g. Suppliers) are deliberately excluded from
             // pagination and still return a plain array — handle both shapes.
             if (Array.isArray(response)) {

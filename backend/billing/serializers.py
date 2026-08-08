@@ -131,11 +131,29 @@ def _build_draft_preview(invoice: Invoice) -> dict | None:
 class CustomerReadSerializer(serializers.ModelSerializer):
     created_by = serializers.StringRelatedField(read_only=True)
     updated_by = serializers.StringRelatedField(read_only=True)
+    credit_score = serializers.SerializerMethodField()
+    credit_tier = serializers.SerializerMethodField()
 
     class Meta:
         model = Customer
-        fields = ["id", "name", "code", "address", "mobile", "created_by", "updated_by", "created_at", "updated_at"]
+        fields = [
+            "id", "name", "code", "address", "mobile",
+            "credit_score", "credit_tier",
+            "created_by", "updated_by", "created_at", "updated_at",
+        ]
         read_only_fields = ["id", "created_by", "updated_by", "created_at", "updated_at"]
+
+    def get_credit_score(self, obj):
+        # obj.credit_score is the OneToOne reverse accessor (credit_score
+        # app's CustomerCreditScore.customer related_name) — already
+        # select_related() by get_all_customers, so this is never an extra
+        # per-row query.
+        score = getattr(obj, "credit_score", None)
+        return score.score if score else None
+
+    def get_credit_tier(self, obj):
+        score = getattr(obj, "credit_score", None)
+        return score.tier if score else None
 
 
 class CustomerWriteSerializer(serializers.ModelSerializer):
@@ -215,7 +233,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
         model = Invoice
         fields = [
             "id", "bill_number", "customer", "status",
-            "payment_type", "advance_amount",
+            "payment_type", "advance_amount", "payment_due_date",
             "subtotal", "gst_total", "wht_total", "grand_total",
             "total_cogs", "gross_profit",
             # payment summary inline on every invoice response
@@ -244,6 +262,10 @@ class InvoiceCreateSerializer(serializers.Serializer):
     advance_amount = serializers.DecimalField(
         max_digits=18, decimal_places=4, default=0, required=False,
         help_text="Required when payment_type=advance. Immediately added to cash in hand.",
+    )
+    payment_due_date = serializers.DateField(
+        required=False, allow_null=True,
+        help_text="Defaults to today + 7 days if omitted.",
     )
     items = InvoiceItemWriteSerializer(many=True)
 
@@ -276,12 +298,18 @@ class InvoiceUpdateSerializer(serializers.Serializer):
         max_digits=18, decimal_places=4, required=False,
         help_text="Update the advance amount. Only valid when payment_type=advance.",
     )
+    payment_due_date = serializers.DateField(required=False)
     items = InvoiceItemWriteSerializer(many=True)
 
     def validate_items(self, value):
         if not value:
             raise serializers.ValidationError("At least one item is required.")
         return value
+
+
+class InvoiceDueDateUpdateSerializer(serializers.Serializer):
+    """Used only by InvoiceDueDateUpdateView (confirmed invoices, admin-only)."""
+    payment_due_date = serializers.DateField()
 
 
 # ---------------------------------------------------------------------------

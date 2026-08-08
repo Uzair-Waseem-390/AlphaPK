@@ -95,6 +95,15 @@ class Invoice(AuditMixin):
     )
     confirmed_at = models.DateTimeField(null=True, blank=True, db_index=True)
 
+    payment_due_date = models.DateField(
+        null=True, blank=True, db_index=True,
+        help_text=(
+            "Set by the user at invoice creation (defaults to +7 days if omitted). "
+            "Carried through unchanged at confirmation. Editable at any time, "
+            "including after confirmation, via the dedicated due-date endpoint."
+        ),
+    )
+
     class PaymentType(models.TextChoices):
         ADVANCE        = "advance",        "Advance Payment"
         AFTER_DELIVERY = "after_delivery", "Payment After Delivery"

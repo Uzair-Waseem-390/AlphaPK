@@ -18,11 +18,14 @@ from users.models import User
 
 from .models import Invoice, Payment
 from .services import (
-    accept_return, confirm_invoice, create_customer, create_invoice,
-    create_payment, create_return, delete_invoice, delete_payment,
-    update_invoice_items,
+    DEFAULT_DUE_DATE_DAYS, accept_return, confirm_invoice, create_customer,
+    create_invoice, create_payment, create_return, delete_invoice,
+    delete_payment, update_invoice_due_date, update_invoice_items,
 )
-from .views import DraftInvoiceListView, InvoiceConfirmView, InvoiceListCreateView
+from .views import (
+    CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
+    InvoiceConfirmView, InvoiceDueDateUpdateView, InvoiceListCreateView,
+)
 
 
 def make_admin(email="admin@example.com"):
@@ -465,3 +468,176 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
         second_run_cash = CashFlow.objects.get(pk=1).cash_in_hand
 
         self.assertEqual(first_run_cash, second_run_cash)
+
+
+class InvoiceDueDateTests(BillingTestBase):
+    def test_due_date_defaults_to_today_plus_7_when_omitted(self):
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}], user=self.admin,
+        )
+        expected = timezone.localtime(timezone.now()).date() + timedelta(days=DEFAULT_DUE_DATE_DAYS)
+        self.assertEqual(invoice.payment_due_date, expected)
+
+    def test_due_date_respects_explicit_value_on_create(self):
+        product = self.make_stocked_product()
+        explicit_date = timezone.localtime(timezone.now()).date() + timedelta(days=30)
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=explicit_date, user=self.admin,
+        )
+        self.assertEqual(invoice.payment_due_date, explicit_date)
+
+    def test_due_date_editable_while_draft(self):
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}], user=self.admin,
+        )
+        new_date = timezone.localtime(timezone.now()).date() + timedelta(days=45)
+        updated = update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=new_date, user=self.admin,
+        )
+        self.assertEqual(updated.payment_due_date, new_date)
+
+    def test_due_invoices_view_lists_only_overdue_outstanding_non_draft(self):
+        product = self.make_stocked_product(stock=10)
+        past_date = timezone.localtime(timezone.now()).date() - timedelta(days=1)
+        future_date = timezone.localtime(timezone.now()).date() + timedelta(days=10)
+
+        overdue_invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=past_date, user=self.admin,
+        )
+        confirm_invoice(invoice_id=overdue_invoice.id, user=self.admin)
+
+        not_yet_due_invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=future_date, user=self.admin,
+        )
+        confirm_invoice(invoice_id=not_yet_due_invoice.id, user=self.admin)
+
+        # A draft with a past due date must never appear (drafts carry no
+        # real outstanding balance yet).
+        create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=past_date, user=self.admin,
+        )
+
+        request = self.factory.get("/billing/invoices/due/")
+        force_authenticate(request, user=self.admin)
+        response = DueInvoiceListView.as_view()(request)
+        bill_numbers = {r["bill_number"] for r in response.data["results"]}
+
+        self.assertEqual(bill_numbers, {overdue_invoice.bill_number})
+
+    def test_partially_returned_invoice_still_counts_as_due(self):
+        product = self.make_stocked_product(stock=10, unit_cost="50", selling_price="100")
+        past_date = timezone.localtime(timezone.now()).date() - timedelta(days=1)
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 4}],
+            payment_due_date=past_date, user=self.admin,
+        )
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+        item = invoice.items.first()
+
+        ret = create_return(invoice_id=invoice.id,
+                            items=[{"invoice_item_id": item.id, "quantity": 1}],
+                            user=self.admin)
+        accept_return(return_id=ret.id, user=self.admin)
+
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.status, Invoice.Status.PARTIAL)
+        self.assertGreater(invoice.credit_outstanding, Decimal("0"))
+
+        request = self.factory.get("/billing/invoices/due/")
+        force_authenticate(request, user=self.admin)
+        response = DueInvoiceListView.as_view()(request)
+        bill_numbers = {r["bill_number"] for r in response.data["results"]}
+        self.assertIn(invoice.bill_number, bill_numbers)
+
+    def test_update_invoice_due_date_rejects_draft(self):
+        product = self.make_stocked_product()
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}], user=self.admin,
+        )
+        with self.assertRaises(ValidationError):
+            update_invoice_due_date(
+                invoice_id=invoice.id,
+                new_due_date=timezone.localtime(timezone.now()).date() + timedelta(days=1),
+                user=self.admin,
+            )
+
+    def test_extend_due_date_removes_invoice_from_due_list(self):
+        product = self.make_stocked_product()
+        past_date = timezone.localtime(timezone.now()).date() - timedelta(days=1)
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=past_date, user=self.admin,
+        )
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        future_date = timezone.localtime(timezone.now()).date() + timedelta(days=10)
+        update_invoice_due_date(invoice_id=invoice.id, new_due_date=future_date, user=self.admin)
+
+        request = self.factory.get("/billing/invoices/due/")
+        force_authenticate(request, user=self.admin)
+        response = DueInvoiceListView.as_view()(request)
+        bill_numbers = {r["bill_number"] for r in response.data["results"]}
+        self.assertNotIn(invoice.bill_number, bill_numbers)
+
+    def test_normal_user_cannot_extend_due_date(self):
+        product = self.make_stocked_product()
+        past_date = timezone.localtime(timezone.now()).date() - timedelta(days=1)
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            payment_due_date=past_date, user=self.admin,
+        )
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        request = self.factory.patch(
+            f"/billing/invoices/{invoice.id}/due-date/",
+            {"payment_due_date": "2030-01-01"}, format="json",
+        )
+        force_authenticate(request, user=make_normal_user())
+        response = InvoiceDueDateUpdateView.as_view()(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 403)
+
+
+class CustomerTierFilterTests(BillingTestBase):
+    def test_customer_list_filters_by_tier(self):
+        from credit_score.models import CustomerCreditScore, ScoreTier
+
+        good_customer = create_customer(
+            name="Good Co", code="GOOD1", address="X", user=self.admin,
+        )
+        CustomerCreditScore.objects.filter(customer=good_customer).update(
+            score=85, tier=ScoreTier.GOOD,
+        )
+        # self.customer (from BillingTestBase) stays at baseline AVERAGE.
+
+        request = self.factory.get("/billing/customers/", {"tier": "good"})
+        force_authenticate(request, user=self.admin)
+        response = CustomerListCreateView.as_view()(request)
+        codes = {c["code"] for c in response.data["results"]}
+
+        self.assertEqual(codes, {"GOOD1"})
+
+    def test_customer_list_unfiltered_includes_all_tiers(self):
+        request = self.factory.get("/billing/customers/")
+        force_authenticate(request, user=self.admin)
+        response = CustomerListCreateView.as_view()(request)
+        codes = {c["code"] for c in response.data["results"]}
+
+        self.assertIn(self.customer.code, codes)

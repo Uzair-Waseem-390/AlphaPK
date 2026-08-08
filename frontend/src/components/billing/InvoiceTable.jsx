@@ -12,6 +12,7 @@ const InvoiceTable = ({
     onDelete,
     onConfirm,
     onPrint,
+    onExtendDueDate,
     isAdmin,
     showActions = true
 }) => {
@@ -47,6 +48,11 @@ const InvoiceTable = ({
                 const num = typeof value === 'string' ? parseFloat(value) : value;
                 return isNaN(num) ? '0.00' : num.toFixed(2);
             }
+        },
+        {
+            key: 'payment_due_date',
+            label: 'Due Date',
+            render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A'
         },
         {
             key: 'confirmed_at',
@@ -100,9 +106,26 @@ const InvoiceTable = ({
                                 <Button
                                     size="sm"
                                     variant="secondary"
+                                    style={{ width: '5.5rem', height: '2.25rem' }}
                                     onClick={(e) => { e.stopPropagation(); onPrint(row.id, false); }}
                                 >
                                     Print
+                                </Button>
+                            )}
+                            {isAdmin && row.payment_status !== 'paid' && onExtendDueDate && (
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    style={{ width: '5.5rem', height: '2.25rem' }}
+                                    title="Extend Due Date"
+                                    onClick={(e) => { e.stopPropagation(); onExtendDueDate(row); }}
+                                >
+                                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
+                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
+                                            d="M12 14v3m0 0h1.5M12 17h-1.5" />
+                                    </svg>
                                 </Button>
                             )}
                         </>
@@ -132,6 +155,7 @@ InvoiceTable.propTypes = {
     onDelete: PropTypes.func,
     onConfirm: PropTypes.func,
     onPrint: PropTypes.func,
+    onExtendDueDate: PropTypes.func,
     isAdmin: PropTypes.bool,
     showActions: PropTypes.bool,
 };

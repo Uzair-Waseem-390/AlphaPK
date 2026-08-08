@@ -39,7 +39,7 @@ class TriggerAllCatchUpsView(APIView):
     pages/hooks happen to be wired up. Returns only a small confirmation
     object — no dashboard data lives here on purpose.
 
-    There are exactly four such mechanisms in the whole codebase (verified
+    There are exactly five such mechanisms in the whole codebase (verified
     by two independent sweeps across every app — nothing else uses this
     pattern; every other Flow singleton is kept current at write time,
     event-driven, and needs no trigger):
@@ -47,12 +47,16 @@ class TriggerAllCatchUpsView(APIView):
         1. assets      — depreciation catch-up, one entry per active asset
         2. cash_management — investor growth catch-up, one entry per investor
         3. profits     — monthly profit finalization catch-up (global)
-        4. users       — expired JWT token flush (throttled to once/24h)
+        4. credit_score — overdue-invoice credit score catch-up, one entry
+                          per customer with a newly-overdue invoice
+        5. users       — expired JWT token flush (throttled to once/24h)
 
     Order matters: assets and investors run first because profits reads
     both of their outputs (asset depreciation for the deduction breakdown,
     investor current_worth for the ownership split) when finalizing a month.
-    The token flush is independent of the other three and runs last.
+    credit_score depends only on billing data (always live-updated, no
+    ordering dependency on the other catch-ups) so it can run anywhere
+    after profits; the token flush is independent of everything and runs last.
 
     Each phase is isolated in its own try/except — one app's failure never
     blocks the other two (same defensive-import discipline already used for
@@ -65,6 +69,7 @@ class TriggerAllCatchUpsView(APIView):
         assets_processed, assets_error = self._run_asset_catchup()
         investors_processed, investors_error = self._run_investor_catchup()
         months_finalized, profits_error = self._run_profits_catchup(user=request.user)
+        credit_scores_recalculated, credit_score_error = self._run_credit_score_catchup(user=request.user)
         tokens_flushed, tokens_error = self._run_token_flush()
 
         return Response({
@@ -74,6 +79,8 @@ class TriggerAllCatchUpsView(APIView):
             "investors_error": investors_error,
             "months_finalized": months_finalized,
             "profits_error": profits_error,
+            "credit_scores_recalculated": credit_scores_recalculated,
+            "credit_score_error": credit_score_error,
             "tokens_flushed": tokens_flushed,
             "tokens_error": tokens_error,
         })
@@ -116,6 +123,18 @@ class TriggerAllCatchUpsView(APIView):
             catch_up_monthly_profits(user=user)
             after = ProfitFlow.get_instance().months_finalized_count
             return after - before, None
+        except Exception as exc:
+            return 0, str(exc)
+
+    def _run_credit_score_catchup(self, *, user):
+        """Reuses credit_score.services.run_overdue_catchup(), which is
+        itself marker-gated (O(1) unless the day has rolled over) and, even
+        when it does run, bounded to invoices that are actually overdue —
+        never a scan of every customer."""
+        try:
+            from credit_score.services import run_overdue_catchup
+
+            return run_overdue_catchup(user=user), None
         except Exception as exc:
             return 0, str(exc)
 

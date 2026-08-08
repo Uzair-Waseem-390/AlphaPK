@@ -14,14 +14,21 @@ from .models import Customer, Invoice, InvoiceItem, Payment, Return
 # Customer
 # ---------------------------------------------------------------------------
 
-def get_all_customers(*, search: str = None, name: str = None, code: str = None) -> QuerySet:
-    qs = Customer.objects.filter(is_deleted=False)
+def get_all_customers(
+    *, search: str = None, name: str = None, code: str = None, tier: str = None,
+) -> QuerySet:
+    # select_related("credit_score") — one JOIN, not a per-row query, so the
+    # score/tier column on the customer list stays O(1) regardless of list size.
+    qs = Customer.objects.filter(is_deleted=False).select_related("credit_score")
     if search:
         qs = qs.filter(search_q(search, "name", "code", "mobile"))
     if name:
         qs = qs.filter(search_q(name, "name"))
     if code:
         qs = qs.filter(search_q(code, "code"))
+    if tier:
+        # credit_score__tier — indexed column on CustomerCreditScore, one JOIN.
+        qs = qs.filter(credit_score__tier=tier)
     return qs
 
 
@@ -335,13 +342,28 @@ def get_filtered_invoices(
     payment_status : str  = None,
     min_amount     : str  = None,
     max_amount     : str  = None,
+    due_only       : bool = False,
 ) -> "QuerySet":
     """
-    Master invoice filter selector — all list views use this.
+    Master invoice filter selector — all list views use this, including the
+    Due Invoices tab (due_only=True): confirmed, still-outstanding invoices
+    whose payment_due_date has passed. payment_due_date is a plain DateField
+    (not a DateTimeField), so a direct __lte comparison is index-safe —
+    no __date cast needed.
     Every parameter is optional; combining them narrows results.
     _clean() ensures empty strings from query params don't slip through.
     """
     qs = _invoice_qs().filter(is_deleted=False)
+
+    if due_only:
+        from django.utils import timezone
+        # Not just status=CONFIRMED — a partially-returned invoice (status=
+        # PARTIAL) can still carry a real outstanding balance past its due
+        # date. Only DRAFT invoices (no due-date relevance yet) are excluded.
+        qs = qs.exclude(status=Invoice.Status.DRAFT).filter(
+            credit_outstanding__gt=0,
+            payment_due_date__lte=timezone.localtime(timezone.now()).date(),
+        )
 
     if _clean(status):
         qs = qs.filter(status=_clean(status))

@@ -16,6 +16,7 @@ import ReturnList from '../../components/billing/ReturnList';
 import ReturnForm from '../../components/billing/ReturnForm';
 import SavePDFModal from '../../components/billing/SavePDFModal';
 import DraftPreviewPanel from '../../components/billing/DraftPreviewPanel';
+import ExtendDueDateModal from '../../components/billing/ExtendDueDateModal';
 import Modal from '../../components/ui/Modal';
 
 const InvoiceDetailPage = () => {
@@ -36,6 +37,8 @@ const InvoiceDetailPage = () => {
     const [payments, setPayments] = useState([]);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
+    const [showExtendDueDate, setShowExtendDueDate] = useState(false);
+    const [dueDateSaving, setDueDateSaving] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -205,6 +208,17 @@ const InvoiceDetailPage = () => {
         }
     };
 
+    const handleSaveDueDate = async (newDueDate) => {
+        setDueDateSaving(true);
+        try {
+            await billingApi.invoices.updateDueDate(id, newDueDate);
+            setShowExtendDueDate(false);
+            await fetchData();
+        } finally {
+            setDueDateSaving(false);
+        }
+    };
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
@@ -267,6 +281,12 @@ const InvoiceDetailPage = () => {
                         </>
                     )}
 
+                    {invoice.status !== 'draft' && invoice.payment_status !== 'paid' && isAdmin && (
+                        <Button variant="secondary" onClick={() => setShowExtendDueDate(true)}>
+                            Extend Due Date
+                        </Button>
+                    )}
+
                     {invoice.status === 'draft' && (
                         <>
                             <Button variant="secondary" onClick={() => navigate(`/billing/invoices/${id}/edit`)}>
@@ -309,6 +329,12 @@ const InvoiceDetailPage = () => {
                         <div>
                             <p className="text-sm text-neutral-500">Advance Amount (PKR)</p>
                             <p className="font-medium">{parseFloat(invoice.advance_amount).toFixed(2)}</p>
+                        </div>
+                    )}
+                    {invoice.payment_due_date && (
+                        <div>
+                            <p className="text-sm text-neutral-500">Due Date</p>
+                            <p className="font-medium">{new Date(invoice.payment_due_date).toLocaleDateString()}</p>
                         </div>
                     )}
                 </div>
@@ -517,6 +543,15 @@ const InvoiceDetailPage = () => {
                     </div>
                 </div>
             </Modal>
+
+            {/* Extend Due Date Modal */}
+            <ExtendDueDateModal
+                isOpen={showExtendDueDate}
+                onClose={() => setShowExtendDueDate(false)}
+                onSubmit={handleSaveDueDate}
+                currentDueDate={invoice.payment_due_date}
+                loading={dueDateSaving}
+            />
         </div>
     );
 };
