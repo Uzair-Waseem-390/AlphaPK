@@ -96,9 +96,10 @@ def get_shelf_stock_rows(shelf_id: int, *, search: str = None) -> QuerySet:
     are shown; a product that was fully moved/consumed off a shelf leaves
     no trace here (ShelfStockMovement is the audit trail for that).
     """
-    qs = ShelfStock.objects.select_related(
-        "product", "product__category", "product__created_by", "product__updated_by",
-    ).filter(shelf_id=shelf_id, quantity__gt=0)
+    # Only "product" is actually read (ShelfStockReadSerializer nests
+    # ProductLiteSerializer: id/name/code only) — category/created_by/
+    # updated_by were an unnecessary 3-way JOIN on every row.
+    qs = ShelfStock.objects.select_related("product").filter(shelf_id=shelf_id, quantity__gt=0)
     if _clean(search):
         qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
     return qs.order_by("product__name")

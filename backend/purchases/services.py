@@ -353,13 +353,60 @@ def apply_shelf_allocations(*, product: Product, allocations: list[dict], sign: 
     product, each multiplied by `sign` (+1 for put-away, -1 for
     consumption). Locks shelves in deterministic (pk) order so two
     transactions touching overlapping shelf sets can never deadlock.
+
+    Batched to a fixed small number of queries regardless of how many
+    shelves this product's allocations span (one locking SELECT, one
+    bulk_create for new rows, one bulk_update for existing rows, one
+    bulk_create for the movement audit rows) instead of the previous
+    per-shelf apply_shelf_delta() loop, which cost 3-4 sequential round
+    trips PER SHELF — a purchase order with many multi-shelf lines could
+    turn one confirm into hundreds of sequential queries. Same end state,
+    same audit rows, same lock semantics — just fewer round trips.
     """
-    for allocation in sorted(allocations, key=lambda a: a["shelf"].pk):
-        apply_shelf_delta(
-            shelf=allocation["shelf"], product=product,
-            delta=sign * allocation["quantity"],
-            reason=reason, reference=reference, user=user,
-        )
+    if not allocations:
+        return
+
+    delta_by_shelf: dict[int, int] = {}
+    shelf_by_id: dict[int, Shelf] = {}
+    for allocation in allocations:
+        shelf = allocation["shelf"]
+        delta_by_shelf[shelf.pk] = delta_by_shelf.get(shelf.pk, 0) + sign * allocation["quantity"]
+        shelf_by_id[shelf.pk] = shelf
+
+    shelf_ids = sorted(delta_by_shelf.keys())
+    now = timezone.now()
+
+    with transaction.atomic():
+        existing = {
+            s.shelf_id: s
+            for s in ShelfStock.objects.select_for_update()
+                .filter(product=product, shelf_id__in=shelf_ids)
+                .order_by("shelf_id")
+        }
+        to_create = []
+        to_update = []
+        movements = []
+        for shelf_id in shelf_ids:
+            delta = delta_by_shelf[shelf_id]
+            stock = existing.get(shelf_id)
+            if stock is None:
+                to_create.append(ShelfStock(
+                    shelf_id=shelf_id, product=product,
+                    quantity=max(0, delta), last_updated_at=now,
+                ))
+            else:
+                stock.quantity = max(0, stock.quantity + delta)
+                stock.last_updated_at = now
+                to_update.append(stock)
+            movements.append(ShelfStockMovement(
+                shelf_id=shelf_id, product=product, delta=delta,
+                reason=reason, reference=reference, created_by=user,
+            ))
+        if to_create:
+            ShelfStock.objects.bulk_create(to_create)
+        if to_update:
+            ShelfStock.objects.bulk_update(to_update, ["quantity", "last_updated_at"])
+        ShelfStockMovement.objects.bulk_create(movements)
 
 
 def validate_shelf_consumption(*, product: Product, allocations: list[dict]) -> None:
@@ -370,13 +417,30 @@ def validate_shelf_consumption(*, product: Product, allocations: list[dict]) -> 
     naming the shortfall so the frontend can prompt the user to also select
     another shelf. Locks the rows it checks (called from within the
     caller's atomic block) so the check is trustworthy at commit time.
+
+    One locking SELECT for every shelf in `allocations` instead of the
+    previous per-shelf query loop — same rows locked, same error raised
+    for the same shortfall, just one round trip instead of N.
     """
     from rest_framework.exceptions import ValidationError
-    for allocation in sorted(allocations, key=lambda a: a["shelf"].pk):
-        shelf = allocation["shelf"]
-        needed = allocation["quantity"]
-        stock = ShelfStock.objects.select_for_update().filter(shelf=shelf, product=product).first()
-        available = stock.quantity if stock else 0
+    if not allocations:
+        return
+
+    shelf_by_id = {a["shelf"].pk: a["shelf"] for a in allocations}
+    needed_by_id: dict[int, int] = {}
+    for a in allocations:
+        needed_by_id[a["shelf"].pk] = needed_by_id.get(a["shelf"].pk, 0) + a["quantity"]
+
+    stock_by_shelf = {
+        s.shelf_id: s.quantity
+        for s in ShelfStock.objects.select_for_update()
+            .filter(product=product, shelf_id__in=sorted(needed_by_id.keys()))
+            .order_by("shelf_id")
+    }
+    for shelf_id in sorted(needed_by_id.keys()):
+        shelf = shelf_by_id[shelf_id]
+        needed = needed_by_id[shelf_id]
+        available = stock_by_shelf.get(shelf_id, 0)
         if available < needed:
             raise ValidationError({
                 "shelf_allocations": (
@@ -385,6 +449,25 @@ def validate_shelf_consumption(*, product: Product, allocations: list[dict]) -> 
                     f"to cover the remaining {needed - available}."
                 )
             })
+
+
+def _validate_shelf_ids_exist(shelf_ids: list[int]) -> dict[int, Shelf]:
+    """
+    Existence + not-soft-deleted check for a batch of shelf ids in ONE
+    query instead of one get_shelf_by_id() call per id — same 404 behavior
+    as get_shelf_by_id (raised the moment any requested id doesn't resolve
+    to a live shelf), but O(1) round trips regardless of how many shelves
+    were submitted. Returns the fetched shelves keyed by id so callers can
+    reuse them instead of re-fetching.
+    """
+    from django.http import Http404
+    ids = set(shelf_ids)
+    if not ids:
+        return {}
+    shelves_by_id = {s.id: s for s in Shelf.objects.filter(pk__in=ids, is_deleted=False)}
+    if len(shelves_by_id) != len(ids):
+        raise Http404("No Shelf matches the given query.")
+    return shelves_by_id
 
 
 def validate_allocations_complete(*, product_name: str, allocated: int, required: int) -> None:
@@ -863,9 +946,9 @@ def set_purchase_item_shelf_allocations(*, purchase_item_id: int, allocations: l
     if purchase_item.order.status != PurchaseOrder.Status.DRAFT:
         raise ValidationError({"status": "Shelf allocations can only be edited on a draft purchase order."})
 
+    _validate_shelf_ids_exist([a["shelf_id"] for a in allocations])
     merged = {}
     for a in allocations:
-        get_shelf_by_id(a["shelf_id"])  # validates existence + not soft-deleted
         merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
 
     total_allocated = sum(merged.values())
@@ -901,9 +984,9 @@ def set_purchase_return_item_shelf_allocations(*, return_item_id: int, allocatio
         raise ValidationError({"status": "Shelf allocations can only be edited on a pending return."})
 
     product = return_item.purchase_item.product
+    shelves_by_id = _validate_shelf_ids_exist([a["shelf_id"] for a in allocations])
     merged = {}
     for a in allocations:
-        get_shelf_by_id(a["shelf_id"])
         merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
 
     total_allocated = sum(merged.values())
@@ -916,7 +999,7 @@ def set_purchase_return_item_shelf_allocations(*, return_item_id: int, allocatio
         })
 
     validate_shelf_consumption(product=product, allocations=[
-        {"shelf": get_shelf_by_id(shelf_id), "quantity": qty}
+        {"shelf": shelves_by_id[shelf_id], "quantity": qty}
         for shelf_id, qty in merged.items() if qty > 0
     ])
 

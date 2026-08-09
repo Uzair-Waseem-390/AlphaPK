@@ -154,6 +154,11 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
             payment_due_date=d.get("payment_due_date"),
             user=request.user,
         )
+        # Re-fetch through the selector that carries the prefetches
+        # InvoiceReadSerializer's nested shelf_allocations field needs —
+        # the bare instance create_invoice() built has no prefetch cache,
+        # which would N+1 (product + shelf_allocations per item) here.
+        invoice = get_invoice_by_id(invoice.id)
         return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_201_CREATED)
 
 
@@ -365,6 +370,9 @@ class ReturnListCreateView(generics.ListCreateAPIView):
             note=d.get("note", ""),
             user=request.user,
         )
+        # Same reasoning as InvoiceListCreateView.create — re-fetch through
+        # the selector that prefetches shelf_allocations before serializing.
+        return_record = get_return_by_id(return_record.id)
         return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_201_CREATED)
 
 

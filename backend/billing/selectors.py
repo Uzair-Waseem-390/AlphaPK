@@ -159,7 +159,9 @@ def get_payment_by_id(pk: int) -> Payment:
 
 _RETURN_ITEM_PREFETCH = Prefetch(
     "items",
-    queryset=ReturnItem.objects.select_related("invoice_item__product").prefetch_related(
+    queryset=ReturnItem.objects.select_related(
+        "invoice_item__product", "invoice_item__invoice",
+    ).prefetch_related(
         Prefetch(
             "shelf_allocations",
             queryset=InvoiceReturnItemShelfAllocation.objects.select_related("shelf"),

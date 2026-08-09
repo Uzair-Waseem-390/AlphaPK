@@ -562,15 +562,15 @@ def set_invoice_item_shelf_allocations(*, invoice_item_id: int, allocations: lis
     constraint.
     """
     from rest_framework.exceptions import ValidationError
-    from purchases.services import get_shelf_by_id, validate_shelf_consumption
+    from purchases.services import _validate_shelf_ids_exist, validate_shelf_consumption
 
     invoice_item = get_invoice_item_by_id(invoice_item_id)
     if invoice_item.invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": "Shelf allocations can only be edited on a draft invoice."})
 
+    shelves_by_id = _validate_shelf_ids_exist([a["shelf_id"] for a in allocations])
     merged = {}
     for a in allocations:
-        get_shelf_by_id(a["shelf_id"])
         merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
 
     total_allocated = sum(merged.values())
@@ -583,7 +583,7 @@ def set_invoice_item_shelf_allocations(*, invoice_item_id: int, allocations: lis
         })
 
     validate_shelf_consumption(product=invoice_item.product, allocations=[
-        {"shelf": get_shelf_by_id(shelf_id), "quantity": qty}
+        {"shelf": shelves_by_id[shelf_id], "quantity": qty}
         for shelf_id, qty in merged.items() if qty > 0
     ])
 
@@ -603,15 +603,15 @@ def set_return_item_shelf_allocations(*, return_item_id: int, allocations: list[
     shelf is valid (put-away).
     """
     from rest_framework.exceptions import ValidationError
-    from purchases.services import get_shelf_by_id
+    from purchases.services import _validate_shelf_ids_exist
 
     return_item = get_return_item_by_id(return_item_id)
     if return_item.return_record.status != Return.Status.PENDING:
         raise ValidationError({"status": "Shelf allocations can only be edited on a pending return."})
 
+    _validate_shelf_ids_exist([a["shelf_id"] for a in allocations])
     merged = {}
     for a in allocations:
-        get_shelf_by_id(a["shelf_id"])
         merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
 
     total_allocated = sum(merged.values())
@@ -766,10 +766,22 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
 
     from purchases.services import validate_allocations_complete, validate_shelf_consumption
 
+    # Sorted in Python (not .order_by) for two reasons: a deterministic
+    # product order means two concurrent confirms lock products in the same
+    # sequence (no deadlocks), and sorting the PREFETCHED objects keeps
+    # _recalculate_invoice_totals below reading the same in-memory items
+    # this loop mutates. The shelf-consumption validation below takes
+    # select_for_update() locks, so it must use this SAME sorted order too
+    # (previously validated in prefetch/insertion order, which could
+    # deadlock against accept_return's/confirm_purchase_order's/this same
+    # function's own sorted lock order under concurrent overlapping
+    # confirms).
+    sorted_items = sorted(invoice.items.all(), key=lambda i: i.product_id)
+
     # Every sale line must already be fully allocated to shelf(s) it's
     # physically fulfilled from, and each named shelf must currently hold
     # enough of that product — checked before anything else is touched.
-    for item in invoice.items.all():
+    for item in sorted_items:
         validate_allocations_complete(
             product_name=item.product.name,
             allocated=item.allocated_quantity,
@@ -780,12 +792,7 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
             allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in item.shelf_allocations.all()],
         )
 
-    # Sorted in Python (not .order_by) for two reasons: a deterministic
-    # product order means two concurrent confirms lock products in the same
-    # sequence (no deadlocks), and sorting the PREFETCHED objects keeps
-    # _recalculate_invoice_totals below reading the same in-memory items
-    # this loop mutates.
-    for item in sorted(invoice.items.all(), key=lambda i: i.product_id):
+    for item in sorted_items:
         product = item.product
 
         # Final stock check inside transaction
