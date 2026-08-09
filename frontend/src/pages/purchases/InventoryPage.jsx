@@ -34,6 +34,10 @@ const InventoryPage = () => {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [productDetail, setProductDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
+    // Per-shelf breakdown for the selected product (which shelves hold it,
+    // and how much) — a product can now span multiple shelves.
+    const [shelfBreakdown, setShelfBreakdown] = useState([]);
+    const [shelfBreakdownLoading, setShelfBreakdownLoading] = useState(false);
 
     // Search is routed through the same query params as the category
     // filter — the backend supports search/category on all three
@@ -142,6 +146,7 @@ const InventoryPage = () => {
         setSelectedProduct(row);
         setShowDetailModal(true);
         setDetailLoading(true);
+        setShelfBreakdownLoading(true);
         try {
             const detail = await purchasesApi.inventory.getByProduct(productId);
             setProductDetail(detail);
@@ -150,6 +155,15 @@ const InventoryPage = () => {
             setProductDetail(null);
         } finally {
             setDetailLoading(false);
+        }
+        try {
+            const shelves = await purchasesApi.shelves.getCandidates(productId);
+            setShelfBreakdown(shelves?.results || shelves || []);
+        } catch (error) {
+            console.error('Failed to fetch shelf breakdown:', error);
+            setShelfBreakdown([]);
+        } finally {
+            setShelfBreakdownLoading(false);
         }
     };
 
@@ -353,6 +367,7 @@ const InventoryPage = () => {
                     setShowDetailModal(false);
                     setSelectedProduct(null);
                     setProductDetail(null);
+                    setShelfBreakdown([]);
                 }}
                 title="Product Details"
                 size="lg"
@@ -412,6 +427,33 @@ const InventoryPage = () => {
                                 <p className="font-medium">{productDetail.product.description}</p>
                             </div>
                         )}
+
+                        <div>
+                            <p className="text-sm text-neutral-500 mb-2">Stock by Shelf</p>
+                            {shelfBreakdownLoading ? (
+                                <div className="flex items-center py-4">
+                                    <LoadingSpinner size="sm" />
+                                </div>
+                            ) : shelfBreakdown.length === 0 ? (
+                                <p className="text-sm text-neutral-400 italic">
+                                    Not currently on any shelf.
+                                </p>
+                            ) : (
+                                <div className="border border-neutral-200 rounded-lg divide-y divide-neutral-100">
+                                    {shelfBreakdown.map((s) => (
+                                        <div
+                                            key={s.id}
+                                            className="flex items-center justify-between px-3 py-2"
+                                        >
+                                            <span className="font-medium text-neutral-900">{s.name}</span>
+                                            <span className="font-semibold text-primary-600">
+                                                {s.available_quantity}
+                                            </span>
+                                        </div>
+                                    ))}
+                                </div>
+                            )}
+                        </div>
                     </div>
                 ) : (
                     <div className="text-center py-8">
