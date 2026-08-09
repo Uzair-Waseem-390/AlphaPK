@@ -370,6 +370,84 @@ class OrderPayableSyncTests(PurchasesTestBase):
         self.assertEqual(order.payment_status, PurchaseOrder.PaymentStatus.PARTIAL)
 
 
+class PurchaseReturnRemainingQuantityTests(PurchasesTestBase):
+    """
+    Regression coverage for the accept_purchase_return bug fixed 2026-08-09:
+    the FIFO batch's remaining_quantity used to INCREASE on an accepted
+    purchase return while Inventory.quantity correctly decreased, silently
+    diverging the two and inflating the Inventory Valuation Report's
+    avg_unit_cost (which divides a batch-summed total by Inventory.quantity).
+    """
+
+    def test_remaining_quantity_moves_with_inventory_on_accepted_return(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        self.assertEqual(item.remaining_quantity, 10)
+        self.assertEqual(Inventory.objects.get(product=product).quantity, 10)
+
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 4}],
+            user=self.admin,
+        )
+        self.allocate_return_items(ret)
+        accept_purchase_return(return_id=ret.id, user=self.admin)
+
+        item.refresh_from_db()
+        inventory = Inventory.objects.get(product=product)
+        # The bug made this 14 (10 + 4) instead of 6 (10 - 4).
+        self.assertEqual(item.remaining_quantity, 6)
+        self.assertEqual(inventory.quantity, 6)
+        # The invariant the valuation report's avg_unit_cost depends on:
+        # sum(remaining_quantity across batches) == Inventory.quantity.
+        self.assertEqual(item.remaining_quantity, inventory.quantity)
+
+    def test_cannot_return_more_than_currently_in_stock(self):
+        """
+        Reproduces the exact scenario reported: return a batch, sell what's
+        left, then try to return more of that same batch than physically
+        remains. Must be rejected, not silently corrupt remaining_quantity.
+        """
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+
+        # Sell 8 of the 10 (drops remaining_quantity to 2) via a confirmed
+        # invoice — mirrors how stock actually leaves in production.
+        from billing.services import confirm_invoice, create_invoice, set_invoice_item_shelf_allocations
+        from rates.services import create_rate
+        create_rate(product_id=product.id, selling_price=Decimal("150"), user=self.admin)
+        from billing.models import Customer
+        customer = Customer.objects.create(name="Cust A", code="CUSTA", address="x")
+        invoice = create_invoice(
+            customer_id=customer.id,
+            items=[{"product_id": product.id, "quantity": 8}],
+            user=self.admin,
+        )
+        for inv_item in invoice.items.all():
+            set_invoice_item_shelf_allocations(
+                invoice_item_id=inv_item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": inv_item.quantity}],
+                user=self.admin,
+            )
+        confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        item.refresh_from_db()
+        self.assertEqual(item.remaining_quantity, 2)
+        # returnable_quantity must reflect physical stock (2), not just
+        # quantity - returned_quantity (10) — this is the validation gap
+        # fixed alongside the remaining_quantity direction bug.
+        self.assertEqual(item.returnable_quantity, 2)
+
+        with self.assertRaises(ValidationError):
+            create_purchase_return(
+                order_id=order.id,
+                items=[{"purchase_item_id": item.id, "quantity": 5}],
+                user=self.admin,
+            )
+
+
 class LostStockValidationTests(PurchasesTestBase):
     def test_validation_boundary_unchanged(self):
         product = self.make_product()

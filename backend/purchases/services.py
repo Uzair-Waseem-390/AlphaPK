@@ -1347,32 +1347,31 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
             "unit_price", "gross_amount", "gst_amount", "wht_amount", "total_amount"
         ])
 
-        # FIFO reversal: restore remaining_quantity (oldest batch restored last)
-        # select_for_update: these rows' remaining_quantity is read-then-
-        # written (capped at original quantity), so they must be locked
-        # against concurrent FIFO consumers. Inside accept_purchase_return's
-        # transaction.
-        remaining_to_restore = qty
-        fifo_items = PurchaseItem.objects.select_for_update().filter(
-            order=purchase_item.order,
-            product=purchase_item.product,
-            is_deleted=False,
-        ).order_by("-id")  # reverse order for FIFO reversal
-
-        for fi in fifo_items:
-            if remaining_to_restore <= 0:
-                break
-            restore = min(fi.remaining_quantity + qty, qty)
-            # Restore up to original quantity cap
-            max_restorable = fi.quantity - fi.remaining_quantity
-            restore = min(remaining_to_restore, max_restorable)
-            fi.remaining_quantity += restore
-            fi.save(update_fields=["remaining_quantity"])
-            remaining_to_restore -= restore
-
-        # Update returned_quantity on purchase item
-        purchase_item.returned_quantity += qty
-        purchase_item.save(update_fields=["returned_quantity"])
+        # Returning to the supplier permanently removes this batch's stock —
+        # remaining_quantity decreases in the SAME direction as the
+        # Inventory decrease below (a prior version of this code instead
+        # INCREASED remaining_quantity here, silently diverging it from
+        # Inventory.quantity and inflating this product's FIFO-cost
+        # valuation on every accepted return — fixed 2026-08-09).
+        #
+        # select_for_update: remaining_quantity is read-then-written, so
+        # this row must be locked against concurrent FIFO consumers
+        # (sales/losses). PurchaseItem has unique_together=(order, product),
+        # so there is exactly one batch per order+product — no multi-batch
+        # walk needed here, unlike billing's _reverse_fifo which spans
+        # however many batches an invoice item's sale originally consumed.
+        locked_item = PurchaseItem.objects.select_for_update().get(pk=purchase_item.pk)
+        if qty > locked_item.remaining_quantity:
+            raise ValidationError({
+                "quantity": (
+                    f"Cannot return {qty} units of '{purchase_item.product.name}' — only "
+                    f"{locked_item.remaining_quantity} are currently in stock (some may have "
+                    f"been sold or marked lost since this return was created)."
+                )
+            })
+        locked_item.remaining_quantity -= qty
+        locked_item.returned_quantity = purchase_item.returned_quantity + qty
+        locked_item.save(update_fields=["remaining_quantity", "returned_quantity"])
 
         # Decrease inventory (global) and the specific shelf(s) it's pulled from
         sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)

@@ -255,7 +255,11 @@ class PurchaseItem(AuditMixin):
 
     @property
     def returnable_quantity(self):
-        return self.quantity - self.returned_quantity
+        # Bounded by remaining_quantity, not just quantity - returned_quantity
+        # — you can only return to the supplier what's still physically in
+        # stock. A unit already sold to a customer or lost isn't returnable
+        # to the supplier just because it hasn't been "returned" before.
+        return min(self.quantity - self.returned_quantity, self.remaining_quantity)
 
     def __str__(self):
         return f"{self.order.order_number} — {self.product.name}"
