@@ -62,9 +62,13 @@ export const billingApi = {
     // Shelves (for invoice-line/return shelf allocation)
     shelves: {
         // Shelves that currently hold stock (qty > 0) of a given product —
-        // the dropdown source for a sale line's consumption allocation.
-        getCandidates: (productId) =>
-            api.get(`/billing/shelves/candidates/?product_id=${productId}`),
+        // the backend search source for a sale line's consumption
+        // allocation. search narrows by shelf name.
+        getCandidates: (productId, search = '') => {
+            const query = new URLSearchParams({ product_id: productId });
+            if (search) query.set('search', search);
+            return api.get(`/billing/shelves/candidates/?${query.toString()}`);
+        },
     },
 
     // Invoice Item shelf allocations (consumption plan while draft)

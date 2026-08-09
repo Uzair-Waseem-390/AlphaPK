@@ -755,7 +755,9 @@ class InvoiceCandidateShelvesView(generics.ListAPIView):
         if not product_id:
             from rest_framework.exceptions import ValidationError
             raise ValidationError({"product_id": "This query parameter is required."})
-        return get_candidate_shelves_for_product(int(product_id))
+        return get_candidate_shelves_for_product(
+            int(product_id), search=self.request.query_params.get("search"),
+        )
 
 
 class SetInvoiceItemShelfAllocationsView(APIView):

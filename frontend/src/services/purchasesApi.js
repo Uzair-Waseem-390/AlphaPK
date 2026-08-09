@@ -29,10 +29,13 @@ export const purchasesApi = {
             return api.get(`/shelves/${shelfId}/stock/${query ? `?${query}` : ''}`);
         },
         // Shelves that currently hold stock (qty > 0) of a given product —
-        // the dropdown source for consumption allocations (sale, purchase
-        // return, lost inventory).
-        getCandidates: (productId) =>
-            api.get(`/shelves/candidates/?product_id=${productId}`),
+        // the backend search source for consumption allocations (sale,
+        // purchase return, lost inventory). search narrows by shelf name.
+        getCandidates: (productId, search = '') => {
+            const query = new URLSearchParams({ product_id: productId });
+            if (search) query.set('search', search);
+            return api.get(`/shelves/candidates/?${query.toString()}`);
+        },
         moveStock: (data) => api.post('/shelves/move/', data),
     },
 

@@ -104,16 +104,21 @@ def get_shelf_stock_rows(shelf_id: int, *, search: str = None) -> QuerySet:
     return qs.order_by("product__name")
 
 
-def get_candidate_shelves_for_product(product_id: int) -> QuerySet:
+def get_candidate_shelves_for_product(product_id: int, *, search: str = None) -> QuerySet:
     """
     Shelves that currently hold stock (quantity > 0) of a given product —
-    the dropdown source for every CONSUMPTION allocation context (sale
-    line, purchase return, lost inventory): only shelves that can actually
-    supply the product are offered.
+    the search source for every CONSUMPTION allocation context (sale line,
+    purchase return, lost inventory): only shelves that can actually supply
+    the product are offered. `search` narrows by shelf name — a large
+    factory can have this product spread across many shelves, so this is a
+    live backend search, not a client-preloaded dropdown.
     """
-    return Shelf.objects.filter(
+    qs = Shelf.objects.filter(
         is_deleted=False, stock_rows__product_id=product_id, stock_rows__quantity__gt=0,
-    ).annotate(
+    )
+    if _clean(search):
+        qs = qs.filter(search_q(_clean(search), "name"))
+    return qs.annotate(
         available_quantity=Sum("stock_rows__quantity")
     ).order_by("name")
 

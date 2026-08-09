@@ -41,10 +41,6 @@ const ReturnDetailPage = () => {
     const [returnItem, setReturnItem] = useState(null);
     const [invoice, setInvoice] = useState(null);
     const [loading, setLoading] = useState(true);
-    // Put-away is valid to any active shelf, so this is the full shelf list
-    // (fetched once), unlike invoice-side consumption which uses per-product
-    // candidate shelves.
-    const [allShelves, setAllShelves] = useState([]);
     // Per return-item shelf allocation UI state, keyed by return item id:
     // { allocations: [{shelf_id, quantity}], saving: bool, error: string }
     const [shelfState, setShelfState] = useState({});
@@ -73,17 +69,12 @@ const ReturnDetailPage = () => {
                     setInvoice(null);
                 }
 
-                // Pending returns need the shelf-allocation editor: fetch the
-                // full active shelf list once and seed per-item state from
-                // whatever allocations are already saved.
+                // Pending returns need the shelf-allocation editor — put-away
+                // is valid to any active shelf, so it searches the full shelf
+                // list on demand (a large factory can have hundreds of
+                // shelves, so this is a live backend search, not a preloaded
+                // dropdown), seeded from whatever allocations are already saved.
                 if (foundReturn.status === 'pending' && foundReturn.items?.length) {
-                    try {
-                        const shelvesRes = await purchasesApi.shelves.getAll({ page_size: 500 });
-                        setAllShelves(shelvesRes?.results ?? shelvesRes ?? []);
-                    } catch (shelvesError) {
-                        console.error('Failed to fetch shelves:', shelvesError);
-                        setAllShelves([]);
-                    }
                     setShelfState((prev) => {
                         const next = {};
                         foundReturn.items.forEach((item) => {
@@ -91,6 +82,7 @@ const ReturnDetailPage = () => {
                                 allocations: (item.shelf_allocations || []).map((a) => ({
                                     shelf_id: a.shelf_id,
                                     quantity: a.quantity,
+                                    shelf_name: a.shelf_name,
                                 })),
                                 saving: false,
                                 error: prev[item.id]?.error || '',
@@ -112,6 +104,12 @@ const ReturnDetailPage = () => {
         } finally {
             setLoading(false);
         }
+    };
+
+    const searchShelvesForPutAway = async (query) => {
+        const res = await purchasesApi.shelves.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map((s) => ({ value: s.id, label: s.name, name: s.name }));
     };
 
     const handleAllocationChange = (itemId, nextAllocations) => {
@@ -324,7 +322,7 @@ const ReturnDetailPage = () => {
                                         <ShelfAllocationEditor
                                             value={state.allocations}
                                             onChange={(next) => handleAllocationChange(item.id, next)}
-                                            shelves={allShelves}
+                                            onSearchShelves={searchShelvesForPutAway}
                                             requiredQuantity={item.quantity}
                                             mode="putaway"
                                             disabled={state.saving}

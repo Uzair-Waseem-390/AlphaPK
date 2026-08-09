@@ -184,7 +184,9 @@ class CandidateShelvesForProductView(generics.ListAPIView):
         product_id = self.request.query_params.get("product_id")
         if not product_id:
             raise ValidationError({"product_id": "This query parameter is required."})
-        return get_candidate_shelves_for_product(int(product_id))
+        return get_candidate_shelves_for_product(
+            int(product_id), search=self.request.query_params.get("search"),
+        )
 
 
 class MoveStockView(APIView):

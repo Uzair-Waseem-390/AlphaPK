@@ -19,24 +19,17 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
     const [quantity, setQuantity] = useState('1');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
-    const [shelves, setShelves] = useState([]);
-    const [shelvesLoading, setShelvesLoading] = useState(true);
     const [shelfAllocations, setShelfAllocations] = useState([]);
 
     const maxQty = item.returnable_quantity ?? (item.quantity - item.found_quantity);
 
-    useEffect(() => {
-        let cancelled = false;
-        setShelvesLoading(true);
-        purchasesApi.shelves.getAll({ page_size: 500 })
-            .then((res) => {
-                if (cancelled) return;
-                setShelves(res?.results || res || []);
-            })
-            .catch(() => { if (!cancelled) setShelves([]); })
-            .finally(() => { if (!cancelled) setShelvesLoading(false); });
-        return () => { cancelled = true; };
-    }, []);
+    // Put-away — any active shelf is valid, so this searches the full shelf
+    // list by name on demand (a large factory can have hundreds of shelves).
+    const searchShelvesForPutAway = async (query) => {
+        const res = await purchasesApi.shelves.getAll({ search: query, page_size: 25 });
+        const results = res?.results || res || [];
+        return results.map((s) => ({ value: s.id, label: s.name, name: s.name }));
+    };
 
     const allocatedTotal = shelfAllocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
     const qtyNum = parseInt(quantity, 10) || 0;
@@ -138,19 +131,13 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
                         <label className="block text-sm font-medium text-neutral-700 mb-1.5">
                             Shelf Allocation (where the found stock is placed)
                         </label>
-                        {shelvesLoading ? (
-                            <div className="flex justify-center py-3">
-                                <LoadingSpinner size="sm" />
-                            </div>
-                        ) : (
-                            <ShelfAllocationEditor
-                                mode="putaway"
-                                value={shelfAllocations}
-                                onChange={setShelfAllocations}
-                                shelves={shelves}
-                                requiredQuantity={qtyNum}
-                            />
-                        )}
+                        <ShelfAllocationEditor
+                            mode="putaway"
+                            value={shelfAllocations}
+                            onChange={setShelfAllocations}
+                            onSearchShelves={searchShelvesForPutAway}
+                            requiredQuantity={qtyNum}
+                        />
                     </div>
 
                     {error && (

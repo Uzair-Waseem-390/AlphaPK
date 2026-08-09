@@ -37,7 +37,6 @@ const PurchaseOrderDetailPage = () => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
-    const [allShelves, setAllShelves] = useState([]);
     const [allocationDrafts, setAllocationDrafts] = useState({});
     const [savingAllocationFor, setSavingAllocationFor] = useState(null);
     const [confirmError, setConfirmError] = useState('');
@@ -45,12 +44,6 @@ const PurchaseOrderDetailPage = () => {
     useEffect(() => {
         fetchData();
     }, [id]);
-
-    useEffect(() => {
-        purchasesApi.shelves.getAll({ page_size: 500 })
-            .then((res) => setAllShelves(res?.results ?? res ?? []))
-            .catch((error) => console.error('Failed to fetch shelves:', error));
-    }, []);
 
     // Keep per-item allocation drafts in sync with the order's saved state
     // (initial load and after every refetch following a save/confirm).
@@ -62,11 +55,21 @@ const PurchaseOrderDetailPage = () => {
                 next[item.id] = (item.shelf_allocations || []).map((a) => ({
                     shelf_id: a.shelf.id,
                     quantity: a.quantity,
+                    shelf_name: a.shelf.name,
                 }));
             });
             return next;
         });
     }, [order]);
+
+    // Put-away — any shelf is valid, so this searches the full shelf list by
+    // name (a large factory can have hundreds of shelves, so this is a live
+    // backend search, not a preloaded dropdown).
+    const searchShelvesForPutAway = async (query) => {
+        const res = await purchasesApi.shelves.getAll({ search: query, page_size: 25 });
+        const results = res?.results ?? res ?? [];
+        return results.map((s) => ({ value: s.id, label: s.name, name: s.name }));
+    };
 
     const fetchData = async () => {
         setLoading(true);
@@ -477,7 +480,7 @@ const PurchaseOrderDetailPage = () => {
                                 <ShelfAllocationEditor
                                     value={allocationDrafts[item.id] || []}
                                     onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
-                                    shelves={allShelves}
+                                    onSearchShelves={searchShelvesForPutAway}
                                     requiredQuantity={item.quantity}
                                     mode="putaway"
                                     disabled={savingAllocationFor === item.id}

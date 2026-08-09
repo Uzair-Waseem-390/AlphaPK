@@ -18,7 +18,7 @@ const PurchaseReturnDetailPage = () => {
     const [returnItem, setReturnItem] = useState(null);
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
-    const [candidateShelves, setCandidateShelves] = useState({});
+    const [productIdByItemId, setProductIdByItemId] = useState({});
     const [allocationDrafts, setAllocationDrafts] = useState({});
     const [savingAllocationFor, setSavingAllocationFor] = useState(null);
     const [acceptError, setAcceptError] = useState('');
@@ -29,8 +29,10 @@ const PurchaseReturnDetailPage = () => {
 
     // The read serializer only exposes product_name/product_code on a return
     // item (no product id) — resolve each item's product id by matching
-    // product_code against the related order's items (which do carry the id),
-    // then fetch candidate shelves (shelves currently holding stock) for it.
+    // product_code against the related order's items (which do carry the id).
+    // That id feeds a live backend search for candidate shelves per row,
+    // rather than a preloaded list — a large factory can have a product
+    // spread across many shelves.
     useEffect(() => {
         if (!returnItem?.items || !order?.items) return;
 
@@ -40,24 +42,31 @@ const PurchaseReturnDetailPage = () => {
                 next[item.id] = (item.shelf_allocations || []).map((a) => ({
                     shelf_id: a.shelf.id,
                     quantity: a.quantity,
+                    shelf_name: a.shelf.name,
                 }));
             });
             return next;
         });
 
-        if (returnItem.status !== 'pending') return;
-
+        const mapping = {};
         returnItem.items.forEach((item) => {
             const orderItem = order.items.find((oi) => oi.product_code === item.product_code);
-            if (!orderItem) return;
-            purchasesApi.shelves.getCandidates(orderItem.product)
-                .then((res) => {
-                    const list = Array.isArray(res) ? res : (res?.results ?? []);
-                    setCandidateShelves((prev) => ({ ...prev, [item.id]: list }));
-                })
-                .catch((error) => console.error('Failed to fetch candidate shelves:', error));
+            if (orderItem) mapping[item.id] = orderItem.product;
         });
+        setProductIdByItemId(mapping);
     }, [returnItem, order]);
+
+    const searchCandidateShelvesFor = (itemId) => async (query) => {
+        const productId = productIdByItemId[itemId];
+        if (!productId) return [];
+        const res = await purchasesApi.shelves.getCandidates(productId, query);
+        const results = res?.results ?? res ?? [];
+        return results.map((s) => ({
+            value: s.id,
+            label: `${s.name} (${s.available_quantity} available)`,
+            name: s.name,
+        }));
+    };
 
     const handleSaveAllocations = async (itemId) => {
         const allocations = (allocationDrafts[itemId] || [])
@@ -324,7 +333,7 @@ const PurchaseReturnDetailPage = () => {
                                 <ShelfAllocationEditor
                                     value={allocationDrafts[item.id] || []}
                                     onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
-                                    shelves={candidateShelves[item.id] || []}
+                                    onSearchShelves={searchCandidateShelvesFor(item.id)}
                                     requiredQuantity={item.quantity}
                                     mode="consumption"
                                     disabled={savingAllocationFor === item.id}
