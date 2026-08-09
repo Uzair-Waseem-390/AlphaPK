@@ -96,19 +96,30 @@ const InvoiceDetailPage = () => {
             const hasPending = returnsList.some(r => r.status === 'pending');
             setHasPendingReturn(hasPending);
 
-            // Draft invoices need each item's product id so the allocator can
-            // search for candidate shelves on demand (confirmed invoices only
-            // show the saved allocations read-only, no search needed).
+            // Draft invoices need shelf allocation candidates per item so the
+            // allocator can be populated (confirmed invoices only show the
+            // saved allocations read-only, no candidates fetch needed).
+            // Candidates are already a small, bounded set (only shelves
+            // currently holding stock of that product), so a plain dropdown.
             if (invoiceData?.status === 'draft' && invoiceData.items?.length) {
+                const entries = await Promise.all(invoiceData.items.map(async (item) => {
+                    try {
+                        const candidates = await billingApi.shelves.getCandidates(item.product);
+                        return [item.id, candidates?.results ?? candidates ?? []];
+                    } catch (err) {
+                        console.error(`Failed to fetch candidate shelves for item ${item.id}:`, err);
+                        return [item.id, []];
+                    }
+                }));
+                const candidatesByItemId = Object.fromEntries(entries);
                 setShelfState((prev) => {
                     const next = {};
                     invoiceData.items.forEach((item) => {
                         next[item.id] = {
-                            productId: item.product,
+                            candidates: candidatesByItemId[item.id] || [],
                             allocations: (item.shelf_allocations || []).map((a) => ({
                                 shelf_id: a.shelf_id,
                                 quantity: a.quantity,
-                                shelf_name: a.shelf_name,
                             })),
                             saving: false,
                             error: prev[item.id]?.error || '',
@@ -124,18 +135,6 @@ const InvoiceDetailPage = () => {
         } finally {
             setLoading(false);
         }
-    };
-
-    const searchCandidateShelvesFor = (itemId) => async (query) => {
-        const productId = shelfState[itemId]?.productId;
-        if (!productId) return [];
-        const res = await billingApi.shelves.getCandidates(productId, query);
-        const results = res?.results ?? res ?? [];
-        return results.map((s) => ({
-            value: s.id,
-            label: `${s.name} (${s.available_quantity} available)`,
-            name: s.name,
-        }));
     };
 
     const handleAllocationChange = (itemId, nextAllocations) => {
@@ -513,7 +512,7 @@ const InvoiceDetailPage = () => {
                     <div className="space-y-4">
                         {invoice.items?.map((item) => {
                             const state = shelfState[item.id] || {
-                                allocations: [], saving: false, error: '',
+                                candidates: [], allocations: [], saving: false, error: '',
                             };
                             return (
                                 <div key={item.id} className="border border-neutral-200 rounded-lg p-4">
@@ -531,7 +530,7 @@ const InvoiceDetailPage = () => {
                                     <ShelfAllocationEditor
                                         value={state.allocations}
                                         onChange={(next) => handleAllocationChange(item.id, next)}
-                                        onSearchShelves={searchCandidateShelvesFor(item.id)}
+                                        shelves={state.candidates}
                                         requiredQuantity={item.quantity}
                                         mode="consumption"
                                         disabled={state.saving}

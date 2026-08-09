@@ -1,29 +1,32 @@
+import Select from '../ui/Select';
 import SearchableSelect from '../ui/SearchableSelect';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 
 /**
- * Reusable multi-shelf allocation row editor. Each row is a backend-driven
- * search (not a preloaded dropdown) — a large factory can have hundreds of
- * shelves, so every shelf picker here searches on demand, same pattern as
- * the customer search on Create Invoice.
+ * Reusable multi-shelf allocation row editor.
  *
- * mode='putaway'     -> put-away context (receiving/returns-in), any shelf is valid.
- * mode='consumption' -> consumption context (sale/purchase-return/lost), only shelves
- *                        currently holding stock of the product are valid.
+ * mode='consumption' -> stock is LEAVING (sale, purchase return, lost inventory). The
+ *                        candidate shelf set is already small (only shelves currently
+ *                        holding this product), so it's a plain dropdown — pass the
+ *                        prefetched candidate list via `shelves`.
+ * mode='putaway'      -> stock is ARRIVING (purchase receiving, invoice-return
+ *                        acceptance, mark-as-found). Any shelf is valid, and a large
+ *                        factory can have hundreds of them, so this is a backend-driven
+ *                        search bar instead — pass an `onSearchShelves(query)` function.
  *
  * value: [{ shelf_id, quantity, shelf_name? }] — shelf_name is carried along purely for
- *        display (SearchableSelect needs a label for a value that isn't in its current
- *        search results), not sent to the backend.
+ *        display in putaway mode (SearchableSelect needs a label for a value that isn't
+ *        in its current search results), not sent to the backend.
  * onChange(nextValue)
- * onSearchShelves(query): async (query) => [{ value, label, name?, available_quantity? }]
- *        — the parent supplies this, wired to whichever API endpoint fits the context
- *        (full shelf search for put-away, candidate-shelf search for consumption).
+ * shelves: [{ id, name, available_quantity? }] — consumption mode only, the prefetched candidate list.
+ * onSearchShelves(query): async (query) => [{ value, label, name?, available_quantity? }] — putaway mode only.
  * requiredQuantity: the number `value`'s quantities must sum to exactly.
  */
 const ShelfAllocationEditor = ({
     value = [],
     onChange,
+    shelves = [],
     onSearchShelves,
     requiredQuantity = 0,
     mode = 'putaway',
@@ -32,6 +35,7 @@ const ShelfAllocationEditor = ({
     const allocations = value;
     const allocatedTotal = allocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
     const remaining = requiredQuantity - allocatedTotal;
+    const usedShelfIds = new Set(allocations.map((a) => String(a.shelf_id)).filter(Boolean));
 
     const handleAddRow = () => {
         onChange([...allocations, { shelf_id: '', quantity: remaining > 0 ? remaining : '', shelf_name: '' }]);
@@ -47,7 +51,7 @@ const ShelfAllocationEditor = ({
 
     // A shelf already picked on another row of this same allocation can't
     // be picked again (the unique_together constraint on the backend would
-    // reject it anyway) — filtered out of search results per row.
+    // reject it anyway) — filtered out per row, whichever mode is active.
     const usedElsewhere = (index) =>
         new Set(
             allocations
@@ -56,27 +60,47 @@ const ShelfAllocationEditor = ({
                 .filter(Boolean)
         );
 
+    const dropdownOptions = (index) =>
+        shelves
+            .filter((s) => String(s.id) === String(allocations[index].shelf_id) || !usedElsewhere(index).has(String(s.id)))
+            .map((s) => ({
+                value: s.id,
+                label: s.available_quantity != null ? `${s.name} (${s.available_quantity} available)` : s.name,
+            }));
+
     const searchForRow = (index) => async (query) => {
         const results = await onSearchShelves(query);
         const exclude = usedElsewhere(index);
         return (results || []).filter((r) => !exclude.has(String(r.value)));
     };
 
+    const allRowsUsed = mode === 'consumption' && shelves.length > 0 && usedShelfIds.size >= shelves.length;
+
     return (
         <div className="space-y-2">
             {allocations.map((a, index) => (
                 <div key={index} className="flex items-start gap-2">
                     <div className="flex-1">
-                        <SearchableSelect
-                            value={a.shelf_id}
-                            selectedLabel={a.shelf_name}
-                            onChange={(val, option) =>
-                                handleUpdateRow(index, { shelf_id: val, shelf_name: option?.name || option?.label || '' })
-                            }
-                            onSearch={searchForRow(index)}
-                            placeholder="Search shelf by name..."
-                            disabled={disabled}
-                        />
+                        {mode === 'consumption' ? (
+                            <Select
+                                value={a.shelf_id}
+                                onChange={(e) => handleUpdateRow(index, { shelf_id: e.target.value })}
+                                options={dropdownOptions(index)}
+                                placeholder="Select shelf"
+                                disabled={disabled}
+                            />
+                        ) : (
+                            <SearchableSelect
+                                value={a.shelf_id}
+                                selectedLabel={a.shelf_name}
+                                onChange={(val, option) =>
+                                    handleUpdateRow(index, { shelf_id: val, shelf_name: option?.name || option?.label || '' })
+                                }
+                                onSearch={searchForRow(index)}
+                                placeholder="Search shelf by name..."
+                                disabled={disabled}
+                            />
+                        )}
                     </div>
                     <div className="w-28 shrink-0">
                         <Input
@@ -106,7 +130,7 @@ const ShelfAllocationEditor = ({
                     variant="secondary"
                     size="sm"
                     onClick={handleAddRow}
-                    disabled={disabled}
+                    disabled={disabled || allRowsUsed}
                 >
                     + Add Shelf
                 </Button>
@@ -127,9 +151,9 @@ const ShelfAllocationEditor = ({
                 </span>
             </div>
 
-            {mode === 'consumption' && allocations.length === 0 && (
-                <p className="text-xs text-neutral-400">
-                    Search only finds shelves currently holding stock of this product.
+            {mode === 'consumption' && shelves.length === 0 && (
+                <p className="text-sm text-red-600">
+                    No shelf currently holds stock of this product — nothing can be allocated.
                 </p>
             )}
         </div>

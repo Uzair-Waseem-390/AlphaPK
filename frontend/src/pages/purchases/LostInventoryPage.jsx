@@ -30,6 +30,7 @@ const LostInventoryPage = () => {
     const [successMessage, setSuccessMessage] = useState('');
 
     const previewTimer = useRef(null);
+    const [shelfCandidatesByProduct, setShelfCandidatesByProduct] = useState({});
 
     useEffect(() => {
         if (!searchTerm) {
@@ -82,19 +83,25 @@ const LostInventoryPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cart.map((l) => `${l.product_id}:${l.quantity}`).join(',')]);
 
-    // Live backend search for candidate shelves (only shelves currently
-    // holding stock of the product) — a large factory can spread a product
-    // across many shelves, so each cart line searches on demand rather than
-    // relying on a preloaded list.
-    const searchCandidateShelvesFor = (productId) => async (query) => {
-        const res = await purchasesApi.shelves.getCandidates(productId, query);
-        const results = res?.results || res || [];
-        return results.map((s) => ({
-            value: s.id,
-            label: `${s.name} (${s.available_quantity} available)`,
-            name: s.name,
-        }));
-    };
+    // Fetch candidate shelves (only shelves currently holding stock of the product)
+    // for every product currently in the cart — cached per product_id so a
+    // quantity edit doesn't trigger a refetch. Already a small, bounded set,
+    // so a plain dropdown.
+    useEffect(() => {
+        cart.forEach((line) => {
+            if (shelfCandidatesByProduct[line.product_id] !== undefined) return;
+            setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: null })); // mark as loading
+            purchasesApi.shelves.getCandidates(line.product_id)
+                .then((res) => {
+                    const candidates = res?.results || res || [];
+                    setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: candidates }));
+                })
+                .catch(() => {
+                    setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: [] }));
+                });
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cart.map((l) => l.product_id).join(',')]);
 
     const handleAddProduct = (item) => {
         const productId = item.product?.id;
@@ -318,7 +325,7 @@ const LostInventoryPage = () => {
                                         mode="consumption"
                                         value={line.shelf_allocations}
                                         onChange={(next) => handleUpdateLine(index, 'shelf_allocations', next)}
-                                        onSearchShelves={searchCandidateShelvesFor(line.product_id)}
+                                        shelves={shelfCandidatesByProduct[line.product_id] || []}
                                         requiredQuantity={Number(line.quantity) || 0}
                                     />
                                 </div>
