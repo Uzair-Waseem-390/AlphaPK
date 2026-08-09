@@ -17,5 +17,6 @@ failing the assignment, not taking a shortcut.
 - **Anything moving cash-in-hand (payments, returns, expenses, tax, new cash source)** → `instructions/cash-in-hand.md`.
 - **Performance/scalability review or audit request** → all `instructions/performance-review-*.md` files.
   - Exception: `instructions/performance-review-reviewer-role-and-goal.md` is ONLY for a dedicated independent-reviewer agent auditing a first agent's performance-review plan — never read it otherwise, and a reviewer agent must not read the other `performance-review-*.md` files in turn (see the file's own header).
+- **ANY frontend change** → must read `instructions/frontend.md` before making any changes.
 
 Skip these for unrelated tasks (styling tweaks, questions, isolated unrelated bugfixes) — but when in doubt about whether a task counts, read the file. The cost of reading is a few seconds; the cost of repeating a fixed mistake is a full review cycle.

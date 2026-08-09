@@ -214,3 +214,6 @@ backend/billing/customer_data/
 frontend/node_modules
 frontend/package-lock.json
 frontend/.env
+
+# Locally-installed Claude Code skills — not part of the app, never pushed.
+.claude/skills/
