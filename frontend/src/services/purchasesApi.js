@@ -160,6 +160,19 @@ export const purchasesApi = {
             return api.post(`/orders/${orderId}/returns/`, payload);
         },
         accept: (returnId) => api.post(`/returns/${returnId}/accept/`),
+        update: (returnId, data) => {
+            const payload = {
+                items: data.items.map(item => ({
+                    purchase_item_id: parseInt(item.purchase_item_id),
+                    quantity: parseInt(item.quantity) || 0,
+                    gst: item.gst || 0,
+                    wht: item.wht || 0,
+                })),
+                ...(data.note !== undefined ? { note: data.note } : {}),
+            };
+            return api.patch(`/returns/${returnId}/`, payload);
+        },
+        cancel: (returnId) => api.delete(`/returns/${returnId}/`),
     },
 
     // Inventory

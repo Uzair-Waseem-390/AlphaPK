@@ -479,6 +479,16 @@ class PurchaseReturnCreateSerializer(serializers.Serializer):
         return value
 
 
+class PurchaseReturnUpdateSerializer(serializers.Serializer):
+    items = PurchaseReturnItemWriteSerializer(many=True)
+    note  = serializers.CharField(max_length=500, required=False, allow_blank=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one item is required.")
+        return value
+
+
 class PurchaseReturnItemShelfAllocationReadSerializer(serializers.ModelSerializer):
     shelf = ShelfLiteSerializer(read_only=True)
 

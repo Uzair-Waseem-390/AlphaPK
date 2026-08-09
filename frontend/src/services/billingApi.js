@@ -125,5 +125,13 @@ export const billingApi = {
             return api.post(`/billing/invoices/${invoiceId}/returns/`, payload);
         },
         accept: (returnId) => api.post(`/billing/returns/${returnId}/accept/`),
+        update: (returnId, data) => {
+            const payload = {
+                items: data.items || [],
+                ...(data.note !== undefined ? { note: data.note } : {}),
+            };
+            return api.patch(`/billing/returns/${returnId}/`, payload);
+        },
+        cancel: (returnId) => api.delete(`/billing/returns/${returnId}/`),
     },
 };

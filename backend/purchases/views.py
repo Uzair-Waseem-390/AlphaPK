@@ -42,7 +42,8 @@ from .serializers import (
     PurchaseOrderPaymentSummarySerializer, PurchaseOrderReadSerializer,
     PurchaseOrderUpdateSerializer, PurchaseReturnCreateSerializer,
     PurchaseReturnItemReadSerializer,
-    PurchaseReturnReadSerializer, SavedPurchaseOrderPDFSerializer,
+    PurchaseReturnReadSerializer, PurchaseReturnUpdateSerializer,
+    SavedPurchaseOrderPDFSerializer,
     SavePurchaseOrderPDFRequestSerializer, SetShelfAllocationsSerializer,
     ShelfReadSerializer, ShelfStockReadSerializer,
     ShelfWriteSerializer, SupplierPayableSummarySerializer,
@@ -51,16 +52,16 @@ from .serializers import (
     SupplierWriteSerializer,
 )
 from .services import (
-    accept_purchase_return, confirm_purchase_order, create_category,
-    create_lost_inventory_record, create_product, create_purchase_order,
-    create_purchase_return, create_shelf, create_supplier,
-    create_supplier_payment, delete_category, delete_product,
-    delete_purchase_order, delete_shelf, delete_supplier,
+    accept_purchase_return, cancel_purchase_return, confirm_purchase_order,
+    create_category, create_lost_inventory_record, create_product,
+    create_purchase_order, create_purchase_return, create_shelf,
+    create_supplier, create_supplier_payment, delete_category,
+    delete_product, delete_purchase_order, delete_shelf, delete_supplier,
     delete_supplier_payment, mark_lost_inventory_found, move_shelf_stock,
     set_purchase_item_shelf_allocations,
     set_purchase_return_item_shelf_allocations, update_category,
-    update_product, update_purchase_order_items, update_shelf,
-    update_supplier,
+    update_product, update_purchase_order_items,
+    update_purchase_return_items, update_shelf, update_supplier,
 )
 
 
@@ -577,6 +578,38 @@ class PurchaseReturnAcceptView(APIView):
     def post(self, request, pk):
         obj = accept_purchase_return(return_id=pk, user=request.user)
         return Response(PurchaseReturnReadSerializer(obj).data, status=status.HTTP_200_OK)
+
+
+class PurchaseReturnRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /purchases/returns/<pk>/  — retrieve
+    PATCH  /purchases/returns/<pk>/  — replace items (PENDING only)
+    DELETE /purchases/returns/<pk>/  — cancel / soft delete (PENDING only)
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    http_method_names  = ["get", "patch", "delete"]
+
+    def get_serializer_class(self):
+        return PurchaseReturnUpdateSerializer if self.request.method == "PATCH" else PurchaseReturnReadSerializer
+
+    def get_object(self):
+        return get_purchase_return_by_id(self.kwargs["pk"])
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d   = serializer.validated_data
+        obj = update_purchase_return_items(
+            return_id=self.kwargs["pk"],
+            items=d["items"],
+            note=d.get("note"),
+            user=request.user,
+        )
+        return Response(PurchaseReturnReadSerializer(obj).data)
+
+    def destroy(self, request, *args, **kwargs):
+        cancel_purchase_return(return_id=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Return cancelled."}, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------

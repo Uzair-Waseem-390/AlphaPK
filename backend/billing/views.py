@@ -30,10 +30,12 @@ from .serializers import (
     ReturnCreateSerializer,
     ReturnItemReadSerializer,
     ReturnReadSerializer,
+    ReturnUpdateSerializer,
     SetShelfAllocationsSerializer,
 )
 from .services import (
     accept_return,
+    cancel_return,
     confirm_invoice,
     create_customer,
     create_invoice,
@@ -47,6 +49,7 @@ from .services import (
     update_customer,
     update_invoice_due_date,
     update_invoice_items,
+    update_return_items,
 )
 
 
@@ -388,6 +391,41 @@ class ReturnAcceptView(generics.UpdateAPIView):
     def post(self, request, *args, **kwargs):
         return_record = accept_return(return_id=self.kwargs["pk"], user=request.user)
         return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_200_OK)
+
+
+class ReturnRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
+    """
+    GET    /billing/returns/<pk>/  — retrieve
+    PATCH  /billing/returns/<pk>/  — replace items (PENDING only)
+    DELETE /billing/returns/<pk>/  — cancel / soft delete (PENDING only)
+    Same permission level as creating a return (IsAuthenticated) — editing/
+    cancelling your own not-yet-effective return request is no more
+    sensitive than creating one; accepting it is the admin-gated action.
+    """
+    permission_classes = [IsAuthenticated]
+    http_method_names  = ["get", "patch", "delete"]
+
+    def get_serializer_class(self):
+        return ReturnUpdateSerializer if self.request.method == "PATCH" else ReturnReadSerializer
+
+    def get_object(self):
+        return get_return_by_id(self.kwargs["pk"])
+
+    def update(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        return_record = update_return_items(
+            return_id=self.kwargs["pk"],
+            items=d["items"],
+            note=d.get("note"),
+            user=request.user,
+        )
+        return Response(ReturnReadSerializer(return_record).data)
+
+    def destroy(self, request, *args, **kwargs):
+        cancel_return(return_id=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Return cancelled."}, status=status.HTTP_200_OK)
 
 
 class AllReturnsView(generics.ListAPIView):

@@ -4,9 +4,9 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 
-const ReturnForm = ({ onSubmit, onCancel, loading, orderItems }) => {
-    const [items, setItems] = useState([]);
-    const [note, setNote] = useState('');
+const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, initialNote, submitLabel }) => {
+    const [items, setItems] = useState(initialItems || []);
+    const [note, setNote] = useState(initialNote || '');
     const [errors, setErrors] = useState({});
 
     const handleAddItem = () => {
@@ -159,7 +159,7 @@ const ReturnForm = ({ onSubmit, onCancel, loading, orderItems }) => {
                             Cancel
                         </Button>
                         <Button type="submit" loading={loading} disabled={items.length === 0}>
-                            Create Return
+                            {submitLabel || 'Create Return'}
                         </Button>
                     </div>
                 </>
@@ -173,6 +173,9 @@ ReturnForm.propTypes = {
     onCancel: PropTypes.func.isRequired,
     loading: PropTypes.bool,
     orderItems: PropTypes.array,
+    initialItems: PropTypes.array,
+    initialNote: PropTypes.string,
+    submitLabel: PropTypes.string,
 };
 
 export default ReturnForm;

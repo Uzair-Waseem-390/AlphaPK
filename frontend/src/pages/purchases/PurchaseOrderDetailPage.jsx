@@ -520,6 +520,7 @@ const PurchaseOrderDetailPage = () => {
                         returns={returns}
                         onAccept={handleAcceptReturn}
                         isAdmin={isAdmin}
+                        orderItems={order.items || []}
                     />
                 </Card>
             )}

@@ -43,6 +43,7 @@ from .views import (
     PurchaseReturnListCreateView,
     AllPurchaseReturnsListView,
     PurchaseReturnAcceptView,
+    PurchaseReturnRetrieveUpdateDestroyView,
 
     # PDF
     PurchaseOrderPrintView,
@@ -191,6 +192,10 @@ urlpatterns = [
     path("returns/<int:pk>/accept/",
          PurchaseReturnAcceptView.as_view(),
          name="purchase-return-accept"),
+
+    path("returns/<int:pk>/",
+         PurchaseReturnRetrieveUpdateDestroyView.as_view(),
+         name="purchase-return-detail"),
 
     path("orders/<int:order_id>/returns/",
          PurchaseReturnListCreateView.as_view(),

@@ -13,14 +13,17 @@ from rest_framework.exceptions import ValidationError
 
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow, Product,
-    ProductStockMovement, PurchaseOrder, Shelf, StockMovementFlow, Supplier,
+    ProductStockMovement, PurchaseOrder, PurchaseReturn, Shelf,
+    StockMovementFlow, Supplier,
 )
 from .services import (
-    accept_purchase_return, confirm_purchase_order, create_lost_inventory_record,
-    create_purchase_order, create_purchase_return, create_supplier,
-    create_supplier_payment, delete_product, delete_supplier_payment,
-    mark_lost_inventory_found, set_purchase_item_shelf_allocations,
+    accept_purchase_return, cancel_purchase_return, confirm_purchase_order,
+    create_lost_inventory_record, create_purchase_order, create_purchase_return,
+    create_supplier, create_supplier_payment, delete_product,
+    delete_supplier_payment, mark_lost_inventory_found,
+    set_purchase_item_shelf_allocations,
     set_purchase_return_item_shelf_allocations, sync_inventory,
+    update_purchase_return_items,
 )
 from .views import (
     DraftPurchaseOrderListView, InventoryListView, InventoryStatsView,
@@ -446,6 +449,218 @@ class PurchaseReturnRemainingQuantityTests(PurchasesTestBase):
                 items=[{"purchase_item_id": item.id, "quantity": 5}],
                 user=self.admin,
             )
+
+
+class PurchaseReturnEditCancelTests(PurchasesTestBase):
+    """
+    A pending return has zero side effects until accepted, so editing or
+    cancelling one should be free of any inventory/payable consequence,
+    and should never block creating further returns against the same
+    order — whether the prior return was cancelled or already accepted.
+    """
+
+    def test_edit_replaces_items_and_resets_allocations(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+        self.allocate_return_items(ret)
+        return_item = ret.items.first()
+        self.assertEqual(return_item.allocated_quantity, 3)
+
+        updated = update_purchase_return_items(
+            return_id=ret.id,
+            items=[{"purchase_item_id": item.id, "quantity": 5}],
+            note="revised",
+            user=self.admin,
+        )
+
+        self.assertEqual(updated.items.count(), 1)
+        new_item = updated.items.first()
+        self.assertEqual(new_item.quantity, 5)
+        self.assertEqual(new_item.allocated_quantity, 0)  # old allocations cascaded away
+        self.assertEqual(updated.note, "revised")
+
+    def test_edit_revalidates_against_current_returnable_quantity(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+
+        with self.assertRaises(ValidationError):
+            update_purchase_return_items(
+                return_id=ret.id,
+                items=[{"purchase_item_id": item.id, "quantity": 999}],
+                user=self.admin,
+            )
+
+    def test_edit_blocked_once_accepted(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+        self.allocate_return_items(ret)
+        accept_purchase_return(return_id=ret.id, user=self.admin)
+
+        with self.assertRaises(ValidationError):
+            update_purchase_return_items(
+                return_id=ret.id,
+                items=[{"purchase_item_id": item.id, "quantity": 1}],
+                user=self.admin,
+            )
+
+    def test_cancel_soft_deletes_and_disappears_from_list(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+
+        cancel_purchase_return(return_id=ret.id, user=self.admin)
+
+        self.assertFalse(PurchaseReturn.objects.filter(id=ret.id).exists())
+        self.assertTrue(PurchaseReturn.all_objects.get(id=ret.id).is_deleted)
+        # Item, order, and inventory are all untouched — a pending return
+        # never had any side effect to reverse.
+        item.refresh_from_db()
+        self.assertEqual(item.remaining_quantity, 10)
+        self.assertEqual(Inventory.objects.get(product=product).quantity, 10)
+
+    def test_cancel_blocked_once_accepted(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+        self.allocate_return_items(ret)
+        accept_purchase_return(return_id=ret.id, user=self.admin)
+
+        with self.assertRaises(ValidationError):
+            cancel_purchase_return(return_id=ret.id, user=self.admin)
+
+    def test_can_create_another_return_after_cancelling(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+
+        ret_a = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 4}],
+            user=self.admin,
+        )
+        cancel_purchase_return(return_id=ret_a.id, user=self.admin)
+
+        # returnable_quantity is untouched by the cancelled return, so the
+        # full 4 (in fact the full 10) is still available.
+        ret_b = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 4}],
+            user=self.admin,
+        )
+        self.assertEqual(ret_b.items.first().quantity, 4)
+
+    def test_can_create_another_return_after_accepting(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+
+        ret_a = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 4}],
+            user=self.admin,
+        )
+        self.allocate_return_items(ret_a)
+        accept_purchase_return(return_id=ret_a.id, user=self.admin)
+
+        item.refresh_from_db()
+        self.assertEqual(item.returnable_quantity, 6)
+
+        ret_b = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 6}],
+            user=self.admin,
+        )
+        self.assertEqual(ret_b.items.first().quantity, 6)
+
+    def test_non_admin_gets_403_on_update_and_cancel(self):
+        from .views import PurchaseReturnRetrieveUpdateDestroyView
+
+        normal = make_normal_user()
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+
+        view = PurchaseReturnRetrieveUpdateDestroyView.as_view()
+
+        patch_request = self.factory.patch(
+            f"/purchases/returns/{ret.id}/",
+            {"items": [{"purchase_item_id": item.id, "quantity": 1}]},
+            format="json",
+        )
+        force_authenticate(patch_request, user=normal)
+        patch_response = view(patch_request, pk=ret.id)
+        self.assertEqual(patch_response.status_code, 403)
+
+        delete_request = self.factory.delete(f"/purchases/returns/{ret.id}/")
+        force_authenticate(delete_request, user=normal)
+        delete_response = view(delete_request, pk=ret.id)
+        self.assertEqual(delete_response.status_code, 403)
+
+    def test_update_and_cancel_query_counts(self):
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="100")
+        item = order.items.first()
+        ret = create_purchase_return(
+            order_id=order.id,
+            items=[{"purchase_item_id": item.id, "quantity": 3}],
+            user=self.admin,
+        )
+
+        from .views import PurchaseReturnRetrieveUpdateDestroyView
+        view = PurchaseReturnRetrieveUpdateDestroyView.as_view()
+
+        with CaptureQueriesContext(connection) as ctx:
+            patch_request = self.factory.patch(
+                f"/purchases/returns/{ret.id}/",
+                {"items": [{"purchase_item_id": item.id, "quantity": 2}]},
+                format="json",
+            )
+            force_authenticate(patch_request, user=self.admin)
+            response = view(patch_request, pk=ret.id)
+            self.assertEqual(response.status_code, 200)
+        self.assertLess(len(ctx.captured_queries), 20)
+
+        with CaptureQueriesContext(connection) as ctx:
+            delete_request = self.factory.delete(f"/purchases/returns/{ret.id}/")
+            force_authenticate(delete_request, user=self.admin)
+            response = view(delete_request, pk=ret.id)
+            self.assertEqual(response.status_code, 200)
+        self.assertLess(len(ctx.captured_queries), 12)
 
 
 class LostStockValidationTests(PurchasesTestBase):

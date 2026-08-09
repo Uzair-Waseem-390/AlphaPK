@@ -4,7 +4,7 @@ import PropTypes from 'prop-types';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
 
-const ReturnList = ({ returns, onAccept, isAdmin }) => {
+const ReturnList = ({ returns, onAccept, isAdmin, orderItems = [] }) => {
     if (!returns || returns.length === 0) {
         return (
             <div className="text-center py-4 text-neutral-500">
@@ -20,6 +20,35 @@ const ReturnList = ({ returns, onAccept, isAdmin }) => {
         };
         return <Badge variant={variants[status] || 'default'}>{status}</Badge>;
     };
+
+    // unit_price/total_amount on a return item are only snapshotted from the
+    // original purchase item when the return is ACCEPTED (by design — see
+    // PurchaseReturnItem's model docstring) — a pending return legitimately
+    // has 0.00 there. Preview the same total the accept step will compute
+    // (gross + gst - wht, matching purchases.utils.calculate_total_price)
+    // from the original order item's unit_price, so pending returns don't
+    // display a misleading 0.00.
+    const previewItemTotal = (item) => {
+        const orderItem = orderItems.find((oi) => oi.product_code === item.product_code);
+        if (!orderItem) return 0;
+        const unitPrice = parseFloat(orderItem.unit_price) || 0;
+        const gross = unitPrice * item.quantity;
+        const gstAmount = gross * ((parseFloat(item.gst) || 0) / 100);
+        const whtAmount = gross * ((parseFloat(item.wht) || 0) / 100);
+        return gross + gstAmount - whtAmount;
+    };
+
+    const displayItemTotal = (returnItem, item) => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(item.total_amount) || 0)
+            : previewItemTotal(item)
+    );
+
+    const displayReturnTotal = (returnItem) => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(returnItem.total_return_amount) || 0)
+            : (returnItem.items || []).reduce((sum, item) => sum + previewItemTotal(item), 0)
+    );
 
     return (
         <div className="space-y-3">
@@ -51,18 +80,18 @@ const ReturnList = ({ returns, onAccept, isAdmin }) => {
                                                 <span className="text-neutral-700">{item.product_name}</span>
                                                 <span className="text-neutral-600">× {item.quantity}</span>
                                                 <span className="font-medium text-primary-600">
-                                                    {item.total_amount ? parseFloat(item.total_amount).toFixed(2) : '0.00'}
+                                                    {displayItemTotal(returnItem, item).toFixed(2)}
                                                 </span>
                                             </div>
                                         ))}
                                     </div>
                                 </div>
                             )}
-                            {returnItem.total_return_amount && (
+                            {returnItem.items && returnItem.items.length > 0 && (
                                 <div className="mt-2 pt-2 border-t border-neutral-200">
                                     <span className="text-sm text-neutral-500">Total Return Amount: </span>
                                     <span className="font-medium text-primary-600">
-                                        {parseFloat(returnItem.total_return_amount).toFixed(2)}
+                                        {displayReturnTotal(returnItem).toFixed(2)}
                                     </span>
                                 </div>
                             )}
@@ -97,6 +126,7 @@ ReturnList.propTypes = {
     returns: PropTypes.array,
     onAccept: PropTypes.func,
     isAdmin: PropTypes.bool,
+    orderItems: PropTypes.array,
 };
 
 export default ReturnList;

@@ -428,6 +428,16 @@ class ReturnCreateSerializer(serializers.Serializer):
         return value
 
 
+class ReturnUpdateSerializer(serializers.Serializer):
+    items = ReturnItemWriteSerializer(many=True)
+    note  = serializers.CharField(max_length=255, required=False, allow_blank=True)
+
+    def validate_items(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one item is required for a return.")
+        return value
+
+
 class ReturnItemReadSerializer(serializers.ModelSerializer):
     product_name       = serializers.CharField(source="invoice_item.product.name", read_only=True)
     product_code       = serializers.CharField(source="invoice_item.product.code", read_only=True)

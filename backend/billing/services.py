@@ -1101,6 +1101,82 @@ def create_return(*, invoice_id: int, items: list[dict], note: str = "", user) -
 
 
 @transaction.atomic
+def update_return_items(*, return_id: int, items: list[dict], note: str = None, user) -> Return:
+    """
+    Replaces all line items on a PENDING return. Mirrors create_return's
+    item-building exactly (same selling_price/cogs_per_unit snapshot), but
+    against the old ReturnItem rows deleted first — cascading their
+    shelf_allocations, since those are keyed to the specific item row. A
+    return has no side effects until accepted, so there's nothing to
+    reverse here; the user re-allocates shelves for the new lines
+    afterward, same as when a return is first created.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    return_record = get_return_by_id(return_id)
+    if return_record.status != Return.Status.PENDING:
+        raise ValidationError({"status": "Only pending returns can be edited."})
+
+    if not items:
+        raise ValidationError({"items": "At least one item is required for a return."})
+
+    return_record.items.all().delete()
+    for item_data in items:
+        invoice_item = get_invoice_item_by_id(item_data["invoice_item_id"])
+
+        if invoice_item.invoice_id != return_record.invoice_id:
+            raise ValidationError({
+                "invoice_item_id": f"Item {invoice_item.id} does not belong to this invoice."
+            })
+        if item_data["quantity"] > invoice_item.returnable_quantity:
+            raise ValidationError({
+                "quantity": (
+                    f"Cannot return {item_data['quantity']} units of "
+                    f"'{invoice_item.product.name}'. "
+                    f"Returnable: {invoice_item.returnable_quantity}."
+                )
+            })
+
+        qty           = item_data["quantity"]
+        selling_price = invoice_item.selling_price
+        cogs_per_unit = invoice_item.cogs_per_unit
+        ReturnItem.objects.create(
+            return_record=return_record,
+            invoice_item=invoice_item,
+            quantity=qty,
+            selling_price=selling_price,
+            cogs_per_unit=cogs_per_unit,
+            line_total=selling_price * qty,
+            line_cogs=cogs_per_unit * qty,
+        )
+
+    if note is not None:
+        return_record.note = note
+    return_record.updated_by = user
+    return_record.save(update_fields=["note", "updated_by", "updated_at"])
+    return return_record
+
+
+def cancel_return(*, return_id: int, user) -> None:
+    """
+    Cancels a PENDING return — soft delete. A return has no side effects
+    until accepted (no inventory/FIFO/payment change happens at
+    creation), so cancelling is purely "this never happened." The invoice
+    and its items are untouched, and the user is free to create another
+    return against the same invoice afterward (returnable_quantity is
+    computed from returned_quantity, which a pending-then-cancelled
+    return never incremented).
+    """
+    from rest_framework.exceptions import ValidationError
+
+    return_record = get_return_by_id(return_id)
+    if return_record.status != Return.Status.PENDING:
+        raise ValidationError({"status": "Only pending returns can be cancelled."})
+
+    _soft_delete(return_record, user)
+
+
+@transaction.atomic
 def accept_return(*, return_id: int, user) -> Return:
     """
     Accepts a pending return (admin/superuser only):

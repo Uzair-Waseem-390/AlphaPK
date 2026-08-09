@@ -17,17 +17,18 @@ from purchases.services import (
 from rates.services import create_rate
 from users.models import User
 
-from .models import Invoice, Payment
+from .models import Invoice, Payment, Return
 from .services import (
-    DEFAULT_DUE_DATE_DAYS, accept_return, confirm_invoice, create_customer,
-    create_invoice, create_payment, create_return, delete_invoice,
-    delete_payment, set_invoice_item_shelf_allocations,
+    DEFAULT_DUE_DATE_DAYS, accept_return, cancel_return, confirm_invoice,
+    create_customer, create_invoice, create_payment, create_return,
+    delete_invoice, delete_payment, set_invoice_item_shelf_allocations,
     set_return_item_shelf_allocations, update_invoice_due_date,
-    update_invoice_items,
+    update_invoice_items, update_return_items,
 )
 from .views import (
     CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
     InvoiceConfirmView, InvoiceDueDateUpdateView, InvoiceListCreateView,
+    ReturnRetrieveUpdateDestroyView,
 )
 
 
@@ -208,6 +209,215 @@ class InvoiceLifecycleTests(BillingTestBase):
         self.assertEqual(invoice.cash_received, Decimal("0"))
         self.assertEqual(invoice.credit_outstanding, Decimal("400"))
         self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.UNPAID)
+
+
+class ReturnEditCancelTests(BillingTestBase):
+    """
+    A pending return has zero side effects until accepted, so editing or
+    cancelling one should be free of any inventory/FIFO/payment
+    consequence, and should never block creating further returns against
+    the same invoice — whether the prior return was cancelled or already
+    accepted.
+    """
+
+    def test_edit_replaces_items_and_resets_allocations(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+        self.allocate_return_items(ret)
+        self.assertEqual(ret.items.first().allocated_quantity, 2)
+
+        updated = update_return_items(
+            return_id=ret.id,
+            items=[{"invoice_item_id": item.id, "quantity": 3}],
+            note="revised",
+            user=self.admin,
+        )
+
+        self.assertEqual(updated.items.count(), 1)
+        new_item = updated.items.first()
+        self.assertEqual(new_item.quantity, 3)
+        self.assertEqual(new_item.allocated_quantity, 0)  # old allocations cascaded away
+        self.assertEqual(updated.note, "revised")
+
+    def test_edit_revalidates_against_current_returnable_quantity(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+
+        with self.assertRaises(ValidationError):
+            update_return_items(
+                return_id=ret.id,
+                items=[{"invoice_item_id": item.id, "quantity": 999}],
+                user=self.admin,
+            )
+
+    def test_edit_blocked_once_accepted(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+        self.allocate_return_items(ret)
+        accept_return(return_id=ret.id, user=self.admin)
+
+        with self.assertRaises(ValidationError):
+            update_return_items(
+                return_id=ret.id,
+                items=[{"invoice_item_id": item.id, "quantity": 1}],
+                user=self.admin,
+            )
+
+    def test_cancel_soft_deletes_and_disappears_from_list(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+
+        cancel_return(return_id=ret.id, user=self.admin)
+
+        self.assertFalse(Return.objects.filter(id=ret.id).exists())
+        self.assertTrue(Return.all_objects.get(id=ret.id).is_deleted)
+        # Invoice and inventory are untouched — a pending return never had
+        # any side effect to reverse.
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.credit_outstanding, Decimal("400"))
+        self.assertEqual(Inventory.objects.get(product=product).quantity, 6)
+
+    def test_cancel_blocked_once_accepted(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+        self.allocate_return_items(ret)
+        accept_return(return_id=ret.id, user=self.admin)
+
+        with self.assertRaises(ValidationError):
+            cancel_return(return_id=ret.id, user=self.admin)
+
+    def test_can_create_another_return_after_cancelling(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+
+        ret_a = create_return(invoice_id=invoice.id,
+                               items=[{"invoice_item_id": item.id, "quantity": 2}],
+                               user=self.admin)
+        cancel_return(return_id=ret_a.id, user=self.admin)
+
+        ret_b = create_return(invoice_id=invoice.id,
+                               items=[{"invoice_item_id": item.id, "quantity": 2}],
+                               user=self.admin)
+        self.assertEqual(ret_b.items.first().quantity, 2)
+
+    def test_can_create_another_return_after_accepting(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+
+        ret_a = create_return(invoice_id=invoice.id,
+                               items=[{"invoice_item_id": item.id, "quantity": 2}],
+                               user=self.admin)
+        self.allocate_return_items(ret_a)
+        accept_return(return_id=ret_a.id, user=self.admin)
+
+        item.refresh_from_db()
+        self.assertEqual(item.returnable_quantity, 2)
+
+        ret_b = create_return(invoice_id=invoice.id,
+                               items=[{"invoice_item_id": item.id, "quantity": 2}],
+                               user=self.admin)
+        self.assertEqual(ret_b.items.first().quantity, 2)
+
+    def test_non_admin_can_edit_and_cancel_own_pending_return(self):
+        # Return create/edit/cancel are IsAuthenticated (same level as
+        # create) — only accept is admin-gated.
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+
+        normal = make_normal_user()
+        view = ReturnRetrieveUpdateDestroyView.as_view()
+
+        patch_request = self.factory.patch(
+            f"/billing/returns/{ret.id}/",
+            {"items": [{"invoice_item_id": item.id, "quantity": 1}]},
+            format="json",
+        )
+        force_authenticate(patch_request, user=normal)
+        patch_response = view(patch_request, pk=ret.id)
+        self.assertEqual(patch_response.status_code, 200)
+
+        delete_request = self.factory.delete(f"/billing/returns/{ret.id}/")
+        force_authenticate(delete_request, user=normal)
+        delete_response = view(delete_request, pk=ret.id)
+        self.assertEqual(delete_response.status_code, 200)
+
+    def test_unauthenticated_gets_401_on_update_and_cancel(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+
+        view = ReturnRetrieveUpdateDestroyView.as_view()
+
+        patch_request = self.factory.patch(
+            f"/billing/returns/{ret.id}/",
+            {"items": [{"invoice_item_id": item.id, "quantity": 1}]},
+            format="json",
+        )
+        patch_response = view(patch_request, pk=ret.id)
+        self.assertEqual(patch_response.status_code, 401)
+
+        delete_request = self.factory.delete(f"/billing/returns/{ret.id}/")
+        delete_response = view(delete_request, pk=ret.id)
+        self.assertEqual(delete_response.status_code, 401)
+
+    def test_update_and_cancel_query_counts(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+
+        view = ReturnRetrieveUpdateDestroyView.as_view()
+
+        with CaptureQueriesContext(connection) as ctx:
+            patch_request = self.factory.patch(
+                f"/billing/returns/{ret.id}/",
+                {"items": [{"invoice_item_id": item.id, "quantity": 1}]},
+                format="json",
+            )
+            force_authenticate(patch_request, user=self.admin)
+            response = view(patch_request, pk=ret.id)
+            self.assertEqual(response.status_code, 200)
+        self.assertLess(len(ctx.captured_queries), 20)
+
+        with CaptureQueriesContext(connection) as ctx:
+            delete_request = self.factory.delete(f"/billing/returns/{ret.id}/")
+            force_authenticate(delete_request, user=self.admin)
+            response = view(delete_request, pk=ret.id)
+            self.assertEqual(response.status_code, 200)
+        self.assertLess(len(ctx.captured_queries), 12)
 
 
 class PaymentAtomicityTests(BillingTestBase):

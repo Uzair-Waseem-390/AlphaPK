@@ -8,9 +8,11 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
 import InvoiceStatusBadge from '../../components/billing/InvoiceStatusBadge';
 import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+import ReturnForm from '../../components/billing/ReturnForm';
 
 // Pulls the clearest human-readable message out of a DRF error response.
 // Shelf-allocation errors come back keyed by "shelf_allocations" (a string),
@@ -44,6 +46,8 @@ const ReturnDetailPage = () => {
     // Per return-item shelf allocation UI state, keyed by return item id:
     // { allocations: [{shelf_id, quantity}], saving: bool, error: string }
     const [shelfState, setShelfState] = useState({});
+    const [showEditForm, setShowEditForm] = useState(false);
+    const [formLoading, setFormLoading] = useState(false);
 
     useEffect(() => {
         fetchReturnDetails();
@@ -153,6 +157,57 @@ const ReturnDetailPage = () => {
         }
     };
 
+    const handleUpdateReturn = async (data) => {
+        setFormLoading(true);
+        try {
+            await billingApi.returns.update(returnId, data);
+            setShowEditForm(false);
+            await fetchReturnDetails();
+        } catch (error) {
+            console.error('Failed to update return:', error);
+            alert(extractErrorMessage(error, 'Failed to update return.'));
+        } finally {
+            setFormLoading(false);
+        }
+    };
+
+    const handleCancelReturn = async () => {
+        if (!window.confirm('Cancel this return? This cannot be undone.')) return;
+        try {
+            await billingApi.returns.cancel(returnId);
+            alert('Return cancelled.');
+            navigate('/billing/returns');
+        } catch (error) {
+            console.error('Failed to cancel return:', error);
+            alert(extractErrorMessage(error, 'Failed to cancel return.'));
+        }
+    };
+
+    // Resolves each return item's current line back to {invoice_item_id,
+    // quantity} for the edit form, matching by product_code against the
+    // related invoice's items (same pattern used to seed shelf candidates).
+    const getInitialEditItems = () => {
+        if (!returnItem?.items || !invoice?.items) return [];
+        return returnItem.items.map((item) => {
+            const invoiceItem = invoice.items.find((ii) => ii.product_code === item.product_code);
+            return {
+                invoice_item_id: invoiceItem?.id || '',
+                quantity: item.quantity,
+            };
+        });
+    };
+
+    // total_return_amount on the return record itself is only computed at
+    // accept_return time (by design — see the Return model's docstring);
+    // each ReturnItem's line_total is already snapshotted at creation, so
+    // preview the header total as their sum while pending instead of
+    // showing the not-yet-computed 0.00.
+    const displayReturnTotal = () => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(returnItem.total_return_amount) || 0)
+            : (returnItem.items || []).reduce((sum, item) => sum + (parseFloat(item.line_total) || 0), 0)
+    );
+
     const getStatusBadge = (status) => {
         const variants = {
             pending: 'pending',
@@ -196,9 +251,17 @@ const ReturnDetailPage = () => {
                 </div>
                 <div className="flex gap-2">
                     {returnItem.status === 'pending' && isAdmin && (
-                        <Button variant="success" onClick={handleAcceptReturn}>
-                            Accept Return
-                        </Button>
+                        <>
+                            <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                                Edit
+                            </Button>
+                            <Button variant="danger" onClick={handleCancelReturn}>
+                                Cancel Return
+                            </Button>
+                            <Button variant="success" onClick={handleAcceptReturn}>
+                                Accept Return
+                            </Button>
+                        </>
                     )}
                     <Link to="/billing/returns">
                         <Button variant="secondary">
@@ -223,9 +286,7 @@ const ReturnDetailPage = () => {
                     <div>
                         <p className="text-sm text-neutral-500">Total Return Amount</p>
                         <p className="font-medium text-primary-600">
-                            {typeof returnItem.total_return_amount === 'string'
-                                ? parseFloat(returnItem.total_return_amount).toFixed(2)
-                                : '0.00'}
+                            {displayReturnTotal().toFixed(2)}
                         </p>
                     </div>
                     <div>
@@ -285,9 +346,7 @@ const ReturnDetailPage = () => {
                                 <tr className="text-lg">
                                     <td colSpan="3" className="px-3 py-2 text-right font-bold">Total Return Amount:</td>
                                     <td className="px-3 py-2 text-right font-bold text-primary-600">
-                                        {typeof returnItem.total_return_amount === 'string'
-                                            ? parseFloat(returnItem.total_return_amount).toFixed(2)
-                                            : '0.00'}
+                                        {displayReturnTotal().toFixed(2)}
                                     </td>
                                 </tr>
                             </tfoot>
@@ -421,11 +480,35 @@ const ReturnDetailPage = () => {
             {/* Actions */}
             {returnItem.status === 'pending' && isAdmin && (
                 <div className="flex gap-3 pt-4 border-t border-neutral-200">
+                    <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                        Edit
+                    </Button>
+                    <Button variant="danger" onClick={handleCancelReturn}>
+                        Cancel Return
+                    </Button>
                     <Button variant="success" onClick={handleAcceptReturn}>
                         Accept Return
                     </Button>
                 </div>
             )}
+
+            {/* Edit Return Modal */}
+            <Modal
+                isOpen={showEditForm}
+                onClose={() => setShowEditForm(false)}
+                title="Edit Return"
+                size="lg"
+            >
+                <ReturnForm
+                    onSubmit={handleUpdateReturn}
+                    onCancel={() => setShowEditForm(false)}
+                    loading={formLoading}
+                    orderItems={invoice?.items || []}
+                    initialItems={getInitialEditItems()}
+                    initialNote={returnItem.note}
+                    submitLabel="Save Changes"
+                />
+            </Modal>
         </div>
     );
 };

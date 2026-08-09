@@ -24,6 +24,7 @@ from .views import (
     PaymentListCreateView,
     ReturnAcceptView,
     ReturnListCreateView,
+    ReturnRetrieveUpdateDestroyView,
     AllReturnsView,
     SavedPDFDeleteView,
     SetInvoiceItemShelfAllocationsView,
@@ -52,6 +53,7 @@ urlpatterns = [
     path("invoices/<int:invoice_id>/returns/", ReturnListCreateView.as_view(), name="return-list-create"),
     path("returns/", AllReturnsView.as_view(), name="return-list-all"),
     path("returns/<int:pk>/accept/", ReturnAcceptView.as_view(), name="return-accept"),
+    path("returns/<int:pk>/", ReturnRetrieveUpdateDestroyView.as_view(), name="return-detail"),
 
     # Payment summaries
     path("invoices/<int:pk>/payment-summary/", InvoicePaymentSummaryView.as_view(), name="invoice-payment-summary"),

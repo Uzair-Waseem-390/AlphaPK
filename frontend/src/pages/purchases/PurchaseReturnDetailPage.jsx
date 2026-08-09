@@ -1,17 +1,20 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import Modal from '../../components/ui/Modal';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+import ReturnForm from '../../components/purchases/ReturnForm';
 
 const PurchaseReturnDetailPage = () => {
     const { returnId } = useParams();
+    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
@@ -22,6 +25,8 @@ const PurchaseReturnDetailPage = () => {
     const [allocationDrafts, setAllocationDrafts] = useState({});
     const [savingAllocationFor, setSavingAllocationFor] = useState(null);
     const [acceptError, setAcceptError] = useState('');
+    const [showEditForm, setShowEditForm] = useState(false);
+    const [formLoading, setFormLoading] = useState(false);
 
     useEffect(() => {
         fetchReturnDetails();
@@ -123,6 +128,78 @@ const PurchaseReturnDetailPage = () => {
         }
     };
 
+    const handleUpdateReturn = async (data) => {
+        setFormLoading(true);
+        try {
+            await purchasesApi.returns.update(returnId, data);
+            setShowEditForm(false);
+            await fetchReturnDetails();
+        } catch (error) {
+            console.error('Failed to update return:', error);
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message
+                || error.response?.data?.items || 'Failed to update return';
+            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+        } finally {
+            setFormLoading(false);
+        }
+    };
+
+    const handleCancelReturn = async () => {
+        if (!window.confirm('Cancel this return? This cannot be undone.')) return;
+        try {
+            await purchasesApi.returns.cancel(returnId);
+            alert('Return cancelled.');
+            navigate('/purchases/returns');
+        } catch (error) {
+            console.error('Failed to cancel return:', error);
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to cancel return';
+            alert(errorMsg);
+        }
+    };
+
+    // unit_price/total_amount on a return item are only snapshotted from the
+    // original purchase item when the return is ACCEPTED (by design) — a
+    // pending return legitimately has 0.00 there. Preview the same total the
+    // accept step will compute (gross + gst - wht, matching
+    // purchases.utils.calculate_total_price) from the original order item's
+    // unit_price, so a pending return doesn't display a misleading 0.00.
+    const previewItemTotal = (item) => {
+        if (!order?.items) return 0;
+        const orderItem = order.items.find((oi) => oi.product_code === item.product_code);
+        if (!orderItem) return 0;
+        const unitPrice = parseFloat(orderItem.unit_price) || 0;
+        const gross = unitPrice * item.quantity;
+        const gstAmount = gross * ((parseFloat(item.gst) || 0) / 100);
+        const whtAmount = gross * ((parseFloat(item.wht) || 0) / 100);
+        return gross + gstAmount - whtAmount;
+    };
+
+    const displayItemTotal = (item) => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(item.total_amount) || 0)
+            : previewItemTotal(item)
+    );
+
+    const displayReturnTotal = () => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(returnItem.total_return_amount) || 0)
+            : (returnItem.items || []).reduce((sum, item) => sum + previewItemTotal(item), 0)
+    );
+
+    // Resolves each return item's current line back to {purchase_item_id,
+    // quantity} for the edit form — same product_code -> order.items match
+    // already used above to fetch candidate shelves.
+    const getInitialEditItems = () => {
+        if (!returnItem?.items || !order?.items) return [];
+        return returnItem.items.map((item) => {
+            const orderItem = order.items.find((oi) => oi.product_code === item.product_code);
+            return {
+                purchase_item_id: orderItem?.id || '',
+                quantity: item.quantity,
+            };
+        });
+    };
+
     const getStatusBadge = (status) => {
         const variants = {
             pending: 'pending',
@@ -166,9 +243,17 @@ const PurchaseReturnDetailPage = () => {
                 </div>
                 <div className="flex gap-2">
                     {returnItem.status === 'pending' && isAdmin && (
-                        <Button variant="success" onClick={handleAcceptReturn}>
-                            Accept Return
-                        </Button>
+                        <>
+                            <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                                Edit
+                            </Button>
+                            <Button variant="danger" onClick={handleCancelReturn}>
+                                Cancel Return
+                            </Button>
+                            <Button variant="success" onClick={handleAcceptReturn}>
+                                Accept Return
+                            </Button>
+                        </>
                     )}
                     <Link to="/purchases/returns">
                         <Button variant="secondary">
@@ -199,9 +284,7 @@ const PurchaseReturnDetailPage = () => {
                     <div>
                         <p className="text-sm text-neutral-500">Total Return Amount (PKR)</p>
                         <p className="font-medium text-primary-600">
-                            {typeof returnItem.total_return_amount === 'string'
-                                ? parseFloat(returnItem.total_return_amount).toFixed(2)
-                                : '0.00'}
+                            {displayReturnTotal().toFixed(2)}
                         </p>
                     </div>
                     <div>
@@ -285,9 +368,7 @@ const PurchaseReturnDetailPage = () => {
                                         <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
                                         <td className="px-3 py-2 text-sm">{item.wht || 0}%</td>
                                         <td className="px-3 py-2 text-sm text-right font-medium">
-                                            {typeof item.total_amount === 'string'
-                                                ? parseFloat(item.total_amount).toFixed(2)
-                                                : '0.00'}
+                                            {displayItemTotal(item).toFixed(2)}
                                         </td>
                                     </tr>
                                 ))}
@@ -296,9 +377,7 @@ const PurchaseReturnDetailPage = () => {
                                 <tr className="text-lg">
                                     <td colSpan="5" className="px-3 py-2 text-right font-bold">Total Return Amount:</td>
                                     <td className="px-3 py-2 text-right font-bold text-primary-600">
-                                        {typeof returnItem.total_return_amount === 'string'
-                                            ? parseFloat(returnItem.total_return_amount).toFixed(2)
-                                            : '0.00'}
+                                        {displayReturnTotal().toFixed(2)}
                                     </td>
                                 </tr>
                             </tfoot>
@@ -400,11 +479,35 @@ const PurchaseReturnDetailPage = () => {
             {/* Actions */}
             {returnItem.status === 'pending' && isAdmin && (
                 <div className="flex gap-3 pt-4 border-t border-neutral-200">
+                    <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                        Edit
+                    </Button>
+                    <Button variant="danger" onClick={handleCancelReturn}>
+                        Cancel Return
+                    </Button>
                     <Button variant="success" onClick={handleAcceptReturn}>
                         Accept Return
                     </Button>
                 </div>
             )}
+
+            {/* Edit Return Modal */}
+            <Modal
+                isOpen={showEditForm}
+                onClose={() => setShowEditForm(false)}
+                title="Edit Return"
+                size="lg"
+            >
+                <ReturnForm
+                    onSubmit={handleUpdateReturn}
+                    onCancel={() => setShowEditForm(false)}
+                    loading={formLoading}
+                    orderItems={order?.items || []}
+                    initialItems={getInitialEditItems()}
+                    initialNote={returnItem.note}
+                    submitLabel="Save Changes"
+                />
+            </Modal>
         </div>
     );
 };
