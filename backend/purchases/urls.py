@@ -6,6 +6,9 @@ from .views import (
     CategoryRetrieveUpdateDestroyView,
     ShelfListCreateView,
     ShelfRetrieveUpdateDestroyView,
+    ShelfStockListView,
+    CandidateShelvesForProductView,
+    MoveStockView,
 
     # Supplier
     SupplierListCreateView,
@@ -18,6 +21,10 @@ from .views import (
     # Product
     ProductListCreateView,
     ProductRetrieveUpdateDestroyView,
+
+    # Purchase item / return item shelf allocations
+    SetPurchaseItemShelfAllocationsView,
+    SetPurchaseReturnItemShelfAllocationsView,
 
     # Purchase Orders
     PurchaseOrderListCreateView,
@@ -66,7 +73,13 @@ urlpatterns = [
     path("categories/<int:pk>/", CategoryRetrieveUpdateDestroyView.as_view(), name="category-detail"),
 
     path("shelves/",             ShelfListCreateView.as_view(),                name="shelf-list-create"),
+
+    # static paths (candidates/, move/) BEFORE dynamic <int:pk> paths
+    path("shelves/candidates/",  CandidateShelvesForProductView.as_view(),     name="shelf-candidates"),
+    path("shelves/move/",        MoveStockView.as_view(),                      name="shelf-move-stock"),
+
     path("shelves/<int:pk>/",    ShelfRetrieveUpdateDestroyView.as_view(),     name="shelf-detail"),
+    path("shelves/<int:pk>/stock/", ShelfStockListView.as_view(),              name="shelf-stock-list"),
 
     # -----------------------------------------------------------------------
     # Supplier
@@ -141,6 +154,17 @@ urlpatterns = [
     path("orders/<int:pk>/pdf/",
          PurchaseOrderSavedPDFListView.as_view(),
          name="purchase-order-pdf-list"),
+
+    # -----------------------------------------------------------------------
+    # Purchase item / return item shelf allocations
+    # -----------------------------------------------------------------------
+    path("purchase-items/<int:pk>/shelf-allocations/",
+         SetPurchaseItemShelfAllocationsView.as_view(),
+         name="purchase-item-shelf-allocations"),
+
+    path("return-items/<int:pk>/shelf-allocations/",
+         SetPurchaseReturnItemShelfAllocationsView.as_view(),
+         name="purchase-return-item-shelf-allocations"),
 
     # -----------------------------------------------------------------------
     # Supplier Payments (nested under order)

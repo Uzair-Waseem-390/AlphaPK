@@ -2,7 +2,10 @@ from decimal import Decimal
 
 from rest_framework import serializers
 
-from .models import Customer, Invoice, InvoiceItem, Payment, Return, ReturnItem
+from .models import (
+    Customer, Invoice, InvoiceItem, InvoiceItemShelfAllocation,
+    InvoiceReturnItemShelfAllocation, Payment, Return, ReturnItem,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -173,6 +176,60 @@ class CustomerWriteSerializer(serializers.ModelSerializer):
 
 
 # ---------------------------------------------------------------------------
+# Shelf allocations — invoice line consumption / return line put-away
+# ---------------------------------------------------------------------------
+
+class CandidateShelfSerializer(serializers.Serializer):
+    """
+    Dropdown source for consumption allocations (sale lines) — shelves that
+    currently hold stock of a given product, with the quantity available on
+    each (from purchases.selectors.get_candidate_shelves_for_product's
+    annotation). Defined locally to avoid coupling to purchases' serializer
+    module, which is being changed in parallel.
+    """
+    id = serializers.IntegerField()
+    name = serializers.CharField()
+    available_quantity = serializers.IntegerField()
+
+
+class ShelfAllocationInputSerializer(serializers.Serializer):
+    shelf_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class SetShelfAllocationsSerializer(serializers.Serializer):
+    allocations = ShelfAllocationInputSerializer(many=True)
+
+    def validate_allocations(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one allocation is required.")
+        shelf_ids = [a["shelf_id"] for a in value]
+        if len(shelf_ids) != len(set(shelf_ids)):
+            raise serializers.ValidationError("Duplicate shelf_id in allocations.")
+        return value
+
+
+class InvoiceItemShelfAllocationReadSerializer(serializers.ModelSerializer):
+    shelf_id   = serializers.IntegerField(read_only=True)
+    shelf_name = serializers.CharField(source="shelf.name", read_only=True)
+
+    class Meta:
+        model = InvoiceItemShelfAllocation
+        fields = ["id", "shelf_id", "shelf_name", "quantity"]
+        read_only_fields = fields
+
+
+class ReturnItemShelfAllocationReadSerializer(serializers.ModelSerializer):
+    shelf_id   = serializers.IntegerField(read_only=True)
+    shelf_name = serializers.CharField(source="shelf.name", read_only=True)
+
+    class Meta:
+        model = InvoiceReturnItemShelfAllocation
+        fields = ["id", "shelf_id", "shelf_name", "quantity"]
+        read_only_fields = fields
+
+
+# ---------------------------------------------------------------------------
 # Invoice Item — nested inside invoice
 # ---------------------------------------------------------------------------
 
@@ -180,12 +237,15 @@ class InvoiceItemReadSerializer(serializers.ModelSerializer):
     product_name        = serializers.CharField(source="product.name", read_only=True)
     product_code        = serializers.CharField(source="product.code", read_only=True)
     returnable_quantity = serializers.IntegerField(read_only=True)
+    allocated_quantity  = serializers.IntegerField(read_only=True)
+    shelf_allocations   = InvoiceItemShelfAllocationReadSerializer(many=True, read_only=True)
 
     class Meta:
         model = InvoiceItem
         fields = [
             "id", "product", "product_name", "product_code",
             "quantity", "returned_quantity", "returnable_quantity",
+            "allocated_quantity", "shelf_allocations",
             # User-supplied per line
             "discount", "gst", "wht",
             # Computed at confirmation
@@ -369,8 +429,10 @@ class ReturnCreateSerializer(serializers.Serializer):
 
 
 class ReturnItemReadSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source="invoice_item.product.name", read_only=True)
-    product_code = serializers.CharField(source="invoice_item.product.code", read_only=True)
+    product_name       = serializers.CharField(source="invoice_item.product.name", read_only=True)
+    product_code       = serializers.CharField(source="invoice_item.product.code", read_only=True)
+    allocated_quantity = serializers.IntegerField(read_only=True)
+    shelf_allocations  = ReturnItemShelfAllocationReadSerializer(many=True, read_only=True)
 
     class Meta:
         model = ReturnItem
@@ -378,6 +440,7 @@ class ReturnItemReadSerializer(serializers.ModelSerializer):
             "id", "product_name", "product_code",
             "quantity", "selling_price", "cogs_per_unit",
             "line_total", "line_cogs",
+            "allocated_quantity", "shelf_allocations",
         ]
         read_only_fields = fields
 

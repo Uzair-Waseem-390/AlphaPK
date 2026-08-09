@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
@@ -68,13 +69,11 @@ const ReturnList = ({ returns, onAccept, isAdmin }) => {
                         </div>
                         <div className="text-right">
                             {returnItem.status === 'pending' && isAdmin && (
-                                <Button
-                                    size="sm"
-                                    variant="success"
-                                    onClick={() => onAccept(returnItem.id)}
-                                >
-                                    Accept Return
-                                </Button>
+                                <Link to={`/purchases/returns/${returnItem.id}`}>
+                                    <Button size="sm" variant="success">
+                                        Allocate & Accept
+                                    </Button>
+                                </Link>
                             )}
                             {returnItem.accepted_at && (
                                 <p className="text-xs text-neutral-400 mt-2">

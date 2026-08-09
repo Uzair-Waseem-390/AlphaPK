@@ -59,6 +59,26 @@ export const billingApi = {
         deletePDF: (pdfId) => api.delete(`/billing/pdf/${pdfId}/`),
     },
 
+    // Shelves (for invoice-line/return shelf allocation)
+    shelves: {
+        // Shelves that currently hold stock (qty > 0) of a given product —
+        // the dropdown source for a sale line's consumption allocation.
+        getCandidates: (productId) =>
+            api.get(`/billing/shelves/candidates/?product_id=${productId}`),
+    },
+
+    // Invoice Item shelf allocations (consumption plan while draft)
+    invoiceItems: {
+        setShelfAllocations: (invoiceItemId, allocations) =>
+            api.post(`/billing/invoice-items/${invoiceItemId}/shelf-allocations/`, { allocations }),
+    },
+
+    // Return Item shelf allocations (put-away plan while pending)
+    returnItems: {
+        setShelfAllocations: (returnItemId, allocations) =>
+            api.post(`/billing/return-items/${returnItemId}/shelf-allocations/`, { allocations }),
+    },
+
     // Payments
     payments: {
         getAll: (params = {}) => {

@@ -12,6 +12,7 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from purchases.models import Category, Inventory, Product, PurchaseReturn, Shelf
 from purchases.services import (
     confirm_purchase_order, create_purchase_order, create_supplier,
+    set_purchase_item_shelf_allocations,
 )
 from rates.services import create_rate
 from users.models import User
@@ -20,7 +21,9 @@ from .models import Invoice, Payment
 from .services import (
     DEFAULT_DUE_DATE_DAYS, accept_return, confirm_invoice, create_customer,
     create_invoice, create_payment, create_return, delete_invoice,
-    delete_payment, update_invoice_due_date, update_invoice_items,
+    delete_payment, set_invoice_item_shelf_allocations,
+    set_return_item_shelf_allocations, update_invoice_due_date,
+    update_invoice_items,
 )
 from .views import (
     CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
@@ -56,7 +59,7 @@ class BillingTestBase(TestCase):
                              unit_cost="50", selling_price="100"):
         """Product with a rate and a confirmed PO providing FIFO stock."""
         product = Product.objects.create(
-            name=name, code=code, category=self.category, shelf=self.shelf,
+            name=name, code=code, category=self.category,
         )
         create_rate(product_id=product.id, selling_price=Decimal(selling_price), user=self.admin)
         order = create_purchase_order(
@@ -64,8 +67,30 @@ class BillingTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": stock, "unit_price": Decimal(unit_cost)}],
             user=self.admin,
         )
+        for item in order.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         confirm_purchase_order(order_id=order.id, user=self.admin)
         return product
+
+    def allocate_invoice_items(self, invoice):
+        for item in invoice.items.all():
+            set_invoice_item_shelf_allocations(
+                invoice_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
+
+    def allocate_return_items(self, return_record):
+        for return_item in return_record.items.all():
+            set_return_item_shelf_allocations(
+                return_item_id=return_item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": return_item.quantity}],
+                user=self.admin,
+            )
 
     def make_confirmed_invoice(self, product, quantity=4):
         invoice = create_invoice(
@@ -73,6 +98,7 @@ class BillingTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": quantity}],
             user=self.admin,
         )
+        self.allocate_invoice_items(invoice)
         return confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
 
@@ -163,6 +189,7 @@ class InvoiceLifecycleTests(BillingTestBase):
         ret = create_return(invoice_id=invoice.id,
                             items=[{"invoice_item_id": item.id, "quantity": 2}],
                             user=self.admin)
+        self.allocate_return_items(ret)
         accept_return(return_id=ret.id, user=self.admin)
 
         invoice.refresh_from_db()
@@ -372,6 +399,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             payment_type="advance", advance_amount=Decimal("150"),
             user=self.admin,
         )
+        self.allocate_invoice_items(invoice)
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
         self.assertEqual(invoice.grand_total, Decimal("400"))
@@ -398,6 +426,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
         Invoice.objects.filter(pk=invoice.pk).update(advance_amount=Decimal("500"))
         Payment.objects.filter(invoice=invoice).update(amount=Decimal("500"))
 
+        self.allocate_invoice_items(invoice)
         cash_before_confirm = CashFlow.objects.get(pk=1).cash_in_hand
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
@@ -514,6 +543,7 @@ class InvoiceDueDateTests(BillingTestBase):
             items=[{"product_id": product.id, "quantity": 1}],
             payment_due_date=past_date, user=self.admin,
         )
+        self.allocate_invoice_items(overdue_invoice)
         confirm_invoice(invoice_id=overdue_invoice.id, user=self.admin)
 
         not_yet_due_invoice = create_invoice(
@@ -521,6 +551,7 @@ class InvoiceDueDateTests(BillingTestBase):
             items=[{"product_id": product.id, "quantity": 1}],
             payment_due_date=future_date, user=self.admin,
         )
+        self.allocate_invoice_items(not_yet_due_invoice)
         confirm_invoice(invoice_id=not_yet_due_invoice.id, user=self.admin)
 
         # A draft with a past due date must never appear (drafts carry no
@@ -546,12 +577,14 @@ class InvoiceDueDateTests(BillingTestBase):
             items=[{"product_id": product.id, "quantity": 4}],
             payment_due_date=past_date, user=self.admin,
         )
+        self.allocate_invoice_items(invoice)
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
         item = invoice.items.first()
 
         ret = create_return(invoice_id=invoice.id,
                             items=[{"invoice_item_id": item.id, "quantity": 1}],
                             user=self.admin)
+        self.allocate_return_items(ret)
         accept_return(return_id=ret.id, user=self.admin)
 
         invoice.refresh_from_db()
@@ -585,6 +618,7 @@ class InvoiceDueDateTests(BillingTestBase):
             items=[{"product_id": product.id, "quantity": 1}],
             payment_due_date=past_date, user=self.admin,
         )
+        self.allocate_invoice_items(invoice)
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
         future_date = timezone.localtime(timezone.now()).date() + timedelta(days=10)
@@ -604,6 +638,7 @@ class InvoiceDueDateTests(BillingTestBase):
             items=[{"product_id": product.id, "quantity": 1}],
             payment_due_date=past_date, user=self.admin,
         )
+        self.allocate_invoice_items(invoice)
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
         request = self.factory.patch(

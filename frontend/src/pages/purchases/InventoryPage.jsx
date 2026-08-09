@@ -21,7 +21,6 @@ const InventoryPage = () => {
 
     const [searchTerm, setSearchTerm] = useState('');
     const [categories, setCategories] = useState([]);
-    const [shelves, setShelves] = useState([]);
     const [showFilters, setShowFilters] = useState(false);
     const [totalStock, setTotalStock] = useState(0);
     const [stats, setStats] = useState(null);
@@ -36,9 +35,11 @@ const InventoryPage = () => {
     const [productDetail, setProductDetail] = useState(null);
     const [detailLoading, setDetailLoading] = useState(false);
 
-    // Search is routed through the same query params as category/shelf
-    // filters — the backend supports search/category/shelf on all three
-    // inventory list endpoints (all / low-stock / out-of-stock).
+    // Search is routed through the same query params as the category
+    // filter — the backend supports search/category on all three
+    // inventory list endpoints (all / low-stock / out-of-stock). Shelf is
+    // no longer a product-level filter here (a product can now span
+    // multiple shelves) — see the Shelves page for per-shelf breakdowns.
     const fetchInventoryPage = (params) => {
         const p = { ...params };
         if (searchTerm) p.search = searchTerm;
@@ -100,16 +101,11 @@ const InventoryPage = () => {
 
     const loadLookups = async () => {
         try {
-            // page_size override — dropdown needs every category/shelf, not
+            // page_size override — dropdown needs every category, not
             // just one paginated page of them.
-            const [catsRes, shelvesRes] = await Promise.all([
-                purchasesApi.categories.getAll({ page_size: 500 }),
-                purchasesApi.shelves.getAll({ page_size: 500 }),
-            ]);
+            const catsRes = await purchasesApi.categories.getAll({ page_size: 500 });
             const cats = catsRes?.results || catsRes || [];
-            const shelvesList = shelvesRes?.results || shelvesRes || [];
             setCategories(cats.filter(c => !c.is_deleted));
-            setShelves(shelvesList.filter(s => !s.is_deleted));
         } catch (error) {
             console.error('Failed to load lookups:', error);
         }
@@ -135,12 +131,6 @@ const InventoryPage = () => {
             label: 'Category',
             type: 'select',
             options: categories.map(c => ({ value: c.id, label: c.name })),
-        },
-        {
-            name: 'shelf',
-            label: 'Shelf',
-            type: 'select',
-            options: shelves.map(s => ({ value: s.id, label: s.name })),
         },
     ];
 
@@ -184,11 +174,6 @@ const InventoryPage = () => {
             key: 'product',
             label: 'Category',
             render: (value) => value?.category?.name || 'N/A'
-        },
-        {
-            key: 'product',
-            label: 'Shelf',
-            render: (value) => value?.shelf?.name || 'N/A'
         },
         {
             key: 'quantity',
@@ -390,10 +375,6 @@ const InventoryPage = () => {
                             <div>
                                 <p className="text-sm text-neutral-500">Category</p>
                                 <p className="font-medium">{productDetail.product?.category?.name || 'N/A'}</p>
-                            </div>
-                            <div>
-                                <p className="text-sm text-neutral-500">Shelf</p>
-                                <p className="font-medium">{productDetail.product?.shelf?.name || 'N/A'}</p>
                             </div>
                             <div>
                                 <p className="text-sm text-neutral-500">Current Quantity</p>

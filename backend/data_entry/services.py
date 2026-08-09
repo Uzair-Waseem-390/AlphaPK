@@ -144,7 +144,14 @@ def create_opening_stock(*, items: list, user):
         - PurchaseOrder : confirmed, is_data_entry=True, supplier=SYS-OPENING
         - PurchaseItem  : one per product, remaining_quantity=quantity (FIFO ready)
         - Inventory     : quantity += amount per product
+        - ShelfStock    : quantity += amount on the shelf chosen for that item
         - CashFlow      : NO change (not a financial transaction)
+
+    Each item dict MUST include a `shelf_id` (the shelf the caller chose for
+    that product's opening stock) — forwarded as-is to
+    purchases.services.create_opening_stock_order, which requires it and
+    raises ValidationError if missing. No default is invented here; the
+    user must pick a shelf for every item.
     """
     from purchases.models import Supplier
     from purchases.selectors import get_product_by_id

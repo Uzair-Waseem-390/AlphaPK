@@ -6,11 +6,14 @@ from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from billing.models import Invoice
-from billing.services import confirm_invoice, create_customer, create_invoice
+from billing.services import (
+    confirm_invoice, create_customer, create_invoice,
+    set_invoice_item_shelf_allocations,
+)
 from purchases.models import Category, LostInventoryRecord, Product, Shelf
 from purchases.services import (
     confirm_purchase_order, create_lost_inventory_record, create_purchase_order,
-    create_supplier,
+    create_supplier, set_purchase_item_shelf_allocations,
 )
 from rates.services import create_rate
 from users.models import User
@@ -39,7 +42,7 @@ class ReportsTestBase(TestCase):
 
     def make_stocked_product(self, code="P001", name="Product 1", *, stock=10):
         product = Product.objects.create(
-            name=name, code=code, category=self.category, shelf=self.shelf,
+            name=name, code=code, category=self.category,
         )
         create_rate(product_id=product.id, selling_price=Decimal("100"), user=self.admin)
         order = create_purchase_order(
@@ -47,6 +50,12 @@ class ReportsTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": stock, "unit_price": Decimal("50")}],
             user=self.admin,
         )
+        for item in order.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         confirm_purchase_order(order_id=order.id, user=self.admin)
         return product
 
@@ -56,6 +65,12 @@ class ReportsTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": quantity}],
             user=self.admin,
         )
+        for item in invoice.items.all():
+            set_invoice_item_shelf_allocations(
+                invoice_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
         if confirmed_on is not None:
             aware = timezone.make_aware(datetime.combine(confirmed_on, time(12, 0)))
@@ -99,7 +114,10 @@ class DateRangeFilterBoundaryTests(ReportsTestBase):
     def test_lost_inventory_report_date_filter_uses_record_created_at(self):
         product = self.make_stocked_product(stock=20)
         record = create_lost_inventory_record(
-            items=[{"product_id": product.id, "quantity": 2, "reason": "damaged"}],
+            items=[{
+                "product_id": product.id, "quantity": 2, "reason": "damaged",
+                "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 2}],
+            }],
             user=self.admin,
         )
         day = date(2026, 4, 1)

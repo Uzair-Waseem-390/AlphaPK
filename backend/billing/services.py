@@ -8,8 +8,8 @@ DEFAULT_DUE_DATE_DAYS = 7
 from rates.selectors import get_price_at_date
 
 from .models import (
-    Customer, FIFOLedger, Invoice, InvoiceItem,
-    Payment, Return, ReturnItem,
+    Customer, FIFOLedger, Invoice, InvoiceItem, InvoiceItemShelfAllocation,
+    InvoiceReturnItemShelfAllocation, Payment, Return, ReturnItem,
 )
 from .selectors import (
     get_available_purchase_batches,
@@ -18,6 +18,7 @@ from .selectors import (
     get_invoice_item_by_id,
     get_payment_by_id,
     get_return_by_id,
+    get_return_item_by_id,
 )
 
 # Single source of truth for identifying the system-generated advance
@@ -551,6 +552,86 @@ def update_invoice_items(
 
 
 @transaction.atomic
+def set_invoice_item_shelf_allocations(*, invoice_item_id: int, allocations: list[dict], user) -> InvoiceItem:
+    """
+    Replaces all shelf consumption allocations for one draft invoice line —
+    which shelf(s) this sale is physically fulfilled from. Only shelves
+    currently holding stock of this product are valid; confirm_invoice
+    re-validates availability at commit time. Duplicate shelf_id entries in
+    the input are merged so a double submission doesn't hit the unique
+    constraint.
+    """
+    from rest_framework.exceptions import ValidationError
+    from purchases.services import get_shelf_by_id, validate_shelf_consumption
+
+    invoice_item = get_invoice_item_by_id(invoice_item_id)
+    if invoice_item.invoice.status != Invoice.Status.DRAFT:
+        raise ValidationError({"status": "Shelf allocations can only be edited on a draft invoice."})
+
+    merged = {}
+    for a in allocations:
+        get_shelf_by_id(a["shelf_id"])
+        merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
+
+    total_allocated = sum(merged.values())
+    if total_allocated > invoice_item.quantity:
+        raise ValidationError({
+            "shelf_allocations": (
+                f"Allocated quantity ({total_allocated}) exceeds the sale "
+                f"quantity ({invoice_item.quantity})."
+            )
+        })
+
+    validate_shelf_consumption(product=invoice_item.product, allocations=[
+        {"shelf": get_shelf_by_id(shelf_id), "quantity": qty}
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+
+    invoice_item.shelf_allocations.all().delete()
+    InvoiceItemShelfAllocation.objects.bulk_create([
+        InvoiceItemShelfAllocation(invoice_item=invoice_item, shelf_id=shelf_id, quantity=qty)
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+    return invoice_item
+
+
+@transaction.atomic
+def set_return_item_shelf_allocations(*, return_item_id: int, allocations: list[dict], user) -> ReturnItem:
+    """
+    Replaces all shelf put-away allocations for one pending invoice return
+    item — where the customer-returned quantity is physically placed. Any
+    shelf is valid (put-away).
+    """
+    from rest_framework.exceptions import ValidationError
+    from purchases.services import get_shelf_by_id
+
+    return_item = get_return_item_by_id(return_item_id)
+    if return_item.return_record.status != Return.Status.PENDING:
+        raise ValidationError({"status": "Shelf allocations can only be edited on a pending return."})
+
+    merged = {}
+    for a in allocations:
+        get_shelf_by_id(a["shelf_id"])
+        merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
+
+    total_allocated = sum(merged.values())
+    if total_allocated > return_item.quantity:
+        raise ValidationError({
+            "shelf_allocations": (
+                f"Allocated quantity ({total_allocated}) exceeds the return "
+                f"quantity ({return_item.quantity})."
+            )
+        })
+
+    return_item.shelf_allocations.all().delete()
+    InvoiceReturnItemShelfAllocation.objects.bulk_create([
+        InvoiceReturnItemShelfAllocation(return_item=return_item, shelf_id=shelf_id, quantity=qty)
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+    return return_item
+
+
+@transaction.atomic
 def delete_invoice(*, invoice_id: int, user) -> None:
     """Only DRAFT invoices can be deleted. Refunds advance payment if applicable."""
     from rest_framework.exceptions import ValidationError
@@ -683,6 +764,22 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     if invoice.status != Invoice.Status.DRAFT:
         raise ValidationError({"status": "Only draft invoices can be confirmed."})
 
+    from purchases.services import validate_allocations_complete, validate_shelf_consumption
+
+    # Every sale line must already be fully allocated to shelf(s) it's
+    # physically fulfilled from, and each named shelf must currently hold
+    # enough of that product — checked before anything else is touched.
+    for item in invoice.items.all():
+        validate_allocations_complete(
+            product_name=item.product.name,
+            allocated=item.allocated_quantity,
+            required=item.quantity,
+        )
+        validate_shelf_consumption(
+            product=item.product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in item.shelf_allocations.all()],
+        )
+
     # Sorted in Python (not .order_by) for two reasons: a deterministic
     # product order means two concurrent confirms lock products in the same
     # sequence (no deadlocks), and sorting the PREFETCHED objects keeps
@@ -727,10 +824,18 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
             "line_total", "line_cogs", "line_profit",
         ])
 
-        # Deduct from inventory — through the shared writer so the
-        # inventory stats counters stay in sync.
-        from purchases.services import sync_inventory
+        # Deduct from inventory (global) and the specific shelf(s) this sale
+        # line is fulfilled from — through the shared writers so the
+        # inventory stats counters and shelf ledger stay in sync.
+        from purchases.services import apply_shelf_allocations, sync_inventory
+        from purchases.models import ShelfStockMovement
         sync_inventory(product=product, quantity_delta=-item.quantity, user=user)
+        apply_shelf_allocations(
+            product=product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in item.shelf_allocations.all()],
+            sign=-1, reason=ShelfStockMovement.Reason.SALE_CONSUMPTION,
+            reference=invoice.bill_number, user=user,
+        )
 
         # Stock Movement Report — bootstrap opening-balance invoices aren't
         # real sales, mirrors every other report's is_data_entry exclusion.
@@ -1006,10 +1111,26 @@ def accept_return(*, return_id: int, user) -> Return:
     if return_record.status != Return.Status.PENDING:
         raise ValidationError({"status": "Only pending returns can be accepted."})
 
+    # Sorted by product_id (mirrors confirm_invoice) so two concurrent
+    # accepts touching overlapping shelves always lock in the same order.
+    return_items = sorted(return_record.items.all(), key=lambda ri: ri.invoice_item.product_id)
+
+    from purchases.services import validate_allocations_complete
+
+    # Every returned line must be fully allocated to the shelf(s) it's put
+    # away on before we touch stock — any shelf is valid (put-away), no
+    # availability check needed.
+    for return_item in return_items:
+        validate_allocations_complete(
+            product_name=return_item.invoice_item.product.name,
+            allocated=return_item.allocated_quantity,
+            required=return_item.quantity,
+        )
+
     total_return_amount = Decimal("0")
     total_return_cogs   = Decimal("0")
 
-    for return_item in return_record.items.all():
+    for return_item in return_items:
         invoice_item  = return_item.invoice_item
         qty           = return_item.quantity
 
@@ -1027,8 +1148,17 @@ def accept_return(*, return_id: int, user) -> Return:
             "selling_price", "cogs_per_unit", "line_total", "line_cogs"
         ])
 
-        # Reverse FIFO and restore inventory
+        # Reverse FIFO and restore inventory (global), then put the returned
+        # quantity away on the shelf(s) the user chose (any shelf is valid).
         _reverse_fifo(invoice_item=invoice_item, return_quantity=qty)
+        from purchases.services import apply_shelf_allocations
+        from purchases.models import ShelfStockMovement
+        apply_shelf_allocations(
+            product=invoice_item.product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in return_item.shelf_allocations.all()],
+            sign=1, reason=ShelfStockMovement.Reason.INVOICE_RETURN_PUTAWAY,
+            reference=return_record.reference_number, user=user,
+        )
 
         # Track returned quantity on invoice item
         invoice_item.returned_quantity += qty

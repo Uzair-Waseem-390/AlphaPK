@@ -9,10 +9,14 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from billing.models import Customer
 from billing.services import (
     accept_return, confirm_invoice, create_customer, create_invoice,
-    create_payment, create_return, update_invoice_due_date,
+    create_payment, create_return, set_invoice_item_shelf_allocations,
+    set_return_item_shelf_allocations, update_invoice_due_date,
 )
 from purchases.models import Category, Shelf
-from purchases.services import confirm_purchase_order, create_purchase_order, create_supplier
+from purchases.services import (
+    confirm_purchase_order, create_purchase_order, create_supplier,
+    set_purchase_item_shelf_allocations,
+)
 from rates.services import create_rate
 from users.models import User
 
@@ -43,7 +47,7 @@ class CreditScoreTestBase(TestCase):
                              unit_cost="50", selling_price="100"):
         from purchases.models import Product
         product = Product.objects.create(
-            name=name, code=code, category=self.category, shelf=self.shelf,
+            name=name, code=code, category=self.category,
         )
         create_rate(product_id=product.id, selling_price=Decimal(selling_price), user=self.admin)
         order = create_purchase_order(
@@ -51,6 +55,12 @@ class CreditScoreTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": stock, "unit_price": Decimal(unit_cost)}],
             user=self.admin,
         )
+        for item in order.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         confirm_purchase_order(order_id=order.id, user=self.admin)
         return product
 
@@ -60,6 +70,12 @@ class CreditScoreTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": quantity}],
             payment_due_date=due_date, user=self.admin,
         )
+        for item in invoice.items.all():
+            set_invoice_item_shelf_allocations(
+                invoice_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         return confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
 
@@ -126,6 +142,12 @@ class CreditScoreRecalculationTests(CreditScoreTestBase):
         ret = create_return(invoice_id=invoice.id,
                             items=[{"invoice_item_id": item.id, "quantity": 1}],
                             user=self.admin)
+        for return_item in ret.items.all():
+            set_return_item_shelf_allocations(
+                return_item_id=return_item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": return_item.quantity}],
+                user=self.admin,
+            )
         accept_return(return_id=ret.id, user=self.admin)
 
         history_count_after = CreditScoreHistory.objects.filter(customer=self.customer).count()

@@ -8,6 +8,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
+import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 
 const PurchaseReturnDetailPage = () => {
     const { returnId } = useParams();
@@ -17,10 +18,64 @@ const PurchaseReturnDetailPage = () => {
     const [returnItem, setReturnItem] = useState(null);
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [candidateShelves, setCandidateShelves] = useState({});
+    const [allocationDrafts, setAllocationDrafts] = useState({});
+    const [savingAllocationFor, setSavingAllocationFor] = useState(null);
+    const [acceptError, setAcceptError] = useState('');
 
     useEffect(() => {
         fetchReturnDetails();
     }, [returnId]);
+
+    // The read serializer only exposes product_name/product_code on a return
+    // item (no product id) — resolve each item's product id by matching
+    // product_code against the related order's items (which do carry the id),
+    // then fetch candidate shelves (shelves currently holding stock) for it.
+    useEffect(() => {
+        if (!returnItem?.items || !order?.items) return;
+
+        setAllocationDrafts((prev) => {
+            const next = { ...prev };
+            returnItem.items.forEach((item) => {
+                next[item.id] = (item.shelf_allocations || []).map((a) => ({
+                    shelf_id: a.shelf.id,
+                    quantity: a.quantity,
+                }));
+            });
+            return next;
+        });
+
+        if (returnItem.status !== 'pending') return;
+
+        returnItem.items.forEach((item) => {
+            const orderItem = order.items.find((oi) => oi.product_code === item.product_code);
+            if (!orderItem) return;
+            purchasesApi.shelves.getCandidates(orderItem.product)
+                .then((res) => {
+                    const list = Array.isArray(res) ? res : (res?.results ?? []);
+                    setCandidateShelves((prev) => ({ ...prev, [item.id]: list }));
+                })
+                .catch((error) => console.error('Failed to fetch candidate shelves:', error));
+        });
+    }, [returnItem, order]);
+
+    const handleSaveAllocations = async (itemId) => {
+        const allocations = (allocationDrafts[itemId] || [])
+            .filter((a) => a.shelf_id && a.quantity)
+            .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
+        setSavingAllocationFor(itemId);
+        try {
+            await purchasesApi.purchaseReturnItems.setShelfAllocations(itemId, allocations);
+            await fetchReturnDetails();
+        } catch (error) {
+            console.error('Failed to save shelf allocations:', error);
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message
+                || error.response?.data?.allocations || 'Failed to save shelf allocations';
+            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+        } finally {
+            setSavingAllocationFor(null);
+        }
+    };
 
     const fetchReturnDetails = async () => {
         setLoading(true);
@@ -54,13 +109,15 @@ const PurchaseReturnDetailPage = () => {
 
     const handleAcceptReturn = async () => {
         if (!window.confirm('Are you sure you want to accept this return?')) return;
+        setAcceptError('');
         try {
             await purchasesApi.returns.accept(returnId);
             await fetchReturnDetails();
             alert('Return accepted successfully!');
         } catch (error) {
             console.error('Failed to accept return:', error);
-            alert(error.response?.data?.detail || 'Failed to accept return');
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to accept return';
+            setAcceptError(errorMsg);
         }
     };
 
@@ -118,6 +175,12 @@ const PurchaseReturnDetailPage = () => {
                     </Link>
                 </div>
             </div>
+
+            {acceptError && (
+                <div className="p-4 rounded-lg bg-error-50 border border-error-200 text-sm text-error-700">
+                    {acceptError}
+                </div>
+            )}
 
             {/* Return Information */}
             <Card className="p-6">
@@ -201,7 +264,16 @@ const PurchaseReturnDetailPage = () => {
                             <tbody className="divide-y divide-neutral-100">
                                 {returnItem.items.map((item, index) => (
                                     <tr key={item.id || index} className="hover:bg-neutral-50">
-                                        <td className="px-3 py-2 text-sm">{item.product_name}</td>
+                                        <td className="px-3 py-2 text-sm">
+                                            {item.product_name}
+                                            {item.shelf_allocations?.length > 0 && (
+                                                <ul className="mt-1 text-xs text-neutral-500 space-y-0.5">
+                                                    {item.shelf_allocations.map((a) => (
+                                                        <li key={a.id}>{a.shelf.name}: {a.quantity}</li>
+                                                    ))}
+                                                </ul>
+                                            )}
+                                        </td>
                                         <td className="px-3 py-2 text-sm">{item.quantity}</td>
                                         <td className="px-3 py-2 text-sm">
                                             {typeof item.unit_price === 'string'
@@ -234,6 +306,43 @@ const PurchaseReturnDetailPage = () => {
                     <p className="text-center text-neutral-500 py-4">No items in this return</p>
                 )}
             </Card>
+
+            {/* Shelf Allocation — pending returns only, required before accept */}
+            {returnItem.status === 'pending' && (
+                <Card className="p-6">
+                    <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
+                    <p className="text-sm text-neutral-500 mb-4">
+                        Select which shelf(s) each returned item is being pulled from before accepting this return.
+                    </p>
+                    <div className="space-y-6">
+                        {returnItem.items?.map((item) => (
+                            <div key={item.id} className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+                                <div className="mb-3">
+                                    <p className="font-medium">{item.product_name} {item.product_code ? `(${item.product_code})` : ''}</p>
+                                    <p className="text-sm text-neutral-500">Quantity: {item.quantity}</p>
+                                </div>
+                                <ShelfAllocationEditor
+                                    value={allocationDrafts[item.id] || []}
+                                    onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
+                                    shelves={candidateShelves[item.id] || []}
+                                    requiredQuantity={item.quantity}
+                                    mode="consumption"
+                                    disabled={savingAllocationFor === item.id}
+                                />
+                                <div className="flex justify-end mt-3">
+                                    <Button
+                                        size="sm"
+                                        onClick={() => handleSaveAllocations(item.id)}
+                                        loading={savingAllocationFor === item.id}
+                                    >
+                                        Save Allocations
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
 
             {/* Related Order */}
             {order && (

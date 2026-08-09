@@ -8,23 +8,29 @@ from .selectors import (
     get_customer_by_id,
     get_filtered_invoices,
     get_invoice_by_id,
+    get_invoice_item_with_allocations_by_id,
     get_payment_by_id,
     get_payments_for_invoice,
     get_return_by_id,
+    get_return_item_by_id,
     get_returns_for_invoice,
     get_all_returns,
 )
 from .serializers import (
+    CandidateShelfSerializer,
     CustomerReadSerializer,
     CustomerWriteSerializer,
     InvoiceCreateSerializer,
     InvoiceDueDateUpdateSerializer,
+    InvoiceItemReadSerializer,
     InvoiceReadSerializer,
     InvoiceUpdateSerializer,
     PaymentReadSerializer,
     PaymentWriteSerializer,
     ReturnCreateSerializer,
+    ReturnItemReadSerializer,
     ReturnReadSerializer,
+    SetShelfAllocationsSerializer,
 )
 from .services import (
     accept_return,
@@ -36,6 +42,8 @@ from .services import (
     delete_customer,
     delete_invoice,
     delete_payment,
+    set_invoice_item_shelf_allocations,
+    set_return_item_shelf_allocations,
     update_customer,
     update_invoice_due_date,
     update_invoice_items,
@@ -725,3 +733,75 @@ class AllInvoicePaymentsView(generics.ListAPIView):
             date_from     = p.get("date_from"),
             date_to       = p.get("date_to"),
         )
+
+
+# ---------------------------------------------------------------------------
+# Shelf allocations — sale line consumption / return line put-away
+# ---------------------------------------------------------------------------
+
+class InvoiceCandidateShelvesView(generics.ListAPIView):
+    """
+    GET /billing/shelves/candidates/?product_id=<id>
+    Shelves currently holding stock of the given product — the dropdown
+    source for picking which shelf(s) a draft sale line is fulfilled from.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class = CandidateShelfSerializer
+
+    def get_queryset(self):
+        from purchases.selectors import get_candidate_shelves_for_product
+
+        product_id = self.request.query_params.get("product_id")
+        if not product_id:
+            from rest_framework.exceptions import ValidationError
+            raise ValidationError({"product_id": "This query parameter is required."})
+        return get_candidate_shelves_for_product(int(product_id))
+
+
+class SetInvoiceItemShelfAllocationsView(APIView):
+    """
+    POST /billing/invoice-items/<pk>/shelf-allocations/
+    Replaces the shelf consumption allocations for one draft invoice line.
+    Only allowed while the invoice is DRAFT (enforced in the service layer).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        serializer = SetShelfAllocationsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        set_invoice_item_shelf_allocations(
+            invoice_item_id=pk,
+            allocations=[
+                {"shelf_id": a["shelf_id"], "quantity": a["quantity"]}
+                for a in d["allocations"]
+            ],
+            user=request.user,
+        )
+        invoice_item = get_invoice_item_with_allocations_by_id(pk)
+        return Response(InvoiceItemReadSerializer(invoice_item).data, status=status.HTTP_200_OK)
+
+
+class SetReturnItemShelfAllocationsView(APIView):
+    """
+    POST /billing/return-items/<pk>/shelf-allocations/
+    Replaces the shelf put-away allocations for one pending return line.
+    Only allowed while the return is PENDING (enforced in the service layer).
+    Any shelf is valid (put-away, no availability check).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request, pk):
+        serializer = SetShelfAllocationsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        set_return_item_shelf_allocations(
+            return_item_id=pk,
+            allocations=[
+                {"shelf_id": a["shelf_id"], "quantity": a["quantity"]}
+                for a in d["allocations"]
+            ],
+            user=request.user,
+        )
+        return_item = get_return_item_by_id(pk)
+        return Response(ReturnItemReadSerializer(return_item).data, status=status.HTTP_200_OK)

@@ -20,26 +20,25 @@ const NormalUserDashboard = () => {
     const [ratesLoading, setRatesLoading] = useState(true);
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
-    const [shelfFilter, setShelfFilter] = useState('');
     const [categories, setCategories] = useState([]);
-    const [shelves, setShelves] = useState([]);
     const [invStats, setInvStats] = useState(null);
     const [activeTab, setActiveTab] = useState('inventory');
 
-    // Search/category/shelf are routed through query params — the backend
-    // supports search/category/shelf on this endpoint — so the table itself
+    // Search/category are routed through query params — the backend
+    // supports search/category on this endpoint — so the table itself
     // stays correctly paginated instead of filtering a client-side array.
+    // Shelf is no longer a product-level filter (a product can now span
+    // multiple shelves) — per-shelf breakdowns live on the Shelves page.
     const fetchInventoryPage = (params) => {
         const p = { ...params };
         if (searchTerm) p.search = searchTerm;
         if (categoryFilter) p.category = categoryFilter;
-        if (shelfFilter) p.shelf = shelfFilter;
         return purchasesApi.inventory.getAll(p);
     };
 
     const {
         data: inventory, meta, page, setPage, loading: inventoryLoading,
-    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm, categoryFilter, shelfFilter]);
+    } = usePaginatedList(fetchInventoryPage, {}, 25, [searchTerm, categoryFilter]);
 
     useEffect(() => {
         loadLookupsAndRates();
@@ -48,10 +47,10 @@ const NormalUserDashboard = () => {
     const loadLookupsAndRates = async () => {
         setRatesLoading(true);
         try {
-            // Normal users have no Purchases app access, so category/shelf
+            // Normal users have no Purchases app access, so category
             // filter options are derived from a full (page_size:500) inventory
-            // fetch rather than calling purchasesApi.categories/shelves
-            // (admin-only) — kept separate from the paginated table fetch.
+            // fetch rather than calling purchasesApi.categories (admin-only)
+            // — kept separate from the paginated table fetch.
             const [fullInventoryData, ratesData, statsData] = await Promise.all([
                 purchasesApi.inventory.getAll({ page_size: 500 }),
                 ratesApi.getAll(),
@@ -62,15 +61,11 @@ const NormalUserDashboard = () => {
             setInvStats(statsData);
 
             const categoryMap = new Map();
-            const shelfMap = new Map();
             fullInventory.forEach(item => {
                 const category = item.product?.category;
-                const shelf = item.product?.shelf;
                 if (category?.id) categoryMap.set(category.id, category);
-                if (shelf?.id) shelfMap.set(shelf.id, shelf);
             });
             setCategories([...categoryMap.values()]);
-            setShelves([...shelfMap.values()]);
         } catch (error) {
             console.error('Failed to load data:', error);
         } finally {
@@ -90,7 +85,6 @@ const NormalUserDashboard = () => {
         { key: 'product', label: 'Code', render: (value) => value?.code || 'N/A' },
         { key: 'product', label: 'Name', render: (value) => value?.name || 'N/A' },
         { key: 'product', label: 'Category', render: (value) => value?.category?.name || 'N/A' },
-        { key: 'product', label: 'Shelf', render: (value) => value?.shelf?.name || 'N/A' },
         {
             key: 'quantity',
             label: 'Quantity',
@@ -109,7 +103,6 @@ const NormalUserDashboard = () => {
         { key: 'product', label: 'Code', render: (value) => value?.code || 'N/A' },
         { key: 'product', label: 'Name', render: (value) => value?.name || 'N/A' },
         { key: 'product', label: 'Category', render: (value) => value?.category?.name || 'N/A' },
-        { key: 'product', label: 'Shelf', render: (value) => value?.shelf?.name || 'N/A' },
         {
             key: 'rate',
             label: 'Selling Price',
@@ -198,15 +191,6 @@ const NormalUserDashboard = () => {
                             options={[
                                 { value: '', label: 'All Categories' },
                                 ...categories.map(c => ({ value: c.id, label: c.name })),
-                            ]}
-                            className="w-48"
-                        />
-                        <Select
-                            value={shelfFilter}
-                            onChange={(e) => { setShelfFilter(e.target.value); setPage(1); }}
-                            options={[
-                                { value: '', label: 'All Shelves' },
-                                ...shelves.map(s => ({ value: s.id, label: s.name })),
                             ]}
                             className="w-48"
                         />

@@ -14,30 +14,37 @@ from .permissions import IsAdminOrSuperuser, IsAdminOrSuperuserOrReadOnly
 from .selectors import (
     get_all_categories, get_all_inventory, get_all_lost_inventory_records,
     get_all_products, get_all_purchase_orders, get_all_returns,
-    get_all_shelves, get_all_suppliers, get_category_by_id,
+    get_all_shelves, get_all_suppliers, get_candidate_shelves_for_product,
+    get_category_by_id,
     get_confirmed_purchase_orders, get_draft_purchase_orders,
     get_fifo_cost_preview, get_inventory_by_product_id, get_inventory_stats,
     get_lost_inventory_item_by_id, get_lost_inventory_record_by_id,
     get_low_stock_inventory, get_order_payment_summary,
     get_out_of_stock_inventory,
-    get_payments_for_order, get_purchase_order_by_id,
-    get_purchase_return_by_id, get_returns_for_order, get_shelf_by_id,
+    get_payments_for_order, get_purchase_item_with_allocations_by_id,
+    get_purchase_order_by_id, get_purchase_return_by_id,
+    get_purchase_return_item_with_allocations_by_id,
+    get_returns_for_order, get_shelf_by_id, get_shelf_stock_rows,
     get_supplier_by_id, get_supplier_payable_summary,
     get_supplier_payment_by_id, get_suppliers_with_outstanding,
 )
 from .serializers import (
+    CandidateShelfSerializer,
     CategoryReadSerializer, CategoryWriteSerializer,
     InventoryReadSerializer, InventoryStatsSerializer,
     LostInventoryCreateSerializer,
     LostInventoryFifoPreviewQuerySerializer,
     LostInventoryFifoPreviewSerializer, LostInventoryItemReadSerializer,
     LostInventoryReadSerializer, MarkLostInventoryFoundSerializer,
+    MoveStockSerializer,
     ProductReadSerializer, ProductWriteSerializer,
     PurchaseItemReadSerializer, PurchaseOrderCreateSerializer,
     PurchaseOrderPaymentSummarySerializer, PurchaseOrderReadSerializer,
     PurchaseOrderUpdateSerializer, PurchaseReturnCreateSerializer,
+    PurchaseReturnItemReadSerializer,
     PurchaseReturnReadSerializer, SavedPurchaseOrderPDFSerializer,
-    SavePurchaseOrderPDFRequestSerializer, ShelfReadSerializer,
+    SavePurchaseOrderPDFRequestSerializer, SetShelfAllocationsSerializer,
+    ShelfReadSerializer, ShelfStockReadSerializer,
     ShelfWriteSerializer, SupplierPayableSummarySerializer,
     SupplierPaymentReadSerializer, SupplierPaymentWriteSerializer,
     SupplierReadSerializer, SupplierWithOutstandingSerializer,
@@ -49,7 +56,9 @@ from .services import (
     create_purchase_return, create_shelf, create_supplier,
     create_supplier_payment, delete_category, delete_product,
     delete_purchase_order, delete_shelf, delete_supplier,
-    delete_supplier_payment, mark_lost_inventory_found, update_category,
+    delete_supplier_payment, mark_lost_inventory_found, move_shelf_stock,
+    set_purchase_item_shelf_allocations,
+    set_purchase_return_item_shelf_allocations, update_category,
     update_product, update_purchase_order_items, update_shelf,
     update_supplier,
 )
@@ -118,7 +127,10 @@ class ShelfListCreateView(ReadWriteSerializerMixin, generics.ListCreateAPIView):
     write_serializer_class = ShelfWriteSerializer
 
     def get_queryset(self):
-        return get_all_shelves()
+        return get_all_shelves(
+            search=self.request.query_params.get("search"),
+            product_search=self.request.query_params.get("product_search"),
+        )
 
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
@@ -145,6 +157,49 @@ class ShelfRetrieveUpdateDestroyView(ReadWriteSerializerMixin, generics.Retrieve
     def destroy(self, request, *args, **kwargs):
         delete_shelf(pk=self.kwargs["pk"], user=request.user)
         return Response({"detail": "Shelf deleted."}, status=status.HTTP_200_OK)
+
+
+class ShelfStockListView(generics.ListAPIView):
+    """GET /purchases/shelves/<pk>/stock/ — products + quantities on one shelf."""
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+    serializer_class   = ShelfStockReadSerializer
+
+    def get_queryset(self):
+        get_shelf_by_id(self.kwargs["pk"])  # 404s if the shelf doesn't exist
+        return get_shelf_stock_rows(self.kwargs["pk"], search=self.request.query_params.get("search"))
+
+
+class CandidateShelvesForProductView(generics.ListAPIView):
+    """
+    GET /purchases/shelves/candidates/?product_id=<id>
+    Shelves currently holding stock of a product — the dropdown source for
+    any consumption allocation context (sale, purchase return, lost
+    inventory). Open to all authenticated users, not just admins.
+    """
+    permission_classes = [IsAuthenticated]
+    serializer_class   = CandidateShelfSerializer
+
+    def get_queryset(self):
+        from rest_framework.exceptions import ValidationError
+        product_id = self.request.query_params.get("product_id")
+        if not product_id:
+            raise ValidationError({"product_id": "This query parameter is required."})
+        return get_candidate_shelves_for_product(int(product_id))
+
+
+class MoveStockView(APIView):
+    """POST /purchases/shelves/move/ — move a product's stock between two shelves."""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request):
+        serializer = MoveStockSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        move_shelf_stock(
+            from_shelf_id=d["from_shelf_id"], to_shelf_id=d["to_shelf_id"],
+            product_id=d["product_id"], quantity=d["quantity"], user=request.user,
+        )
+        return Response({"detail": "Stock moved."}, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
@@ -207,7 +262,7 @@ class ProductListCreateView(ReadWriteSerializerMixin, generics.ListCreateAPIView
         d   = serializer.validated_data
         obj = create_product(
             name=d["name"], code=d["code"],
-            category_id=d["category"].pk, shelf_id=d["shelf"].pk,
+            category_id=d["category"].pk,
             user=request.user,
         )
         return Response(ProductReadSerializer(obj).data, status=status.HTTP_201_CREATED)
@@ -231,7 +286,6 @@ class ProductRetrieveUpdateDestroyView(ReadWriteSerializerMixin, generics.Retrie
             pk=self.kwargs["pk"],
             name=d.get("name"), code=d.get("code"),
             category_id=d["category"].pk if "category" in d else None,
-            shelf_id=d["shelf"].pk if "shelf" in d else None,
             user=request.user,
         )
         return Response(ProductReadSerializer(obj).data)
@@ -619,7 +673,6 @@ class InventoryListView(generics.ListAPIView):
         return get_all_inventory(
             search      = p.get("search"),
             category_id = p.get("category"),
-            shelf_id    = p.get("shelf"),
         )
 
 
@@ -651,7 +704,6 @@ class LowStockInventoryListView(generics.ListAPIView):
         return get_low_stock_inventory(
             search      = p.get("search"),
             category_id = p.get("category"),
-            shelf_id    = p.get("shelf"),
         )
 
 
@@ -669,7 +721,6 @@ class OutOfStockInventoryListView(generics.ListAPIView):
         return get_out_of_stock_inventory(
             search      = p.get("search"),
             category_id = p.get("category"),
-            shelf_id    = p.get("shelf"),
         )
 
 
@@ -863,6 +914,51 @@ class MarkLostInventoryFoundView(APIView):
         item = mark_lost_inventory_found(
             lost_item_id=item_id,
             quantity=serializer.validated_data["quantity"],
+            shelf_allocations=[
+                {"shelf_id": a["shelf_id"], "quantity": a["quantity"]}
+                for a in serializer.validated_data.get("shelf_allocations", [])
+            ],
             user=request.user,
         )
         return Response(LostInventoryItemReadSerializer(item).data)
+
+
+# ---------------------------------------------------------------------------
+# Purchase item / return item shelf allocations
+# ---------------------------------------------------------------------------
+
+class SetPurchaseItemShelfAllocationsView(APIView):
+    """POST /purchases/purchase-items/<pk>/shelf-allocations/"""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request, pk):
+        serializer = SetShelfAllocationsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        set_purchase_item_shelf_allocations(
+            purchase_item_id=pk,
+            allocations=[{"shelf_id": a["shelf_id"], "quantity": a["quantity"]} for a in d["allocations"]],
+            user=request.user,
+        )
+        # Re-fetch through the allocations-prefetching selector — the object
+        # returned by the service doesn't carry the prefetch the read
+        # serializer's shelf_allocations/allocated_quantity fields need.
+        obj = get_purchase_item_with_allocations_by_id(pk)
+        return Response(PurchaseItemReadSerializer(obj).data)
+
+
+class SetPurchaseReturnItemShelfAllocationsView(APIView):
+    """POST /purchases/return-items/<pk>/shelf-allocations/"""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request, pk):
+        serializer = SetShelfAllocationsSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        set_purchase_return_item_shelf_allocations(
+            return_item_id=pk,
+            allocations=[{"shelf_id": a["shelf_id"], "quantity": a["quantity"]} for a in d["allocations"]],
+            user=request.user,
+        )
+        obj = get_purchase_return_item_with_allocations_by_id(pk)
+        return Response(PurchaseReturnItemReadSerializer(obj).data)

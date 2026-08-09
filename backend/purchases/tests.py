@@ -19,7 +19,8 @@ from .services import (
     accept_purchase_return, confirm_purchase_order, create_lost_inventory_record,
     create_purchase_order, create_purchase_return, create_supplier,
     create_supplier_payment, delete_product, delete_supplier_payment,
-    mark_lost_inventory_found, sync_inventory,
+    mark_lost_inventory_found, set_purchase_item_shelf_allocations,
+    set_purchase_return_item_shelf_allocations, sync_inventory,
 )
 from .views import (
     DraftPurchaseOrderListView, InventoryListView, InventoryStatsView,
@@ -52,7 +53,7 @@ class PurchasesTestBase(TestCase):
 
     def make_product(self, code="P001", name="Product 1"):
         return Product.objects.create(
-            name=name, code=code, category=self.category, shelf=self.shelf,
+            name=name, code=code, category=self.category,
         )
 
     def make_order(self, product, quantity=10, unit_price="100"):
@@ -64,7 +65,21 @@ class PurchasesTestBase(TestCase):
 
     def make_confirmed_order(self, product, quantity=10, unit_price="100"):
         order = self.make_order(product, quantity=quantity, unit_price=unit_price)
+        for item in order.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         return confirm_purchase_order(order_id=order.id, user=self.admin)
+
+    def allocate_return_items(self, purchase_return):
+        for return_item in purchase_return.items.all():
+            set_purchase_return_item_shelf_allocations(
+                return_item_id=return_item.id,
+                allocations=[{"shelf_id": self.shelf.id, "quantity": return_item.quantity}],
+                user=self.admin,
+            )
 
     def get(self, view, url, user=None, **params):
         request = self.factory.get(url, params)
@@ -113,21 +128,31 @@ class InventoryStatsFlowTests(PurchasesTestBase):
 
         # 10 → 4 : enters low stock
         create_lost_inventory_record(
-            items=[{"product_id": product.id, "quantity": 6}], user=self.admin,
+            items=[{
+                "product_id": product.id, "quantity": 6,
+                "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 6}],
+            }], user=self.admin,
         )
         flow = self.stats()
         self.assertEqual((flow.low_stock_count, flow.out_of_stock_count), (1, 0))
 
         # 4 → 0 : leaves low, enters out of stock
         record = create_lost_inventory_record(
-            items=[{"product_id": product.id, "quantity": 4}], user=self.admin,
+            items=[{
+                "product_id": product.id, "quantity": 4,
+                "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 4}],
+            }], user=self.admin,
         )
         flow = self.stats()
         self.assertEqual((flow.low_stock_count, flow.out_of_stock_count), (0, 1))
 
         # 0 → 2 : found again, back to low stock
         lost_item = record.items.first()
-        mark_lost_inventory_found(lost_item_id=lost_item.id, quantity=2, user=self.admin)
+        mark_lost_inventory_found(
+            lost_item_id=lost_item.id, quantity=2,
+            shelf_allocations=[{"shelf_id": self.shelf.id, "quantity": 2}],
+            user=self.admin,
+        )
         flow = self.stats()
         self.assertEqual((flow.low_stock_count, flow.out_of_stock_count), (1, 0))
 
@@ -280,13 +305,19 @@ class StockMovementCounterTests(PurchasesTestBase):
             items=[{"purchase_item_id": item.id, "quantity": 2}],
             user=self.admin,
         )
+        self.allocate_return_items(ret)
         accept_purchase_return(return_id=ret.id, user=self.admin)        # returned 2
 
         record = create_lost_inventory_record(
-            items=[{"product_id": product.id, "quantity": 3}], user=self.admin,
+            items=[{
+                "product_id": product.id, "quantity": 3,
+                "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 3}],
+            }], user=self.admin,
         )                                                                # lost 3
         mark_lost_inventory_found(
-            lost_item_id=record.items.first().id, quantity=1, user=self.admin,
+            lost_item_id=record.items.first().id, quantity=1,
+            shelf_allocations=[{"shelf_id": self.shelf.id, "quantity": 1}],
+            user=self.admin,
         )                                                                # found 1
 
         def snapshot():
@@ -325,6 +356,7 @@ class OrderPayableSyncTests(PurchasesTestBase):
             items=[{"purchase_item_id": item.id, "quantity": 2}],
             user=self.admin,
         )
+        self.allocate_return_items(ret)
         accept_purchase_return(return_id=ret.id, user=self.admin)  # credit note -100
         order.refresh_from_db()
         self.assertEqual(order.payable_outstanding, Decimal("200"))
@@ -345,12 +377,18 @@ class LostStockValidationTests(PurchasesTestBase):
 
         # Exactly the available quantity passes…
         create_lost_inventory_record(
-            items=[{"product_id": product.id, "quantity": 10}], user=self.admin,
+            items=[{
+                "product_id": product.id, "quantity": 10,
+                "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 10}],
+            }], user=self.admin,
         )
         # …one more unit is rejected with the same validation error.
         with self.assertRaises(ValidationError):
             create_lost_inventory_record(
-                items=[{"product_id": product.id, "quantity": 1}], user=self.admin,
+                items=[{
+                    "product_id": product.id, "quantity": 1,
+                    "shelf_allocations": [{"shelf_id": self.shelf.id, "quantity": 1}],
+                }], user=self.admin,
             )
 
 

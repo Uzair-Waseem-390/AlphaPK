@@ -39,7 +39,7 @@ class RatesTestBase(TestCase):
 
     def make_product(self, code="P001", name="Product 1"):
         return Product.objects.create(
-            name=name, code=code, category=self.category, shelf=self.shelf,
+            name=name, code=code, category=self.category,
         )
 
 

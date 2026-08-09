@@ -64,7 +64,7 @@ class Command(BaseCommand):
             summary["supplier"] = self._import_supplier(Supplier, migration_user, dry_run)
         if "product" in requested:
             summary["product"] = self._import_product(
-                Product, Category, Shelf, migration_user, dry_run, dry_run_names,
+                Product, Category, migration_user, dry_run, dry_run_names,
             )
         if "ledger" in requested:
             summary["ledger"] = self._import_ledger(Supplier, migration_user, dry_run)
@@ -247,9 +247,15 @@ class Command(BaseCommand):
 
         return {"created": created, "skipped": skipped, "errors": errors}
 
-    def _import_product(self, Product, Category, Shelf, migration_user, dry_run, dry_run_names=None):
+    def _import_product(self, Product, Category, migration_user, dry_run, dry_run_names=None):
+        # NOTE: Product.shelf was removed (shelves are now decoupled from
+        # products — see purchases.ShelfStock). This import used to also
+        # look up the legacy row's shelf and link it via Product.shelf;
+        # that product-shelf-linking logic has been removed. The Shelf
+        # lookup-table import itself (TABLE_ORDER "shelf" step, _import_simple)
+        # is untouched — it's still a valid standalone lookup table.
         created = skipped = errors = 0
-        legacy_rows = Product.all_objects.using("legacy").select_related("category", "shelf").all()
+        legacy_rows = Product.all_objects.using("legacy").select_related("category").all()
         dry_run_names = dry_run_names or {"category": set(), "shelf": set()}
 
         for row in legacy_rows:
@@ -258,19 +264,12 @@ class Command(BaseCommand):
                 continue
 
             new_category = Category.all_objects.filter(name=row.category.name).first()
-            new_shelf = Shelf.all_objects.filter(name=row.shelf.name).first()
             category_ok = new_category is not None or row.category.name in dry_run_names["category"]
-            shelf_ok = new_shelf is not None or row.shelf.name in dry_run_names["shelf"]
-            if not category_ok or not shelf_ok:
+            if not category_ok:
                 errors += 1
-                missing = []
-                if not category_ok:
-                    missing.append(f"category '{row.category.name}'")
-                if not shelf_ok:
-                    missing.append(f"shelf '{row.shelf.name}'")
                 self.stderr.write(self.style.WARNING(
-                    f"  [Product] skipping '{row.code}': missing {', '.join(missing)} in target DB "
-                    f"(import category/shelf first)"
+                    f"  [Product] skipping '{row.code}': missing category '{row.category.name}' "
+                    f"in target DB (import category first)"
                 ))
                 continue
 
@@ -284,7 +283,6 @@ class Command(BaseCommand):
                         name=row.name,
                         code=row.code,
                         category=new_category,
-                        shelf=new_shelf,
                         created_by=migration_user,
                         updated_by=migration_user,
                         deleted_by=migration_user if row.is_deleted else None,

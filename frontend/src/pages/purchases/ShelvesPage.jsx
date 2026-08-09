@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { useNavigate } from 'react-router-dom';
 import { useCRUD } from '../../hooks/usePurchases';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -13,14 +14,22 @@ import Pagination from '../../components/ui/Pagination';
 import { useAuth } from '../../context/AuthContext';
 
 const ShelvesPage = () => {
+    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data, meta, page, setPage, loading, create, update, delete: deleteShelf } = useCRUD(
-        purchasesApi.shelves
+    const { data, meta, page, setPage, loading, filters, setFilters, create, update, delete: deleteShelf } = useCRUD(
+        purchasesApi.shelves,
+        { product_search: '' }
     );
 
     const [searchTerm, setSearchTerm] = useState('');
+    const [productSearchTerm, setProductSearchTerm] = useState('');
+    // Bumped on "Clear Filters" to force both SearchBars (uncontrolled,
+    // internal-state inputs) to remount with an empty value — SearchBar
+    // has no external value/reset prop, so a key change is the only way
+    // to visually clear it without changing the shared component.
+    const [filterResetKey, setFilterResetKey] = useState(0);
     const [showModal, setShowModal] = useState(false);
     const [editingShelf, setEditingShelf] = useState(null);
     const [formData, setFormData] = useState({ name: '', description: '' });
@@ -31,6 +40,20 @@ const ShelvesPage = () => {
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
         (item.description && item.description.toLowerCase().includes(searchTerm.toLowerCase()))
     );
+
+    const handleProductSearch = (value) => {
+        setProductSearchTerm(value);
+        setFilters({ ...filters, product_search: value });
+    };
+
+    const hasActiveFilters = !!searchTerm || !!productSearchTerm;
+
+    const handleClearFilters = () => {
+        setSearchTerm('');
+        setProductSearchTerm('');
+        setFilters({ ...filters, product_search: '' });
+        setFilterResetKey((k) => k + 1);
+    };
 
     const columns = [
         { key: 'id', label: 'ID', width: '80px' },
@@ -142,15 +165,28 @@ const ShelvesPage = () => {
 
             <div className="flex gap-4">
                 <SearchBar
+                    key={`name-${filterResetKey}`}
                     onSearch={setSearchTerm}
                     placeholder="Search shelves..."
                     className="flex-1"
                 />
+                <SearchBar
+                    key={`product-${filterResetKey}`}
+                    onSearch={handleProductSearch}
+                    placeholder="Search by product name or code..."
+                    className="flex-1"
+                />
+                {hasActiveFilters && (
+                    <Button type="button" variant="secondary" onClick={handleClearFilters}>
+                        Clear Filters
+                    </Button>
+                )}
             </div>
 
             <Table
                 columns={columns}
                 data={filteredData}
+                onRowClick={(row) => navigate(`/purchases/shelves/${row.id}`)}
             />
 
             {meta.totalPages > 1 && (

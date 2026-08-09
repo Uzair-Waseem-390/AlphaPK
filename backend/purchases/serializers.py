@@ -2,8 +2,9 @@ from rest_framework import serializers
 
 from .models import (
     Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
-    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
-    SavedPurchaseOrderPDF, Shelf, Supplier, SupplierPayment,
+    PurchaseItem, PurchaseItemShelfAllocation, PurchaseOrder, PurchaseReturn,
+    PurchaseReturnItem, PurchaseReturnItemShelfAllocation,
+    SavedPurchaseOrderPDF, Shelf, ShelfStock, Supplier, SupplierPayment,
 )
 
 
@@ -66,6 +67,51 @@ class ShelfWriteSerializer(serializers.ModelSerializer):
         return value.strip()
 
 
+class ShelfLiteSerializer(serializers.ModelSerializer):
+    """Minimal shelf shape for nesting inside allocation rows — id/name only."""
+    class Meta:
+        model  = Shelf
+        fields = ["id", "name"]
+
+
+class CandidateShelfSerializer(serializers.ModelSerializer):
+    """
+    Dropdown source for consumption allocations (sale/return/loss) — shelves
+    that currently hold stock of a given product, with the quantity
+    available on each (from the selector's annotation).
+    """
+    available_quantity = serializers.IntegerField(read_only=True)
+
+    class Meta:
+        model  = Shelf
+        fields = ["id", "name", "available_quantity"]
+
+
+class ShelfAllocationInputSerializer(serializers.Serializer):
+    """Reusable input row for every 'set shelf allocations' request body."""
+    shelf_id = serializers.IntegerField()
+    quantity = serializers.IntegerField(min_value=1)
+
+
+class SetShelfAllocationsSerializer(serializers.Serializer):
+    allocations = ShelfAllocationInputSerializer(many=True)
+
+    def validate_allocations(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one allocation is required.")
+        shelf_ids = [a["shelf_id"] for a in value]
+        if len(shelf_ids) != len(set(shelf_ids)):
+            raise serializers.ValidationError("Duplicate shelf_id entries are not allowed.")
+        return value
+
+
+class MoveStockSerializer(serializers.Serializer):
+    from_shelf_id = serializers.IntegerField()
+    to_shelf_id   = serializers.IntegerField()
+    product_id    = serializers.IntegerField()
+    quantity      = serializers.IntegerField(min_value=1)
+
+
 # ---------------------------------------------------------------------------
 # Supplier
 # ---------------------------------------------------------------------------
@@ -116,18 +162,24 @@ class SupplierPayableSummarySerializer(serializers.Serializer):
 
 class ProductReadSerializer(AuditReadMixin, serializers.ModelSerializer):
     category = CategoryReadSerializer(read_only=True)
-    shelf    = ShelfReadSerializer(read_only=True)
 
     class Meta:
         model  = Product
-        fields = ["id", "name", "code", "category", "shelf",
+        fields = ["id", "name", "code", "category",
                   "created_by", "updated_by", "created_at", "updated_at"]
+
+
+class ProductLiteSerializer(serializers.ModelSerializer):
+    """Minimal product shape for nesting inside bulk-listed rows (shelf stock)."""
+    class Meta:
+        model  = Product
+        fields = ["id", "name", "code"]
 
 
 class ProductWriteSerializer(serializers.ModelSerializer):
     class Meta:
         model  = Product
-        fields = ["name", "code", "category", "shelf"]
+        fields = ["name", "code", "category"]
 
     def validate_code(self, value):
         qs = Product.objects.filter(code__iexact=value.strip(), is_deleted=False)
@@ -147,20 +199,26 @@ class ProductWriteSerializer(serializers.ModelSerializer):
             raise serializers.ValidationError("Selected category has been deleted.")
         return value
 
-    def validate_shelf(self, value):
-        if value.is_deleted:
-            raise serializers.ValidationError("Selected shelf has been deleted.")
-        return value
-
 
 # ---------------------------------------------------------------------------
 # PurchaseItem (line item)
 # ---------------------------------------------------------------------------
 
+class PurchaseItemShelfAllocationReadSerializer(serializers.ModelSerializer):
+    shelf      = ShelfLiteSerializer(read_only=True)
+
+    class Meta:
+        model  = PurchaseItemShelfAllocation
+        fields = ["id", "shelf", "quantity"]
+        read_only_fields = fields
+
+
 class PurchaseItemReadSerializer(serializers.ModelSerializer):
     product_name        = serializers.CharField(source="product.name", read_only=True)
     product_code        = serializers.CharField(source="product.code", read_only=True)
     returnable_quantity = serializers.IntegerField(read_only=True)
+    allocated_quantity  = serializers.IntegerField(read_only=True)
+    shelf_allocations   = PurchaseItemShelfAllocationReadSerializer(many=True, read_only=True)
 
     class Meta:
         model  = PurchaseItem
@@ -169,6 +227,7 @@ class PurchaseItemReadSerializer(serializers.ModelSerializer):
             "quantity", "remaining_quantity", "returned_quantity", "returnable_quantity",
             "unit_price", "gst", "wht", "description",
             "gross_amount", "gst_amount", "wht_amount", "total_price",
+            "allocated_quantity", "shelf_allocations",
         ]
         read_only_fields = fields
 
@@ -420,9 +479,20 @@ class PurchaseReturnCreateSerializer(serializers.Serializer):
         return value
 
 
+class PurchaseReturnItemShelfAllocationReadSerializer(serializers.ModelSerializer):
+    shelf = ShelfLiteSerializer(read_only=True)
+
+    class Meta:
+        model  = PurchaseReturnItemShelfAllocation
+        fields = ["id", "shelf", "quantity"]
+        read_only_fields = fields
+
+
 class PurchaseReturnItemReadSerializer(serializers.ModelSerializer):
-    product_name = serializers.CharField(source="purchase_item.product.name", read_only=True)
-    product_code = serializers.CharField(source="purchase_item.product.code", read_only=True)
+    product_name       = serializers.CharField(source="purchase_item.product.name", read_only=True)
+    product_code       = serializers.CharField(source="purchase_item.product.code", read_only=True)
+    allocated_quantity = serializers.IntegerField(read_only=True)
+    shelf_allocations  = PurchaseReturnItemShelfAllocationReadSerializer(many=True, read_only=True)
 
     class Meta:
         model  = PurchaseReturnItem
@@ -430,6 +500,7 @@ class PurchaseReturnItemReadSerializer(serializers.ModelSerializer):
             "id", "product_name", "product_code", "quantity",
             "gst", "wht", "unit_price",
             "gross_amount", "gst_amount", "wht_amount", "total_amount",
+            "allocated_quantity", "shelf_allocations",
         ]
         read_only_fields = fields
 
@@ -458,9 +529,10 @@ class PurchaseReturnReadSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class LostInventoryItemWriteSerializer(serializers.Serializer):
-    product_id = serializers.IntegerField()
-    quantity   = serializers.IntegerField(min_value=1)
-    reason     = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    product_id        = serializers.IntegerField()
+    quantity          = serializers.IntegerField(min_value=1)
+    reason            = serializers.CharField(max_length=255, required=False, allow_blank=True, default="")
+    shelf_allocations = ShelfAllocationInputSerializer(many=True)
 
 
 class LostInventoryCreateSerializer(serializers.Serializer):
@@ -491,7 +563,8 @@ class LostInventoryItemReadSerializer(serializers.ModelSerializer):
 
 
 class MarkLostInventoryFoundSerializer(serializers.Serializer):
-    quantity = serializers.IntegerField(min_value=1)
+    quantity          = serializers.IntegerField(min_value=1)
+    shelf_allocations = ShelfAllocationInputSerializer(many=True)
 
 
 class LostInventoryFifoPreviewQuerySerializer(serializers.Serializer):
@@ -579,3 +652,21 @@ class InventoryStatsSerializer(serializers.Serializer):
     low_stock_count    = serializers.IntegerField(read_only=True)
     out_of_stock_count = serializers.IntegerField(read_only=True)
     last_updated_at    = serializers.DateTimeField(read_only=True)
+
+
+# ---------------------------------------------------------------------------
+# Shelf Stock (per-location breakdown)
+# ---------------------------------------------------------------------------
+
+class ShelfStockReadSerializer(serializers.ModelSerializer):
+    """
+    Products + quantities currently on one shelf. Nests a lightweight
+    product shape (id/name/code) rather than the full ProductReadSerializer
+    — these rows are listed in bulk and don't need category/audit fields.
+    """
+    product = ProductLiteSerializer(read_only=True)
+
+    class Meta:
+        model  = ShelfStock
+        fields = ["id", "product", "quantity", "last_updated_at"]
+        read_only_fields = fields

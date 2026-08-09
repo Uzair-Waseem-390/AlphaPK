@@ -32,9 +32,6 @@ const RateRow = ({
             <td className="px-4 py-3 text-sm text-neutral-700">
                 {product.category?.name || 'N/A'}
             </td>
-            <td className="px-4 py-3 text-sm text-neutral-700">
-                {product.shelf?.name || 'N/A'}
-            </td>
             <td className="px-4 py-3 text-sm">
                 {hasRate ? (
                     <span className="font-semibold text-primary-600">

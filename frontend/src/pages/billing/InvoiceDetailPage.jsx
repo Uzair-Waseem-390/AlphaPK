@@ -18,6 +18,27 @@ import SavePDFModal from '../../components/billing/SavePDFModal';
 import DraftPreviewPanel from '../../components/billing/DraftPreviewPanel';
 import ExtendDueDateModal from '../../components/billing/ExtendDueDateModal';
 import Modal from '../../components/ui/Modal';
+import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+
+// Pulls the clearest human-readable message out of a DRF error response.
+// Shelf-allocation errors come back keyed by "shelf_allocations" (a string),
+// not "detail" — so a plain `error.response?.data?.detail` lookup would miss
+// them and fall through to a generic message.
+const extractErrorMessage = (error, fallback) => {
+    const data = error?.response?.data;
+    if (!data) return fallback;
+    if (typeof data === 'string') return data;
+    if (data.detail) return Array.isArray(data.detail) ? data.detail[0] : data.detail;
+    if (data.shelf_allocations) {
+        return Array.isArray(data.shelf_allocations) ? data.shelf_allocations[0] : data.shelf_allocations;
+    }
+    const firstKey = Object.keys(data)[0];
+    if (firstKey) {
+        const val = data[firstKey];
+        return Array.isArray(val) ? val[0] : val;
+    }
+    return fallback;
+};
 
 const InvoiceDetailPage = () => {
     const { id } = useParams();
@@ -39,6 +60,9 @@ const InvoiceDetailPage = () => {
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showExtendDueDate, setShowExtendDueDate] = useState(false);
     const [dueDateSaving, setDueDateSaving] = useState(false);
+    // Per invoice-item shelf allocation UI state, keyed by invoice item id:
+    // { candidates: [{id, name, available_quantity}], allocations: [{shelf_id, quantity}], saving: bool, error: string }
+    const [shelfState, setShelfState] = useState({});
 
     useEffect(() => {
         fetchData();
@@ -71,10 +95,71 @@ const InvoiceDetailPage = () => {
             // Check if there's a pending return
             const hasPending = returnsList.some(r => r.status === 'pending');
             setHasPendingReturn(hasPending);
+
+            // Draft invoices need shelf allocation candidates per item so the
+            // allocator can be populated (confirmed invoices only show the
+            // saved allocations read-only, no candidates fetch needed).
+            if (invoiceData?.status === 'draft' && invoiceData.items?.length) {
+                const entries = await Promise.all(invoiceData.items.map(async (item) => {
+                    try {
+                        const candidates = await billingApi.shelves.getCandidates(item.product);
+                        return [item.id, candidates?.results ?? candidates ?? []];
+                    } catch (err) {
+                        console.error(`Failed to fetch candidate shelves for item ${item.id}:`, err);
+                        return [item.id, []];
+                    }
+                }));
+                const candidatesByItemId = Object.fromEntries(entries);
+                setShelfState((prev) => {
+                    const next = {};
+                    invoiceData.items.forEach((item) => {
+                        next[item.id] = {
+                            candidates: candidatesByItemId[item.id] || [],
+                            allocations: (item.shelf_allocations || []).map((a) => ({
+                                shelf_id: a.shelf_id,
+                                quantity: a.quantity,
+                            })),
+                            saving: false,
+                            error: prev[item.id]?.error || '',
+                        };
+                    });
+                    return next;
+                });
+            } else {
+                setShelfState({});
+            }
         } catch (error) {
             console.error('Failed to fetch invoice details:', error);
         } finally {
             setLoading(false);
+        }
+    };
+
+    const handleAllocationChange = (itemId, nextAllocations) => {
+        setShelfState((prev) => ({
+            ...prev,
+            [itemId]: { ...prev[itemId], allocations: nextAllocations },
+        }));
+    };
+
+    const handleSaveAllocations = async (itemId) => {
+        setShelfState((prev) => ({
+            ...prev,
+            [itemId]: { ...prev[itemId], saving: true, error: '' },
+        }));
+        try {
+            const allocations = (shelfState[itemId]?.allocations || [])
+                .filter((a) => a.shelf_id !== '' && a.quantity !== '')
+                .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
+            await billingApi.invoiceItems.setShelfAllocations(itemId, allocations);
+            await fetchData();
+        } catch (error) {
+            console.error('Failed to save shelf allocations:', error);
+            const message = extractErrorMessage(error, 'Failed to save shelf allocations.');
+            setShelfState((prev) => ({
+                ...prev,
+                [itemId]: { ...prev[itemId], saving: false, error: message },
+            }));
         }
     };
 
@@ -185,6 +270,15 @@ const InvoiceDetailPage = () => {
             await fetchData();
         } catch (error) {
             console.error('Failed to accept return:', error);
+            // Shelf allocation can only be edited on the return's own detail
+            // page (components/billing/ReturnList.jsx here is a compact
+            // summary widget with no room for the allocator UI), so point
+            // the user there when acceptance is blocked on incomplete
+            // allocations.
+            alert(
+                `${extractErrorMessage(error, 'Failed to accept return.')} `
+                + 'Open the return\'s detail page to allocate shelves.'
+            );
         }
     };
 
@@ -195,6 +289,7 @@ const InvoiceDetailPage = () => {
             await fetchData();
         } catch (error) {
             console.error('Failed to confirm invoice:', error);
+            alert(extractErrorMessage(error, 'Failed to confirm invoice.'));
         }
     };
 
@@ -406,6 +501,75 @@ const InvoiceDetailPage = () => {
                         </tfoot>
                     </table>
                 </div>
+            </Card>
+
+            {/* Shelf Allocation - editable while draft, read-only afterwards */}
+            <Card className="p-6">
+                <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
+                {invoice.status === 'draft' ? (
+                    <div className="space-y-4">
+                        {invoice.items?.map((item) => {
+                            const state = shelfState[item.id] || {
+                                candidates: [], allocations: [], saving: false, error: '',
+                            };
+                            return (
+                                <div key={item.id} className="border border-neutral-200 rounded-lg p-4">
+                                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                        <div>
+                                            <p className="font-medium">
+                                                {item.product_name}{' '}
+                                                <span className="text-neutral-400 text-sm">({item.product_code})</span>
+                                            </p>
+                                            <p className="text-xs text-neutral-500">
+                                                Quantity: {item.quantity} • Allocated: {item.allocated_quantity}
+                                            </p>
+                                        </div>
+                                    </div>
+                                    <ShelfAllocationEditor
+                                        value={state.allocations}
+                                        onChange={(next) => handleAllocationChange(item.id, next)}
+                                        shelves={state.candidates}
+                                        requiredQuantity={item.quantity}
+                                        mode="consumption"
+                                        disabled={state.saving}
+                                    />
+                                    {state.error && (
+                                        <p className="text-sm text-red-600 mt-2">{state.error}</p>
+                                    )}
+                                    <div className="flex justify-end mt-3">
+                                        <Button
+                                            size="sm"
+                                            onClick={() => handleSaveAllocations(item.id)}
+                                            loading={state.saving}
+                                        >
+                                            Save Allocations
+                                        </Button>
+                                    </div>
+                                </div>
+                            );
+                        })}
+                    </div>
+                ) : (
+                    <div className="space-y-3">
+                        {invoice.items?.map((item) => (
+                            <div key={item.id} className="text-sm">
+                                <p className="font-medium">
+                                    {item.product_name}{' '}
+                                    <span className="text-neutral-400">({item.product_code})</span>
+                                </p>
+                                {item.shelf_allocations?.length > 0 ? (
+                                    <ul className="list-disc list-inside text-neutral-600">
+                                        {item.shelf_allocations.map((a) => (
+                                            <li key={a.id}>{a.shelf_name}: {a.quantity}</li>
+                                        ))}
+                                    </ul>
+                                ) : (
+                                    <p className="text-neutral-400">No shelf allocations recorded</p>
+                                )}
+                            </div>
+                        ))}
+                    </div>
+                )}
             </Card>
 
             {/* Draft Preview - Only for draft invoices */}

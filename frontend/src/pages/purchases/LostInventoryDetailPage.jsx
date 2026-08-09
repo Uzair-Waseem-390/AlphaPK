@@ -6,6 +6,7 @@ import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -18,8 +19,28 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
     const [quantity, setQuantity] = useState('1');
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState('');
+    const [shelves, setShelves] = useState([]);
+    const [shelvesLoading, setShelvesLoading] = useState(true);
+    const [shelfAllocations, setShelfAllocations] = useState([]);
 
     const maxQty = item.returnable_quantity ?? (item.quantity - item.found_quantity);
+
+    useEffect(() => {
+        let cancelled = false;
+        setShelvesLoading(true);
+        purchasesApi.shelves.getAll({ page_size: 500 })
+            .then((res) => {
+                if (cancelled) return;
+                setShelves(res?.results || res || []);
+            })
+            .catch(() => { if (!cancelled) setShelves([]); })
+            .finally(() => { if (!cancelled) setShelvesLoading(false); });
+        return () => { cancelled = true; };
+    }, []);
+
+    const allocatedTotal = shelfAllocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
+    const qtyNum = parseInt(quantity, 10) || 0;
+    const allocationMismatch = allocatedTotal !== qtyNum;
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -32,10 +53,21 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
             setError(`Cannot exceed returnable quantity of ${maxQty}.`);
             return;
         }
+        if (allocationMismatch) {
+            setError('Shelf allocations must sum exactly to the quantity found.');
+            return;
+        }
         setError('');
         setLoading(true);
         try {
-            await purchasesApi.lostInventory.markFound(item.id, qty);
+            await purchasesApi.lostInventory.markFound(
+                item.id,
+                qty,
+                shelfAllocations.map((a) => ({
+                    shelf_id: parseInt(a.shelf_id, 10),
+                    quantity: parseInt(a.quantity, 10),
+                })),
+            );
             onSuccess();
         } catch (err) {
             const data = err.response?.data;
@@ -102,6 +134,25 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
                         <p className="text-xs text-neutral-400 mt-1">Maximum: {maxQty}</p>
                     </div>
 
+                    <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                            Shelf Allocation (where the found stock is placed)
+                        </label>
+                        {shelvesLoading ? (
+                            <div className="flex justify-center py-3">
+                                <LoadingSpinner size="sm" />
+                            </div>
+                        ) : (
+                            <ShelfAllocationEditor
+                                mode="putaway"
+                                value={shelfAllocations}
+                                onChange={setShelfAllocations}
+                                shelves={shelves}
+                                requiredQuantity={qtyNum}
+                            />
+                        )}
+                    </div>
+
                     {error && (
                         <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
                             <p className="text-sm text-error-600 whitespace-pre-wrap">{error}</p>
@@ -123,6 +174,7 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
                             variant="success"
                             className="flex-1"
                             loading={loading}
+                            disabled={allocationMismatch || shelvesLoading}
                         >
                             Confirm Found
                         </Button>

@@ -103,7 +103,6 @@ class Product(AuditMixin):
     name     = models.CharField(max_length=255)
     code     = models.CharField(max_length=100, unique=True)
     category = models.ForeignKey(Category, on_delete=models.PROTECT, related_name="products")
-    shelf    = models.ForeignKey(Shelf,    on_delete=models.PROTECT, related_name="products")
 
     class Meta:
         verbose_name        = "Product"
@@ -233,6 +232,13 @@ class PurchaseItem(AuditMixin):
         unique_together     = [("order", "product")]
         ordering            = ["id"]
 
+    @property
+    def allocated_quantity(self):
+        # Sums the in-memory prefetch cache when the caller prefetched
+        # shelf_allocations (the normal list/detail path) — .aggregate()
+        # would bypass that cache and re-query per item (N+1).
+        return sum(a.quantity for a in self.shelf_allocations.all())
+
     def save(self, *args, **kwargs):
         result = calculate_total_price(
             quantity=self.quantity,
@@ -253,6 +259,29 @@ class PurchaseItem(AuditMixin):
 
     def __str__(self):
         return f"{self.order.order_number} — {self.product.name}"
+
+
+class PurchaseItemShelfAllocation(models.Model):
+    """
+    Draft put-away plan for one PurchaseItem: which shelf(s) the purchased
+    quantity will land on once the order is confirmed. Purely planning state
+    until confirm_purchase_order runs — nothing is applied to ShelfStock
+    until then. confirm_purchase_order blocks unless every item's
+    allocations sum exactly to its quantity. Any shelf is allowed (put-away).
+    """
+    purchase_item = models.ForeignKey(PurchaseItem, on_delete=models.CASCADE, related_name="shelf_allocations")
+    shelf         = models.ForeignKey(Shelf, on_delete=models.PROTECT, related_name="purchase_item_allocations")
+    quantity      = models.PositiveIntegerField()
+    created_at    = models.DateTimeField(auto_now_add=True)
+    updated_at    = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Purchase Item Shelf Allocation"
+        verbose_name_plural = "Purchase Item Shelf Allocations"
+        unique_together     = [("purchase_item", "shelf")]
+
+    def __str__(self):
+        return f"{self.purchase_item} → {self.shelf.name}: {self.quantity}"
 
 
 # ---------------------------------------------------------------------------
@@ -330,6 +359,37 @@ class PurchaseReturnItem(models.Model):
 
     def __str__(self):
         return f"{self.return_record} — {self.purchase_item.product.name} x {self.quantity}"
+
+    @property
+    def allocated_quantity(self):
+        # Sums the in-memory prefetch cache when the caller prefetched
+        # shelf_allocations (the normal list/detail path) — .aggregate()
+        # would bypass that cache and re-query per item (N+1).
+        return sum(a.quantity for a in self.shelf_allocations.all())
+
+
+class PurchaseReturnItemShelfAllocation(models.Model):
+    """
+    Draft plan for which shelf(s) the returned-to-supplier quantity is
+    physically pulled from. Consumption, not put-away — only shelves that
+    currently hold stock of this product are valid choices (enforced by the
+    selector that lists candidate shelves + the service-layer quantity
+    check). accept_purchase_return blocks unless every item's allocations
+    sum exactly to its quantity.
+    """
+    return_item = models.ForeignKey(PurchaseReturnItem, on_delete=models.CASCADE, related_name="shelf_allocations")
+    shelf       = models.ForeignKey(Shelf, on_delete=models.PROTECT, related_name="purchase_return_item_allocations")
+    quantity    = models.PositiveIntegerField()
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Purchase Return Item Shelf Allocation"
+        verbose_name_plural = "Purchase Return Item Shelf Allocations"
+        unique_together     = [("return_item", "shelf")]
+
+    def __str__(self):
+        return f"{self.return_item} ← {self.shelf.name}: {self.quantity}"
 
 
 # ---------------------------------------------------------------------------
@@ -575,6 +635,72 @@ class Inventory(models.Model):
 
     def __str__(self):
         return f"{self.product.name} — qty: {self.quantity}"
+
+
+class ShelfStock(models.Model):
+    """
+    Live physical quantity of one product on one shelf. This is the
+    per-location breakdown of the same total tracked globally by
+    Inventory.quantity — the two must always agree in total
+    (sum(ShelfStock.quantity for product) == Inventory.quantity for that
+    product). Only ever mutated through services.apply_shelf_delta (the
+    single writer, mirroring sync_inventory's role for Inventory).
+    """
+    shelf           = models.ForeignKey(Shelf, on_delete=models.PROTECT, related_name="stock_rows")
+    product         = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="shelf_stock_rows")
+    quantity        = models.PositiveIntegerField(default=0)
+    last_updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Shelf Stock"
+        verbose_name_plural = "Shelf Stock"
+        unique_together     = [("shelf", "product")]
+
+    def __str__(self):
+        return f"{self.shelf.name} — {self.product.name}: {self.quantity}"
+
+
+class ShelfStockMovement(models.Model):
+    """
+    Append-only audit ledger — one row per shelf-quantity change, whatever
+    caused it. This is the human-readable trail behind every ShelfStock
+    number: which purchase/sale/return/loss/move touched this shelf, when,
+    by whom. Never read for live totals (ShelfStock.quantity is the O(1)
+    stored figure) — this is drill-down/audit only.
+    """
+    class Reason(models.TextChoices):
+        PURCHASE_PUTAWAY     = "purchase_putaway",     "Purchase Put-Away"
+        SALE_CONSUMPTION     = "sale_consumption",     "Sale Consumption"
+        INVOICE_RETURN_PUTAWAY = "invoice_return_putaway", "Invoice Return Put-Away"
+        PURCHASE_RETURN_CONSUMPTION = "purchase_return_consumption", "Purchase Return Consumption"
+        LOST_CONSUMPTION     = "lost_consumption",     "Lost Inventory Consumption"
+        LOST_FOUND_PUTAWAY   = "lost_found_putaway",   "Lost Inventory Found Put-Away"
+        MOVE_OUT             = "move_out",             "Manual Move (Out)"
+        MOVE_IN              = "move_in",              "Manual Move (In)"
+        BACKFILL             = "backfill",              "Backfill"
+
+    shelf      = models.ForeignKey(Shelf, on_delete=models.PROTECT, related_name="movements")
+    product    = models.ForeignKey(Product, on_delete=models.PROTECT, related_name="shelf_movements")
+    delta      = models.IntegerField(help_text="Positive = added to shelf, negative = removed from shelf.")
+    reason     = models.CharField(max_length=30, choices=Reason.choices, db_index=True)
+    reference  = models.CharField(max_length=30, blank=True, default="", help_text="e.g. PO-2026-0001, BILL-2026-0001")
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="shelf_stock_movements",
+    )
+    created_at = models.DateTimeField(auto_now_add=True, db_index=True)
+
+    class Meta:
+        verbose_name        = "Shelf Stock Movement"
+        verbose_name_plural = "Shelf Stock Movements"
+        ordering            = ["-created_at"]
+        indexes = [
+            models.Index(fields=["shelf", "-created_at"]),
+            models.Index(fields=["product", "-created_at"]),
+        ]
+
+    def __str__(self):
+        return f"{self.shelf.name} — {self.product.name}: {self.delta:+d} ({self.reason})"
 
 
 class ProductStockMovement(models.Model):

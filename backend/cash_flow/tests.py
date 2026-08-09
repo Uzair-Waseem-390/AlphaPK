@@ -304,15 +304,16 @@ class DraftAdvanceQuirkFixTests(CashFlowTestBase):
         from purchases.services import (
             create_category, create_product, create_purchase_order,
             create_shelf, create_supplier, delete_purchase_order,
+            set_purchase_item_shelf_allocations,
         )
 
         create_opening_cash(amount=Decimal("50000"), user=self.admin)
         supplier = create_supplier(name="Karachi Metals", code="SUP1", user=self.admin)
         cat = create_category(name="Raw", user=self.admin)
-        shelf = create_shelf(name="A1", user=self.admin)
         product = create_product(
-            name="Steel Rod", code="PRD1", category_id=cat.id, shelf_id=shelf.id, user=self.admin,
+            name="Steel Rod", code="PRD1", category_id=cat.id, user=self.admin,
         )
+        shelf = create_shelf(name="Shelf A", user=self.admin)
         cash_start = self.cash()
 
         order = create_purchase_order(
@@ -344,6 +345,12 @@ class DraftAdvanceQuirkFixTests(CashFlowTestBase):
             items=[{"product_id": product.id, "quantity": 5, "unit_price": Decimal("100")}],
             user=self.admin,
         )
+        for item in order2.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         self.assertEqual(CashFlow.get_instance().total_purchases_count, 0)
         confirm_purchase_order(order_id=order2.id, user=self.admin)
         self.assertEqual(CashFlow.get_instance().total_purchases_count, 1)

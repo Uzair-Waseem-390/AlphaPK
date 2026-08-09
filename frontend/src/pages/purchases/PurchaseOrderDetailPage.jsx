@@ -16,6 +16,7 @@ import ReturnList from '../../components/purchases/ReturnList';
 import ReturnForm from '../../components/purchases/ReturnForm';
 import SavePDFModal from '../../components/purchases/SavePDFModal';
 import PurchaseOrderFormModal from '../../components/purchases/PurchaseOrderFormModal';
+import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 
 const PurchaseOrderDetailPage = () => {
     const { id } = useParams();
@@ -36,10 +37,36 @@ const PurchaseOrderDetailPage = () => {
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
+    const [allShelves, setAllShelves] = useState([]);
+    const [allocationDrafts, setAllocationDrafts] = useState({});
+    const [savingAllocationFor, setSavingAllocationFor] = useState(null);
+    const [confirmError, setConfirmError] = useState('');
 
     useEffect(() => {
         fetchData();
     }, [id]);
+
+    useEffect(() => {
+        purchasesApi.shelves.getAll({ page_size: 500 })
+            .then((res) => setAllShelves(res?.results ?? res ?? []))
+            .catch((error) => console.error('Failed to fetch shelves:', error));
+    }, []);
+
+    // Keep per-item allocation drafts in sync with the order's saved state
+    // (initial load and after every refetch following a save/confirm).
+    useEffect(() => {
+        if (!order?.items) return;
+        setAllocationDrafts((prev) => {
+            const next = { ...prev };
+            order.items.forEach((item) => {
+                next[item.id] = (item.shelf_allocations || []).map((a) => ({
+                    shelf_id: a.shelf.id,
+                    quantity: a.quantity,
+                }));
+            });
+            return next;
+        });
+    }, [order]);
 
     const fetchData = async () => {
         setLoading(true);
@@ -168,11 +195,32 @@ const PurchaseOrderDetailPage = () => {
 
     const handleConfirmOrder = async () => {
         if (!window.confirm('Are you sure you want to confirm this order?')) return;
+        setConfirmError('');
         try {
             await purchasesApi.orders.confirm(id);
             await fetchData();
         } catch (error) {
             console.error('Failed to confirm order:', error);
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to confirm order';
+            setConfirmError(errorMsg);
+        }
+    };
+
+    const handleSaveAllocations = async (itemId) => {
+        const allocations = (allocationDrafts[itemId] || [])
+            .filter((a) => a.shelf_id && a.quantity)
+            .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
+        setSavingAllocationFor(itemId);
+        try {
+            await purchasesApi.purchaseItems.setShelfAllocations(itemId, allocations);
+            await fetchData();
+        } catch (error) {
+            console.error('Failed to save shelf allocations:', error);
+            const errorMsg = error.response?.data?.detail || error.response?.data?.message
+                || error.response?.data?.allocations || 'Failed to save shelf allocations';
+            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+        } finally {
+            setSavingAllocationFor(null);
         }
     };
 
@@ -289,6 +337,12 @@ const PurchaseOrderDetailPage = () => {
                 </div>
             </div>
 
+            {confirmError && (
+                <div className="p-4 rounded-lg bg-error-50 border border-error-200 text-sm text-error-700">
+                    {confirmError}
+                </div>
+            )}
+
             {/* Supplier Info */}
             <Card className="p-6">
                 <h3 className="font-semibold text-neutral-900 mb-3">Supplier Information</h3>
@@ -341,7 +395,16 @@ const PurchaseOrderDetailPage = () => {
                         <tbody className="divide-y divide-neutral-100">
                             {order.items?.map((item, index) => (
                                 <tr key={item.id || index} className="hover:bg-neutral-50">
-                                    <td className="px-3 py-2 text-sm">{item.product_name || 'N/A'}</td>
+                                    <td className="px-3 py-2 text-sm">
+                                        {item.product_name || 'N/A'}
+                                        {order.status !== 'draft' && item.shelf_allocations?.length > 0 && (
+                                            <ul className="mt-1 text-xs text-neutral-500 space-y-0.5">
+                                                {item.shelf_allocations.map((a) => (
+                                                    <li key={a.id}>{a.shelf.name}: {a.quantity}</li>
+                                                ))}
+                                            </ul>
+                                        )}
+                                    </td>
                                     <td className="px-3 py-2 text-sm">{item.quantity}</td>
                                     <td className="px-3 py-2 text-sm">
                                         {typeof item.unit_price === 'string' ? parseFloat(item.unit_price).toFixed(2) : '0.00'}
@@ -394,6 +457,45 @@ const PurchaseOrderDetailPage = () => {
                     </div>
                 )}
             </Card>
+
+            {/* Put-Away — shelf allocation for draft orders, required before confirm */}
+            {order.status === 'draft' && (
+                <Card className="p-6">
+                    <h3 className="font-semibold text-neutral-900 mb-3">Put-Away (Shelf Allocation)</h3>
+                    <p className="text-sm text-neutral-500 mb-4">
+                        Allocate each item's full quantity to shelves before confirming this order.
+                    </p>
+                    <div className="space-y-6">
+                        {order.items?.map((item) => (
+                            <div key={item.id} className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+                                <div className="flex items-center justify-between mb-3">
+                                    <div>
+                                        <p className="font-medium">{item.product_name} {item.product_code ? `(${item.product_code})` : ''}</p>
+                                        <p className="text-sm text-neutral-500">Quantity: {item.quantity}</p>
+                                    </div>
+                                </div>
+                                <ShelfAllocationEditor
+                                    value={allocationDrafts[item.id] || []}
+                                    onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
+                                    shelves={allShelves}
+                                    requiredQuantity={item.quantity}
+                                    mode="putaway"
+                                    disabled={savingAllocationFor === item.id}
+                                />
+                                <div className="flex justify-end mt-3">
+                                    <Button
+                                        size="sm"
+                                        onClick={() => handleSaveAllocations(item.id)}
+                                        loading={savingAllocationFor === item.id}
+                                    >
+                                        Save Allocations
+                                    </Button>
+                                </div>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
 
             {/* Payments Section - Only for confirmed orders */}
             {order.status !== 'draft' && (

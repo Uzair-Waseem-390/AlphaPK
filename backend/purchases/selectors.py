@@ -13,7 +13,9 @@ from backend.search import search_q
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow,
     LostInventoryItem, LostInventoryRecord, Product, PurchaseItem,
-    PurchaseOrder, PurchaseReturn, Shelf, Supplier,
+    PurchaseItemShelfAllocation, PurchaseOrder, PurchaseReturn,
+    PurchaseReturnItem, PurchaseReturnItemShelfAllocation, Shelf, ShelfStock,
+    Supplier,
 )
 
 
@@ -60,11 +62,60 @@ def get_category_by_id(pk: int) -> Category:
 # Shelf
 # ---------------------------------------------------------------------------
 
-def get_all_shelves():
-    return Shelf.objects.select_related("created_by", "updated_by").filter(is_deleted=False)
+def get_all_shelves(*, search: str = None, product_search: str = None) -> QuerySet:
+    """
+    search         : shelf name (partial match)
+    product_search : only shelves currently holding a product matching this
+                      name/code (quantity > 0) — the second, independent
+                      search bar on the Shelves page.
+    """
+    qs = Shelf.objects.select_related("created_by", "updated_by").filter(is_deleted=False)
+    if _clean(search):
+        qs = qs.filter(search_q(_clean(search), "name"))
+    if _clean(product_search):
+        # Both conditions must hold on the SAME stock_rows row — two
+        # separate .filter() calls on a multi-valued relation each open
+        # their own join, so a shelf could match "quantity>0" via one
+        # product's row and the search via a different (possibly
+        # zero-quantity) row of the searched product. A single .filter()
+        # with both conditions combined keeps it to one join, one row.
+        qs = qs.filter(
+            Q(stock_rows__quantity__gt=0)
+            & search_q(_clean(product_search), "stock_rows__product__name", "stock_rows__product__code")
+        ).distinct()
+    return qs
 
 def get_shelf_by_id(pk: int) -> Shelf:
     return get_object_or_404(Shelf, pk=pk, is_deleted=False)
+
+
+def get_shelf_stock_rows(shelf_id: int, *, search: str = None) -> QuerySet:
+    """
+    Products + quantities currently on one shelf — feeds the shelf detail
+    page (click a shelf → see its contents). Only rows with quantity > 0
+    are shown; a product that was fully moved/consumed off a shelf leaves
+    no trace here (ShelfStockMovement is the audit trail for that).
+    """
+    qs = ShelfStock.objects.select_related(
+        "product", "product__category", "product__created_by", "product__updated_by",
+    ).filter(shelf_id=shelf_id, quantity__gt=0)
+    if _clean(search):
+        qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
+    return qs.order_by("product__name")
+
+
+def get_candidate_shelves_for_product(product_id: int) -> QuerySet:
+    """
+    Shelves that currently hold stock (quantity > 0) of a given product —
+    the dropdown source for every CONSUMPTION allocation context (sale
+    line, purchase return, lost inventory): only shelves that can actually
+    supply the product are offered.
+    """
+    return Shelf.objects.filter(
+        is_deleted=False, stock_rows__product_id=product_id, stock_rows__quantity__gt=0,
+    ).annotate(
+        available_quantity=Sum("stock_rows__quantity")
+    ).order_by("name")
 
 
 # ---------------------------------------------------------------------------
@@ -88,13 +139,13 @@ def get_supplier_by_id(pk: int) -> Supplier:
 # Product
 # ---------------------------------------------------------------------------
 
-# ProductReadSerializer nests full category/shelf (with their own audit
-# users) plus the product's own audit users — everything here is serialized,
-# nothing extra.
+# ProductReadSerializer nests full category (with its own audit users) plus
+# the product's own audit users — everything here is serialized, nothing
+# extra. Product no longer has a shelf (shelves are decoupled — physical
+# location now lives in ShelfStock, per-product-per-shelf, not on Product).
 _PRODUCT_RELATED = (
-    "category", "shelf", "created_by", "updated_by",
+    "category", "created_by", "updated_by",
     "category__created_by", "category__updated_by",
-    "shelf__created_by", "shelf__updated_by",
 )
 
 def get_all_products(*, search: str = None) -> QuerySet:
@@ -118,15 +169,24 @@ def _order_qs():
     # Exactly what PurchaseOrderReadSerializer outputs — nothing more:
     #  - supplier's own audit users (SupplierReadSerializer serializes them)
     #  - live items with their product (PurchaseItem.objects already filters
-    #    is_deleted=False via SoftDeleteManager), so serializers and
-    #    draft_preview can iterate .all() straight from the prefetch cache
+    #    is_deleted=False via SoftDeleteManager), and each item's shelf
+    #    allocations with their shelf (the put-away plan shown on the draft
+    #    so the frontend can render "remaining to allocate" without N+1)
     # The old payments / returns / item-category prefetches were never
     # serialized here — each was a wasted query on every list request.
     return PurchaseOrder.objects.select_related(
         "supplier", "supplier__created_by", "supplier__updated_by",
         "created_by", "updated_by", "confirmed_by", "deleted_by",
     ).prefetch_related(
-        Prefetch("items", queryset=PurchaseItem.objects.select_related("product")),
+        Prefetch(
+            "items",
+            queryset=PurchaseItem.objects.select_related("product").prefetch_related(
+                Prefetch(
+                    "shelf_allocations",
+                    queryset=PurchaseItemShelfAllocation.objects.select_related("shelf"),
+                ),
+            ),
+        ),
     )
 
 
@@ -237,6 +297,18 @@ def get_purchase_item_by_id(pk: int) -> PurchaseItem:
     )
 
 
+def get_purchase_item_with_allocations_by_id(pk: int) -> PurchaseItem:
+    return get_object_or_404(
+        PurchaseItem.objects.select_related("order", "product").prefetch_related(
+            Prefetch(
+                "shelf_allocations",
+                queryset=PurchaseItemShelfAllocation.objects.select_related("shelf"),
+            ),
+        ),
+        pk=pk, is_deleted=False,
+    )
+
+
 def get_available_purchase_items_for_fifo(product_id: int, *, for_update: bool = False) -> QuerySet:
     """
     Returns confirmed purchase items with remaining stock, oldest first (FIFO).
@@ -269,13 +341,24 @@ def get_available_purchase_items_for_fifo(product_id: int, *, for_update: bool =
 # PurchaseReturn
 # ---------------------------------------------------------------------------
 
+_RETURN_ITEM_PREFETCH = Prefetch(
+    "items",
+    queryset=PurchaseReturnItem.objects.select_related("purchase_item__product").prefetch_related(
+        Prefetch(
+            "shelf_allocations",
+            queryset=PurchaseReturnItemShelfAllocation.objects.select_related("shelf"),
+        ),
+    ),
+)
+
+
 def get_returns_for_order(order_id: int) -> QuerySet:
     # order__supplier: the read serializer outputs order_number and
     # supplier_name for every return — without this it's 2 queries per row.
     return PurchaseReturn.objects.filter(
         order_id=order_id, is_deleted=False,
     ).select_related("order__supplier", "created_by", "accepted_by").prefetch_related(
-        "items__purchase_item__product",
+        _RETURN_ITEM_PREFETCH,
     )
 
 
@@ -283,8 +366,31 @@ def get_purchase_return_by_id(pk: int) -> PurchaseReturn:
     return get_object_or_404(
         PurchaseReturn.objects.select_related(
             "order", "created_by", "accepted_by",
-        ).prefetch_related("items__purchase_item__product"),
+        ).prefetch_related(_RETURN_ITEM_PREFETCH),
         pk=pk, is_deleted=False,
+    )
+
+
+def get_purchase_return_item_by_id(pk: int) -> PurchaseReturnItem:
+    return get_object_or_404(
+        PurchaseReturnItem.objects.select_related(
+            "return_record", "purchase_item__product",
+        ),
+        pk=pk,
+    )
+
+
+def get_purchase_return_item_with_allocations_by_id(pk: int) -> PurchaseReturnItem:
+    return get_object_or_404(
+        PurchaseReturnItem.objects.select_related(
+            "return_record", "purchase_item__product",
+        ).prefetch_related(
+            Prefetch(
+                "shelf_allocations",
+                queryset=PurchaseReturnItemShelfAllocation.objects.select_related("shelf"),
+            ),
+        ),
+        pk=pk,
     )
 
 
@@ -299,7 +405,7 @@ def get_all_returns(
 ) -> QuerySet:
     qs = PurchaseReturn.objects.select_related(
         "order__supplier", "created_by", "accepted_by",
-    ).prefetch_related("items__purchase_item__product").filter(is_deleted=False)
+    ).prefetch_related(_RETURN_ITEM_PREFETCH).filter(is_deleted=False)
 
     if _clean(status):
         qs = qs.filter(status=_clean(status))
@@ -465,30 +571,27 @@ def get_all_inventory(
     *,
     search      : str = None,
     category_id : str = None,
-    shelf_id    : str = None,
 ) -> QuerySet:
     """
-    Returns inventory with optional filters:
+    Returns inventory (global per-product total) with optional filters:
         search      : product name or product code (partial, case-insensitive)
         category_id : filter by category id
-        shelf_id    : filter by shelf id
+    Filtering by shelf no longer applies here — a product's stock can now
+    span multiple shelves. Use get_shelf_stock_rows for "what's on shelf X".
     """
     # InventoryReadSerializer nests the full ProductReadSerializer (which in
-    # turn nests category/shelf with their audit users) — without all of
-    # these, each row costs up to 6 extra queries (N+1).
+    # turn nests category with its audit users) — without these, each row
+    # costs extra queries (N+1).
     qs = Inventory.objects.select_related(
-        "product", "product__category", "product__shelf", "last_updated_by",
+        "product", "product__category", "last_updated_by",
         "product__created_by", "product__updated_by",
         "product__category__created_by", "product__category__updated_by",
-        "product__shelf__created_by", "product__shelf__updated_by",
     ).filter(product__is_deleted=False)
 
     if _clean(search):
         qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
     if _clean(category_id):
         qs = qs.filter(product__category_id=_clean(category_id))
-    if _clean(shelf_id):
-        qs = qs.filter(product__shelf_id=_clean(shelf_id))
 
     return qs.order_by("product__name")
 
@@ -510,23 +613,23 @@ def get_inventory_stats() -> InventoryStatsFlow:
     return InventoryStatsFlow.get_instance()
 
 
-def get_low_stock_inventory(*, search: str = None, category_id: str = None, shelf_id: str = None) -> QuerySet:
+def get_low_stock_inventory(*, search: str = None, category_id: str = None) -> QuerySet:
     """
     Breakdown behind the "Low Stock" card: 0 < quantity <= LOW_STOCK_THRESHOLD.
     Same filters as the main inventory list; quantity is indexed.
     """
     return get_all_inventory(
-        search=search, category_id=category_id, shelf_id=shelf_id,
+        search=search, category_id=category_id,
     ).filter(quantity__gt=0, quantity__lte=LOW_STOCK_THRESHOLD)
 
 
-def get_out_of_stock_inventory(*, search: str = None, category_id: str = None, shelf_id: str = None) -> QuerySet:
+def get_out_of_stock_inventory(*, search: str = None, category_id: str = None) -> QuerySet:
     """
     Breakdown behind the "Out of Stock" card: quantity <= 0.
     Same filters as the main inventory list; quantity is indexed.
     """
     return get_all_inventory(
-        search=search, category_id=category_id, shelf_id=shelf_id,
+        search=search, category_id=category_id,
     ).filter(quantity__lte=0)
 
 

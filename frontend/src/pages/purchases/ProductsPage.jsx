@@ -20,14 +20,12 @@ const ProductsPage = () => {
 
     const { data, meta, page, setPage, loading, filters, setFilters, create, update, delete: deleteProduct, refetch } = useCRUD(
         purchasesApi.products,
-        { search: '', category: '', shelf: '' }
+        { search: '', category: '' }
     );
 
     const [categories, setCategories] = useState([]);
-    const [shelves, setShelves] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
     const [categoryFilter, setCategoryFilter] = useState('');
-    const [shelfFilter, setShelfFilter] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [activeFilters, setActiveFilters] = useState({});
     const [showModal, setShowModal] = useState(false);
@@ -36,7 +34,6 @@ const ProductsPage = () => {
         name: '',
         code: '',
         category: '',
-        shelf: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [deleteConfirm, setDeleteConfirm] = useState(null);
@@ -47,32 +44,23 @@ const ProductsPage = () => {
 
     const loadLookups = async () => {
         try {
-            // page_size override — dropdown needs every category/shelf, not
+            // page_size override — dropdown needs every category, not
             // just the first paginated page.
-            const [catsRes, shelvesRes] = await Promise.all([
-                purchasesApi.categories.getAll({ page_size: 500 }),
-                purchasesApi.shelves.getAll({ page_size: 500 }),
-            ]);
+            const catsRes = await purchasesApi.categories.getAll({ page_size: 500 });
             const cats = catsRes.results || catsRes;
-            const shelves = shelvesRes.results || shelvesRes;
             setCategories(cats.filter(c => !c.is_deleted));
-            setShelves(shelves.filter(s => !s.is_deleted));
         } catch (error) {
             console.error('Failed to load lookups:', error);
         }
     };
 
-    // Search now goes to the backend (see handleSearch) — only category/shelf
-    // are still narrowed client-side, over whatever page the backend returned.
+    // Search now goes to the backend (see handleSearch) — only category
+    // is still narrowed client-side, over whatever page the backend returned.
     const filteredData = data.filter(item => {
         let matches = true;
         const catId = activeFilters.category || categoryFilter;
-        const shelfId = activeFilters.shelf || shelfFilter;
         if (catId) {
             matches = matches && item.category?.id === parseInt(catId);
-        }
-        if (shelfId) {
-            matches = matches && item.shelf?.id === parseInt(shelfId);
         }
         return matches;
     });
@@ -85,13 +73,11 @@ const ProductsPage = () => {
     const handleApplyFilters = (filterValues) => {
         setActiveFilters(filterValues);
         setCategoryFilter(filterValues.category || '');
-        setShelfFilter(filterValues.shelf || '');
     };
 
     const handleResetFilters = () => {
         setActiveFilters({});
         setCategoryFilter('');
-        setShelfFilter('');
         setSearchTerm('');
         setFilters({ ...filters, search: '' });
     };
@@ -102,11 +88,6 @@ const ProductsPage = () => {
         {
             key: 'category',
             label: 'Category',
-            render: (value) => value?.name || 'N/A'
-        },
-        {
-            key: 'shelf',
-            label: 'Shelf',
             render: (value) => value?.name || 'N/A'
         },
         {
@@ -154,7 +135,6 @@ const ProductsPage = () => {
             const submitData = {
                 ...formData,
                 category: parseInt(formData.category),
-                shelf: parseInt(formData.shelf),
             };
             if (editingProduct) {
                 await update(editingProduct.id, submitData);
@@ -181,13 +161,12 @@ const ProductsPage = () => {
             name: product.name,
             code: product.code,
             category: product.category?.id || '',
-            shelf: product.shelf?.id || '',
         });
         setShowModal(true);
     };
 
     const resetForm = () => {
-        setFormData({ name: '', code: '', category: '', shelf: '' });
+        setFormData({ name: '', code: '', category: '' });
         setEditingProduct(null);
     };
 
@@ -260,15 +239,6 @@ const ProductsPage = () => {
                                     ...categories.map(c => ({ value: c.id, label: c.name })),
                                 ],
                             },
-                            {
-                                name: 'shelf',
-                                label: 'Shelf',
-                                type: 'select',
-                                options: [
-                                    { value: '', label: 'All Shelves' },
-                                    ...shelves.map(s => ({ value: s.id, label: s.name })),
-                                ],
-                            },
                         ]}
                         onApply={handleApplyFilters}
                         onReset={handleResetFilters}
@@ -318,14 +288,6 @@ const ProductsPage = () => {
                         onChange={(e) => setFormData({ ...formData, category: e.target.value })}
                         options={categories.map(c => ({ value: c.id, label: c.name }))}
                         placeholder="Select category"
-                        required
-                    />
-                    <Select
-                        label="Shelf"
-                        value={formData.shelf}
-                        onChange={(e) => setFormData({ ...formData, shelf: e.target.value })}
-                        options={shelves.map(s => ({ value: s.id, label: s.name }))}
-                        placeholder="Select shelf"
                         required
                     />
                     <div className="flex justify-end gap-3 pt-4">

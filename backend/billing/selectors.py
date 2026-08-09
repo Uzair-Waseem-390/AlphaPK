@@ -7,7 +7,10 @@ from backend.search import search_q
 # __date lookups they replace, but able to use the created_at indexes).
 from purchases.selectors import _day_start, _next_day_start
 
-from .models import Customer, Invoice, InvoiceItem, Payment, Return
+from .models import (
+    Customer, Invoice, InvoiceItem, InvoiceItemShelfAllocation,
+    InvoiceReturnItemShelfAllocation, Payment, Return, ReturnItem,
+)
 
 
 # ---------------------------------------------------------------------------
@@ -62,7 +65,12 @@ def _invoice_qs():
     ).prefetch_related(
         Prefetch(
             "items",
-            queryset=InvoiceItem.objects.select_related("product", "product__rate"),
+            queryset=InvoiceItem.objects.select_related("product", "product__rate").prefetch_related(
+                Prefetch(
+                    "shelf_allocations",
+                    queryset=InvoiceItemShelfAllocation.objects.select_related("shelf"),
+                ),
+            ),
         ),
     )
 
@@ -83,6 +91,18 @@ def get_invoice_item_by_id(pk: int) -> InvoiceItem:
     return get_object_or_404(
         InvoiceItem.objects.select_related(
             "invoice", "product",
+        ),
+        pk=pk,
+    )
+
+
+def get_invoice_item_with_allocations_by_id(pk: int) -> InvoiceItem:
+    return get_object_or_404(
+        InvoiceItem.objects.select_related("invoice", "product").prefetch_related(
+            Prefetch(
+                "shelf_allocations",
+                queryset=InvoiceItemShelfAllocation.objects.select_related("shelf"),
+            ),
         ),
         pk=pk,
     )
@@ -137,13 +157,24 @@ def get_payment_by_id(pk: int) -> Payment:
 # Return
 # ---------------------------------------------------------------------------
 
+_RETURN_ITEM_PREFETCH = Prefetch(
+    "items",
+    queryset=ReturnItem.objects.select_related("invoice_item__product").prefetch_related(
+        Prefetch(
+            "shelf_allocations",
+            queryset=InvoiceReturnItemShelfAllocation.objects.select_related("shelf"),
+        ),
+    ),
+)
+
+
 def get_returns_for_invoice(invoice_id: int) -> QuerySet:
     # invoice__customer: the read serializer outputs bill number and
     # customer name on every return — without this it's 2 queries per row.
     return Return.objects.filter(
         invoice_id=invoice_id, is_deleted=False,
     ).select_related("invoice__customer", "created_by", "accepted_by").prefetch_related(
-        "items__invoice_item__product",
+        _RETURN_ITEM_PREFETCH,
     )
 
 
@@ -160,7 +191,7 @@ def get_all_returns(
     qs = Return.objects.filter(
         is_deleted=False,
     ).select_related("invoice__customer", "created_by", "accepted_by").prefetch_related(
-        "items__invoice_item__product",
+        _RETURN_ITEM_PREFETCH,
     ).order_by("-created_at")
 
     if _clean(reference):
@@ -185,9 +216,23 @@ def get_return_by_id(pk: int) -> Return:
     return get_object_or_404(
         Return.objects.select_related(
             "invoice__customer", "created_by", "accepted_by",
-        ).prefetch_related("items__invoice_item__product"),
+        ).prefetch_related(_RETURN_ITEM_PREFETCH),
         pk=pk,
         is_deleted=False,
+    )
+
+
+def get_return_item_by_id(pk: int) -> ReturnItem:
+    return get_object_or_404(
+        ReturnItem.objects.select_related(
+            "return_record", "invoice_item__product",
+        ).prefetch_related(
+            Prefetch(
+                "shelf_allocations",
+                queryset=InvoiceReturnItemShelfAllocation.objects.select_related("shelf"),
+            ),
+        ),
+        pk=pk,
     )
 
 

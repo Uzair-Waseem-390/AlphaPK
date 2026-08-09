@@ -77,6 +77,7 @@ class OpeningCashReadSerializer(serializers.ModelSerializer):
 
 class OpeningStockItemSerializer(serializers.Serializer):
     product_id  = serializers.IntegerField()
+    shelf_id    = serializers.IntegerField()
     quantity    = serializers.IntegerField(min_value=1)
     unit_price  = serializers.DecimalField(max_digits=14, decimal_places=4, min_value=0)
     gst         = serializers.DecimalField(max_digits=5, decimal_places=2, required=False, default=0)

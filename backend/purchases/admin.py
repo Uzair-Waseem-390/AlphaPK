@@ -52,8 +52,8 @@ class SupplierAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmin):
 
 @admin.register(Product)
 class ProductAdmin(AuditAdminMixin, SoftDeleteAdminMixin, admin.ModelAdmin):
-    list_display  = ["name", "code", "category", "shelf", "is_deleted", "created_by", "created_at"]
-    list_filter   = ["is_deleted", "category", "shelf"]
+    list_display  = ["name", "code", "category", "is_deleted", "created_by", "created_at"]
+    list_filter   = ["is_deleted", "category"]
     search_fields = ["name", "code"]
     readonly_fields = AuditAdminMixin.readonly_fields
 

@@ -7,8 +7,10 @@ from .models import (
     LOW_STOCK_THRESHOLD, Category, DocumentCounter, Inventory,
     InventoryStatsFlow, LostInventoryFIFOConsumption, LostInventoryItem,
     LostInventoryRecord, LostInventoryRecovery, Product, ProductStockMovement,
-    PurchaseItem, PurchaseOrder, PurchaseReturn, PurchaseReturnItem,
-    SavedPurchaseOrderPDF, Shelf, StockMovementFlow, Supplier, SupplierPayment,
+    PurchaseItem, PurchaseItemShelfAllocation, PurchaseOrder, PurchaseReturn,
+    PurchaseReturnItem, PurchaseReturnItemShelfAllocation,
+    SavedPurchaseOrderPDF, Shelf, ShelfStock, ShelfStockMovement,
+    StockMovementFlow, Supplier, SupplierPayment,
 )
 from .selectors import (
     get_available_purchase_items_for_fifo, get_category_by_id,
@@ -308,6 +310,140 @@ def sync_inventory(*, product: Product, quantity_delta: int, user=None) -> None:
 
 
 # ---------------------------------------------------------------------------
+# Shelf stock (per-location physical quantity) — parallel to Inventory
+# ---------------------------------------------------------------------------
+
+def get_default_shelf() -> Shelf:
+    """
+    The fallback shelf for flows that don't (yet) collect an explicit shelf
+    choice: the historical backfill, and data-entry opening stock when no
+    shelf is specified. Earliest non-deleted shelf, deterministic. Raises a
+    clear error if no shelf exists yet — the admin needs to create at least
+    one before any stock-moving action can run.
+    """
+    from rest_framework.exceptions import ValidationError
+    shelf = Shelf.objects.order_by("id").first()
+    if shelf is None:
+        raise ValidationError({"shelf": "No shelves exist yet. Create at least one shelf first."})
+    return shelf
+
+
+def apply_shelf_delta(*, shelf: Shelf, product: Product, delta: int, reason: str, reference: str = "", user=None) -> None:
+    """
+    THE single writer for ShelfStock.quantity — every put-away/consumption/
+    move funnels through here, mirroring sync_inventory's role for the
+    global Inventory total. Locks the (shelf, product) row, floors at 0
+    (defensive only — callers must validate availability before calling
+    this for a negative delta via validate_shelf_consumption), and appends
+    a ShelfStockMovement audit row in the same transaction.
+    """
+    with transaction.atomic():
+        stock, _ = ShelfStock.objects.select_for_update().get_or_create(shelf=shelf, product=product)
+        stock.quantity = max(0, stock.quantity + delta)
+        stock.save(update_fields=["quantity", "last_updated_at"])
+        ShelfStockMovement.objects.create(
+            shelf=shelf, product=product, delta=delta,
+            reason=reason, reference=reference, created_by=user,
+        )
+
+
+def apply_shelf_allocations(*, product: Product, allocations: list[dict], sign: int, reason: str, reference: str = "", user=None) -> None:
+    """
+    Applies a list of {"shelf": Shelf, "quantity": int} allocations for one
+    product, each multiplied by `sign` (+1 for put-away, -1 for
+    consumption). Locks shelves in deterministic (pk) order so two
+    transactions touching overlapping shelf sets can never deadlock.
+    """
+    for allocation in sorted(allocations, key=lambda a: a["shelf"].pk):
+        apply_shelf_delta(
+            shelf=allocation["shelf"], product=product,
+            delta=sign * allocation["quantity"],
+            reason=reason, reference=reference, user=user,
+        )
+
+
+def validate_shelf_consumption(*, product: Product, allocations: list[dict]) -> None:
+    """
+    Guard for consumption-type allocations (sale, purchase return, lost
+    inventory): every selected shelf must currently hold at least the
+    requested quantity of this product. Raises a clear per-shelf error
+    naming the shortfall so the frontend can prompt the user to also select
+    another shelf. Locks the rows it checks (called from within the
+    caller's atomic block) so the check is trustworthy at commit time.
+    """
+    from rest_framework.exceptions import ValidationError
+    for allocation in sorted(allocations, key=lambda a: a["shelf"].pk):
+        shelf = allocation["shelf"]
+        needed = allocation["quantity"]
+        stock = ShelfStock.objects.select_for_update().filter(shelf=shelf, product=product).first()
+        available = stock.quantity if stock else 0
+        if available < needed:
+            raise ValidationError({
+                "shelf_allocations": (
+                    f"Shelf '{shelf.name}' only has {available} of '{product.name}' "
+                    f"available, but {needed} was requested. Select another shelf "
+                    f"to cover the remaining {needed - available}."
+                )
+            })
+
+
+def validate_allocations_complete(*, product_name: str, allocated: int, required: int) -> None:
+    """
+    Guard used before any confirm/accept step that requires shelf
+    allocations to be fully specified: the sum of an item's allocation rows
+    must exactly equal its transaction quantity — no more, no less.
+    """
+    from rest_framework.exceptions import ValidationError
+    if allocated != required:
+        raise ValidationError({
+            "shelf_allocations": (
+                f"'{product_name}' has {allocated} of {required} units allocated to "
+                f"shelves. Allocate the remaining {required - allocated} before confirming."
+                if allocated < required else
+                f"'{product_name}' has {allocated} units allocated to shelves but only "
+                f"{required} are needed. Remove {allocated - required} units of allocation."
+            )
+        })
+
+
+@transaction.atomic
+def move_shelf_stock(*, from_shelf_id: int, to_shelf_id: int, product_id: int, quantity: int, user) -> None:
+    """
+    Moves quantity of a product from one shelf to another. Both shelf rows
+    are locked up front in deterministic (pk) order before any write, so a
+    concurrent move in the opposite direction can never deadlock.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if from_shelf_id == to_shelf_id:
+        raise ValidationError({"to_shelf": "Source and destination shelf must be different."})
+    if quantity <= 0:
+        raise ValidationError({"quantity": "Quantity must be greater than zero."})
+
+    from_shelf = get_shelf_by_id(from_shelf_id)
+    to_shelf   = get_shelf_by_id(to_shelf_id)
+    product    = get_product_by_id(product_id)
+
+    locked = {
+        s.pk: ShelfStock.objects.select_for_update().get_or_create(shelf=s, product=product)[0]
+        for s in sorted([from_shelf, to_shelf], key=lambda s: s.pk)
+    }
+    if locked[from_shelf.pk].quantity < quantity:
+        raise ValidationError({
+            "quantity": (
+                f"Shelf '{from_shelf.name}' only has {locked[from_shelf.pk].quantity} "
+                f"of '{product.name}' — cannot move {quantity}."
+            )
+        })
+
+    reference = f"{from_shelf.name} -> {to_shelf.name}"
+    apply_shelf_delta(shelf=from_shelf, product=product, delta=-quantity,
+                       reason=ShelfStockMovement.Reason.MOVE_OUT, reference=reference, user=user)
+    apply_shelf_delta(shelf=to_shelf, product=product, delta=quantity,
+                       reason=ShelfStockMovement.Reason.MOVE_IN, reference=reference, user=user)
+
+
+# ---------------------------------------------------------------------------
 # Category services
 # ---------------------------------------------------------------------------
 
@@ -349,8 +485,21 @@ def update_shelf(*, pk: int, name: str = None, description: str = None, user) ->
     return shelf
 
 
+@transaction.atomic
 def delete_shelf(*, pk: int, user) -> None:
-    _soft_delete(get_shelf_by_id(pk), user)
+    """
+    Blocks deleting a shelf that still holds stock. Locks the shelf's
+    ShelfStock rows for the duration of the check+delete (same transaction)
+    so a concurrent put-away/move landing on this shelf right after the
+    check either blocks until we finish (and then still 400s them, since
+    the shelf is already gone) or completes first and is caught by our
+    lock — narrows the race window instead of a bare check-then-act.
+    """
+    from rest_framework.exceptions import ValidationError
+    shelf = get_shelf_by_id(pk)
+    if ShelfStock.objects.select_for_update().filter(shelf=shelf, quantity__gt=0).exists():
+        raise ValidationError({"shelf": "Cannot delete a shelf that still holds stock. Move its stock first."})
+    _soft_delete(shelf, user)
 
 
 # ---------------------------------------------------------------------------
@@ -393,12 +542,11 @@ def delete_supplier(*, pk: int, user) -> None:
 # ---------------------------------------------------------------------------
 
 @transaction.atomic
-def create_product(*, name: str, code: str, category_id: int, shelf_id: int, user) -> Product:
+def create_product(*, name: str, code: str, category_id: int, user) -> Product:
     get_category_by_id(category_id)
-    get_shelf_by_id(shelf_id)
     product = Product.objects.create(
         name=name, code=code, category_id=category_id,
-        shelf_id=shelf_id, created_by=user, updated_by=user,
+        created_by=user, updated_by=user,
     )
     # A brand-new product has no price yet — queue it for the Rates app.
     # Lazy import: purchases stays unaware rates exists at module load time.
@@ -409,7 +557,7 @@ def create_product(*, name: str, code: str, category_id: int, shelf_id: int, use
 
 def update_product(
     *, pk: int, name: str = None, code: str = None,
-    category_id: int = None, shelf_id: int = None, user,
+    category_id: int = None, user,
 ) -> Product:
     product = get_product_by_id(pk)
     if name is not None:
@@ -419,11 +567,8 @@ def update_product(
     if category_id is not None:
         get_category_by_id(category_id)
         product.category_id = category_id
-    if shelf_id is not None:
-        get_shelf_by_id(shelf_id)
-        product.shelf_id = shelf_id
     product.updated_by = user
-    product.save(update_fields=["name", "code", "category_id", "shelf_id", "updated_by", "updated_at"])
+    product.save(update_fields=["name", "code", "category_id", "updated_by", "updated_at"])
     return product
 
 
@@ -703,6 +848,87 @@ def update_purchase_order_items(
 
 
 @transaction.atomic
+def set_purchase_item_shelf_allocations(*, purchase_item_id: int, allocations: list[dict], user) -> PurchaseItem:
+    """
+    Replaces all shelf put-away allocations for one draft purchase item.
+    allocations = [{"shelf_id": 1, "quantity": 20}, ...]. Any shelf is valid
+    (put-away) — no stock check here, this is purely draft planning state
+    applied to ShelfStock only at confirm_purchase_order time. Duplicate
+    shelf_id entries in the input are merged so a double submission doesn't
+    hit the unique constraint.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    purchase_item = get_purchase_item_by_id(purchase_item_id)
+    if purchase_item.order.status != PurchaseOrder.Status.DRAFT:
+        raise ValidationError({"status": "Shelf allocations can only be edited on a draft purchase order."})
+
+    merged = {}
+    for a in allocations:
+        get_shelf_by_id(a["shelf_id"])  # validates existence + not soft-deleted
+        merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
+
+    total_allocated = sum(merged.values())
+    if total_allocated > purchase_item.quantity:
+        raise ValidationError({
+            "shelf_allocations": (
+                f"Allocated quantity ({total_allocated}) exceeds the purchased "
+                f"quantity ({purchase_item.quantity})."
+            )
+        })
+
+    purchase_item.shelf_allocations.all().delete()
+    PurchaseItemShelfAllocation.objects.bulk_create([
+        PurchaseItemShelfAllocation(purchase_item=purchase_item, shelf_id=shelf_id, quantity=qty)
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+    return purchase_item
+
+
+@transaction.atomic
+def set_purchase_return_item_shelf_allocations(*, return_item_id: int, allocations: list[dict], user) -> PurchaseReturnItem:
+    """
+    Replaces all shelf consumption allocations for one pending purchase
+    return item — which shelf(s) the returned-to-supplier stock is
+    physically pulled from. Each shelf must currently hold enough stock of
+    this product; accept_purchase_return re-validates at commit time.
+    """
+    from rest_framework.exceptions import ValidationError
+    from .selectors import get_purchase_return_item_by_id
+
+    return_item = get_purchase_return_item_by_id(return_item_id)
+    if return_item.return_record.status != PurchaseReturn.Status.PENDING:
+        raise ValidationError({"status": "Shelf allocations can only be edited on a pending return."})
+
+    product = return_item.purchase_item.product
+    merged = {}
+    for a in allocations:
+        get_shelf_by_id(a["shelf_id"])
+        merged[a["shelf_id"]] = merged.get(a["shelf_id"], 0) + a["quantity"]
+
+    total_allocated = sum(merged.values())
+    if total_allocated > return_item.quantity:
+        raise ValidationError({
+            "shelf_allocations": (
+                f"Allocated quantity ({total_allocated}) exceeds the return "
+                f"quantity ({return_item.quantity})."
+            )
+        })
+
+    validate_shelf_consumption(product=product, allocations=[
+        {"shelf": get_shelf_by_id(shelf_id), "quantity": qty}
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+
+    return_item.shelf_allocations.all().delete()
+    PurchaseReturnItemShelfAllocation.objects.bulk_create([
+        PurchaseReturnItemShelfAllocation(return_item=return_item, shelf_id=shelf_id, quantity=qty)
+        for shelf_id, qty in merged.items() if qty > 0
+    ])
+    return return_item
+
+
+@transaction.atomic
 def delete_purchase_order(*, order_id: int, user) -> None:
     """
     Only DRAFT orders can be deleted. Refunds advance payment if applicable.
@@ -739,11 +965,12 @@ def delete_purchase_order(*, order_id: int, user) -> None:
 def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
     """
     Confirms a DRAFT PurchaseOrder:
-    1. Recalculates all totals from line items
-    2. Sets remaining_quantity = quantity on each item (FIFO ready)
-    3. Adds to inventory
-    4. Sets payable_outstanding = net_payable (we owe supplier full amount)
-    5. Sets status = CONFIRMED
+    1. Every item must already be fully allocated to shelves (put-away plan)
+    2. Recalculates all totals from line items
+    3. Sets remaining_quantity = quantity on each item (FIFO ready)
+    4. Adds to inventory (global) AND to ShelfStock per the item's allocations
+    5. Sets payable_outstanding = net_payable (we owe supplier full amount)
+    6. Sets status = CONFIRMED
     """
     from rest_framework.exceptions import ValidationError
 
@@ -751,15 +978,36 @@ def confirm_purchase_order(*, order_id: int, user) -> PurchaseOrder:
     if order.status != PurchaseOrder.Status.DRAFT:
         raise ValidationError({"status": "Only draft purchase orders can be confirmed."})
 
-    items = order.items.filter(is_deleted=False)
-    if not items.exists():
+    # order.items.all() reuses the selector's prefetch cache (already
+    # filtered to live items via SoftDeleteManager, with shelf_allocations
+    # nested-prefetched) — a fresh .filter() here would discard that cache
+    # and re-query per order (architecture.md rule 20). Sorted by product_id
+    # (mirrors confirm_invoice) so two concurrent confirms touching
+    # overlapping shelves always lock in the same order — no deadlock.
+    items = sorted(order.items.all(), key=lambda i: i.product_id)
+    if not items:
         raise ValidationError({"items": "Cannot confirm an order with no items."})
+
+    # Every item must be fully put away before we touch stock — a purchase
+    # order confirms exactly once, so this is the only allocation gate.
+    for item in items:
+        validate_allocations_complete(
+            product_name=item.product.name,
+            allocated=item.allocated_quantity,
+            required=item.quantity,
+        )
 
     # Set remaining_quantity and sync inventory
     for item in items:
         item.remaining_quantity = item.quantity
         item.save(update_fields=["remaining_quantity"])
         sync_inventory(product=item.product, quantity_delta=item.quantity, user=user)
+        apply_shelf_allocations(
+            product=item.product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in item.shelf_allocations.all()],
+            sign=1, reason=ShelfStockMovement.Reason.PURCHASE_PUTAWAY,
+            reference=order.order_number, user=user,
+        )
         # Stock Movement Report — bootstrap opening-stock orders aren't
         # real operating-period purchases, mirrors every other report's
         # is_data_entry exclusion.
@@ -847,9 +1095,18 @@ def create_opening_balance_order(*, supplier, amount: Decimal, user) -> Purchase
 def create_opening_stock_order(*, supplier, items: list[dict], user) -> PurchaseOrder:
     """
     Creates a CONFIRMED, is_data_entry PurchaseOrder with line items for the
-    system supplier. Sets remaining_quantity for FIFO and adds to inventory.
-    No cashflow/ledger effect (system supplier is excluded from payable tracking).
+    system supplier. Sets remaining_quantity for FIFO and adds to inventory
+    AND to the shelf the user picked for each item (shelf_id is required per
+    item — data-entry opening stock is a real put-away action, not exempt
+    from choosing a shelf like every other stock-adding flow). No
+    cashflow/ledger effect (system supplier is excluded from payable tracking).
     """
+    from rest_framework.exceptions import ValidationError
+
+    for item in items:
+        if not item.get("shelf_id"):
+            raise ValidationError({"shelf_id": "A shelf is required for every opening stock item."})
+
     order = PurchaseOrder.objects.create(
         order_number  = _generate_order_number(),
         supplier      = supplier,
@@ -862,6 +1119,7 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
         updated_by    = user,
     )
     for item in items:
+        shelf = get_shelf_by_id(item["shelf_id"])
         pi = PurchaseItem.objects.create(
             order=order,
             product_id=item["product_id"],
@@ -876,6 +1134,11 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
         pi.remaining_quantity = pi.quantity
         pi.save(update_fields=["remaining_quantity"])
         sync_inventory(product=pi.product, quantity_delta=pi.quantity, user=user)
+        apply_shelf_delta(
+            shelf=shelf, product=pi.product, delta=pi.quantity,
+            reason=ShelfStockMovement.Reason.PURCHASE_PUTAWAY,
+            reference=order.order_number, user=user,
+        )
         # Stock Movement Report — unlike the financial is_data_entry
         # exclusions elsewhere, opening stock DOES move real physical
         # quantity (Inventory.quantity is incremented above too), so it
@@ -1036,12 +1299,31 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
     if return_record.status != PurchaseReturn.Status.PENDING:
         raise ValidationError({"status": "Only pending returns can be accepted."})
 
+    # Sorted by product_id (mirrors confirm_invoice) so two concurrent
+    # accepts touching overlapping shelves always lock in the same order.
+    return_items = sorted(return_record.items.all(), key=lambda ri: ri.purchase_item.product_id)
+
+    # Every item must be fully allocated to shelves (which shelf the
+    # returned-to-supplier stock is physically pulled from) before we touch
+    # stock, and each selected shelf must actually hold enough right now.
+    for return_item in return_items:
+        product = return_item.purchase_item.product
+        validate_allocations_complete(
+            product_name=product.name,
+            allocated=return_item.allocated_quantity,
+            required=return_item.quantity,
+        )
+        validate_shelf_consumption(
+            product=product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in return_item.shelf_allocations.all()],
+        )
+
     total_gross  = Decimal("0")
     total_gst    = Decimal("0")
     total_wht    = Decimal("0")
     total_amount = Decimal("0")
 
-    for return_item in return_record.items.all():
+    for return_item in return_items:
         purchase_item = return_item.purchase_item
         qty           = return_item.quantity
 
@@ -1092,8 +1374,14 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         purchase_item.returned_quantity += qty
         purchase_item.save(update_fields=["returned_quantity"])
 
-        # Decrease inventory
+        # Decrease inventory (global) and the specific shelf(s) it's pulled from
         sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)
+        apply_shelf_allocations(
+            product=purchase_item.product,
+            allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in return_item.shelf_allocations.all()],
+            sign=-1, reason=ShelfStockMovement.Reason.PURCHASE_RETURN_CONSUMPTION,
+            reference=return_record.reference_number, user=user,
+        )
 
         # Stock Movement Report
         if not purchase_item.order.is_data_entry:
@@ -1230,12 +1518,20 @@ def _validate_lost_stock(*, product: Product, requested_qty: int) -> None:
 def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> LostInventoryRecord:
     """
     Marks one or more products as lost from inventory in a single batch.
-    items = [{"product_id": 1, "quantity": 5, "reason": "damaged"}, ...]
+    items = [{"product_id": 1, "quantity": 5, "reason": "damaged",
+               "shelf_allocations": [{"shelf_id": 2, "quantity": 5}]}, ...]
+
+    There's no draft/pending step here (unlike purchase orders/invoices),
+    so shelf_allocations are supplied and validated inline in the same call
+    rather than as separate persisted draft rows — each item's allocations
+    must sum exactly to its quantity, and each named shelf must currently
+    hold enough of that product.
 
     For each item:
         1. Validates stock availability against FIFO purchase batches.
         2. Consumes stock FIFO-first, snapshotting the blended unit cost.
-        3. Decreases live inventory by the lost quantity.
+        3. Decreases live inventory by the lost quantity, and the specific
+           shelf(s) it's pulled from.
     Takes effect immediately — no pending/accept step.
     """
     from rest_framework.exceptions import ValidationError
@@ -1260,9 +1556,23 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
 
     total_lost_amount = Decimal("0")
 
-    for item_data in items:
+    # Sorted by product_id (mirrors confirm_invoice) so two concurrent lost-
+    # inventory creates touching overlapping shelves always lock in the same
+    # order — the item order here is entirely client-controlled otherwise.
+    for item_data in sorted(items, key=lambda i: i["product_id"]):
         product = get_product_by_id(item_data["product_id"])
         quantity = item_data["quantity"]
+
+        shelf_allocations = [
+            {"shelf": get_shelf_by_id(a["shelf_id"]), "quantity": a["quantity"]}
+            for a in item_data.get("shelf_allocations", [])
+        ]
+        validate_allocations_complete(
+            product_name=product.name,
+            allocated=sum(a["quantity"] for a in shelf_allocations),
+            required=quantity,
+        )
+        validate_shelf_consumption(product=product, allocations=shelf_allocations)
 
         _validate_lost_stock(product=product, requested_qty=quantity)
         unit_cost, consumptions = _consume_fifo_for_loss(product=product, quantity=quantity)
@@ -1288,6 +1598,11 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
         ])
 
         sync_inventory(product=product, quantity_delta=-quantity, user=user)
+        apply_shelf_allocations(
+            product=product, allocations=shelf_allocations, sign=-1,
+            reason=ShelfStockMovement.Reason.LOST_CONSUMPTION,
+            reference=record.reference_number, user=user,
+        )
 
         # Stock Movement Report
         _adjust_stock_movement(product_id=product.id, lost_delta=quantity)
@@ -1305,13 +1620,15 @@ def create_lost_inventory_record(*, items: list[dict], note: str = "", user) -> 
 
 
 @transaction.atomic
-def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> LostInventoryItem:
+def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, shelf_allocations: list[dict] = None, user) -> LostInventoryItem:
     """
     Reverses part or all of a previously lost item: restores stock to the
     EXACT original purchase batch(es) it was consumed from (via the
-    LostInventoryFIFOConsumption ledger), increases live Inventory, and
-    increases CashFlow.total_lost_inventory_recovered (net figure shown on
-    dashboard = total_lost_inventory_worth - total_lost_inventory_recovered).
+    LostInventoryFIFOConsumption ledger), increases live Inventory, puts the
+    found quantity away on the caller-chosen shelf(s) (any shelf — this is
+    put-away, not consumption), and increases
+    CashFlow.total_lost_inventory_recovered (net figure shown on dashboard =
+    total_lost_inventory_worth - total_lost_inventory_recovered).
 
     Restoration order: oldest consumption row first (mirrors FIFO intent —
     the batch it left first is the batch it's credited back to first).
@@ -1326,6 +1643,16 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
         raise ValidationError({"quantity": "Quantity must be greater than zero."})
 
     lost_item = get_lost_inventory_item_by_id(lost_item_id)
+
+    resolved_allocations = [
+        {"shelf": get_shelf_by_id(a["shelf_id"]), "quantity": a["quantity"]}
+        for a in (shelf_allocations or [])
+    ]
+    validate_allocations_complete(
+        product_name=lost_item.product.name,
+        allocated=sum(a["quantity"] for a in resolved_allocations),
+        required=quantity,
+    )
 
     if quantity > lost_item.returnable_quantity:
         raise ValidationError({
@@ -1375,6 +1702,11 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, user) -> Lost
     lost_item.save(update_fields=["found_quantity"])
 
     sync_inventory(product=lost_item.product, quantity_delta=quantity, user=user)
+    apply_shelf_allocations(
+        product=lost_item.product, allocations=resolved_allocations, sign=1,
+        reason=ShelfStockMovement.Reason.LOST_FOUND_PUTAWAY,
+        reference=lost_item.record.reference_number, user=user,
+    )
 
     # Stock Movement Report
     _adjust_stock_movement(product_id=lost_item.product_id, found_delta=quantity)

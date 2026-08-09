@@ -12,6 +12,7 @@ import DashboardPage from './pages/DashboardPage';
 // Purchases pages
 import CategoriesPage from './pages/purchases/CategoriesPage';
 import ShelvesPage from './pages/purchases/ShelvesPage';
+import ShelfDetailPage from './pages/purchases/ShelfDetailPage';
 import SuppliersPage from './pages/purchases/SuppliersPage';
 import SupplierDetailPage from './pages/purchases/SupplierDetailPage';
 import ProductsPage from './pages/purchases/ProductsPage';
@@ -187,6 +188,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <ShelvesPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/purchases/shelves/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <ShelfDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

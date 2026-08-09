@@ -8,6 +8,7 @@ import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -29,6 +30,7 @@ const LostInventoryPage = () => {
     const [successMessage, setSuccessMessage] = useState('');
 
     const previewTimer = useRef(null);
+    const [shelfCandidatesByProduct, setShelfCandidatesByProduct] = useState({});
 
     useEffect(() => {
         if (!searchTerm) {
@@ -81,6 +83,25 @@ const LostInventoryPage = () => {
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [cart.map((l) => `${l.product_id}:${l.quantity}`).join(',')]);
 
+    // Fetch candidate shelves (only shelves currently holding stock of the product)
+    // for every product currently in the cart — cached per product_id so a
+    // quantity edit doesn't trigger a refetch.
+    useEffect(() => {
+        cart.forEach((line) => {
+            if (shelfCandidatesByProduct[line.product_id] !== undefined) return;
+            setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: null })); // mark as loading
+            purchasesApi.shelves.getCandidates(line.product_id)
+                .then((res) => {
+                    const candidates = res?.results || res || [];
+                    setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: candidates }));
+                })
+                .catch(() => {
+                    setShelfCandidatesByProduct((prev) => ({ ...prev, [line.product_id]: [] }));
+                });
+        });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [cart.map((l) => l.product_id).join(',')]);
+
     const handleAddProduct = (item) => {
         const productId = item.product?.id;
         if (!productId) return;
@@ -100,6 +121,7 @@ const LostInventoryPage = () => {
             total_cost: 0,
             sufficient_stock: true,
             previewLoading: true,
+            shelf_allocations: [],
         }]);
         setSearchTerm('');
         setSearchResults([]);
@@ -119,6 +141,9 @@ const LostInventoryPage = () => {
 
     const grandTotal = cart.reduce((sum, l) => sum + (parseFloat(l.total_cost) || 0), 0);
     const hasInsufficientStock = cart.some((l) => !l.sufficient_stock);
+    const lineAllocatedTotal = (line) => (line.shelf_allocations || [])
+        .reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
+    const hasUnallocatedShelves = cart.some((l) => lineAllocatedTotal(l) !== (Number(l.quantity) || 0));
 
     const handleSubmit = async (e) => {
         e.preventDefault();
@@ -137,6 +162,10 @@ const LostInventoryPage = () => {
             setError('One or more items exceed available stock. Adjust the quantity before submitting.');
             return;
         }
+        if (hasUnallocatedShelves) {
+            setError('Every item\'s shelf allocations must sum exactly to its quantity before submitting.');
+            return;
+        }
 
         setSubmitting(true);
         try {
@@ -145,6 +174,10 @@ const LostInventoryPage = () => {
                     product_id: l.product_id,
                     quantity: Number(l.quantity),
                     reason: l.reason || '',
+                    shelf_allocations: (l.shelf_allocations || []).map((a) => ({
+                        shelf_id: parseInt(a.shelf_id, 10),
+                        quantity: parseInt(a.quantity, 10),
+                    })),
                 })),
                 note,
             });
@@ -283,6 +316,18 @@ const LostInventoryPage = () => {
                                 >
                                     Remove
                                 </Button>
+                                <div className="md:col-span-6">
+                                    <p className="text-xs font-medium text-neutral-700 mb-1.5">
+                                        Shelf Allocation (which shelves this quantity is taken from)
+                                    </p>
+                                    <ShelfAllocationEditor
+                                        mode="consumption"
+                                        value={line.shelf_allocations}
+                                        onChange={(next) => handleUpdateLine(index, 'shelf_allocations', next)}
+                                        shelves={shelfCandidatesByProduct[line.product_id] || []}
+                                        requiredQuantity={Number(line.quantity) || 0}
+                                    />
+                                </div>
                             </div>
                         ))}
                     </div>
@@ -318,7 +363,7 @@ const LostInventoryPage = () => {
                         <p className="text-sm text-neutral-500">Total Lost Value</p>
                         <p className="text-2xl font-bold text-error-600">Rs. {formatCurrency(grandTotal)}</p>
                     </div>
-                    <Button onClick={handleSubmit} loading={submitting} disabled={cart.length === 0}>
+                    <Button onClick={handleSubmit} loading={submitting} disabled={cart.length === 0 || hasUnallocatedShelves}>
                         Record Lost Inventory
                     </Button>
                 </div>

@@ -11,6 +11,7 @@ from .views import (
     DraftInvoiceListView,
     DueInvoiceListView,
     InvoiceConfirmView,
+    InvoiceCandidateShelvesView,
     InvoiceDueDateUpdateView,
     InvoiceFilteredListView,
     InvoiceListCreateView,
@@ -25,6 +26,8 @@ from .views import (
     ReturnListCreateView,
     AllReturnsView,
     SavedPDFDeleteView,
+    SetInvoiceItemShelfAllocationsView,
+    SetReturnItemShelfAllocationsView,
 )
 
 urlpatterns = [
@@ -71,4 +74,9 @@ urlpatterns = [
 
     # Delete a saved PDF
     path("pdf/<int:saved_pdf_id>/", SavedPDFDeleteView.as_view(), name="pdf-delete"),
+
+    # Shelf allocations — sale line consumption / return line put-away
+    path("shelves/candidates/", InvoiceCandidateShelvesView.as_view(), name="invoice-candidate-shelves"),
+    path("invoice-items/<int:pk>/shelf-allocations/", SetInvoiceItemShelfAllocationsView.as_view(), name="invoice-item-shelf-allocations"),
+    path("return-items/<int:pk>/shelf-allocations/", SetReturnItemShelfAllocationsView.as_view(), name="return-item-shelf-allocations"),
 ]

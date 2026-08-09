@@ -19,9 +19,21 @@ export const purchasesApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/shelves/${query ? `?${query}` : ''}`);
         },
+        getById: (id) => api.get(`/shelves/${id}/`),
         create: (data) => api.post('/shelves/', data),
         update: (id, data) => api.patch(`/shelves/${id}/`, data),
         delete: (id) => api.delete(`/shelves/${id}/`),
+        // Products + quantities currently physically on one shelf.
+        getStock: (shelfId, params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/shelves/${shelfId}/stock/${query ? `?${query}` : ''}`);
+        },
+        // Shelves that currently hold stock (qty > 0) of a given product —
+        // the dropdown source for consumption allocations (sale, purchase
+        // return, lost inventory).
+        getCandidates: (productId) =>
+            api.get(`/shelves/candidates/?product_id=${productId}`),
+        moveStock: (data) => api.post('/shelves/move/', data),
     },
 
     // Suppliers
@@ -82,6 +94,18 @@ export const purchasesApi = {
         savePDF: (id, data) => api.post(`/orders/${id}/pdf/save/`, data),
         getPDFs: (id) => api.get(`/orders/${id}/pdf/`),
         deletePDF: (pdfId) => api.delete(`/pdf/${pdfId}/`),
+    },
+
+    // Purchase Item shelf allocations (put-away plan while order is draft)
+    purchaseItems: {
+        setShelfAllocations: (purchaseItemId, allocations) =>
+            api.post(`/purchase-items/${purchaseItemId}/shelf-allocations/`, { allocations }),
+    },
+
+    // Purchase Return Item shelf allocations (consumption plan while pending)
+    purchaseReturnItems: {
+        setShelfAllocations: (returnItemId, allocations) =>
+            api.post(`/return-items/${returnItemId}/shelf-allocations/`, { allocations }),
     },
 
     // Payments
@@ -170,7 +194,10 @@ export const purchasesApi = {
             const query = new URLSearchParams({ product_id: productId, quantity }).toString();
             return api.get(`/lost-inventory/fifo-preview/?${query}`);
         },
-        markFound: (itemId, quantity) =>
-            api.post(`/lost-inventory/items/${itemId}/found/`, { quantity }),
+        markFound: (itemId, quantity, shelfAllocations = []) =>
+            api.post(`/lost-inventory/items/${itemId}/found/`, {
+                quantity,
+                shelf_allocations: shelfAllocations,
+            }),
     },
 };

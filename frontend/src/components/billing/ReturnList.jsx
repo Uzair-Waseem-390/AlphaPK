@@ -1,4 +1,5 @@
 import { motion } from 'framer-motion';
+import { Link } from 'react-router-dom';
 import PropTypes from 'prop-types';
 import Badge from '../ui/Badge';
 import Button from '../ui/Button';
@@ -66,15 +67,26 @@ const ReturnList = ({ returns, onAccept, isAdmin }) => {
                                 </div>
                             )}
                         </div>
-                        <div className="text-right">
+                        <div className="text-right space-y-2">
                             {returnItem.status === 'pending' && isAdmin && (
-                                <Button
-                                    size="sm"
-                                    variant="success"
-                                    onClick={() => onAccept(returnItem.id)}
-                                >
-                                    Accept Return
-                                </Button>
+                                <>
+                                    {/* Shelf put-away is allocated on the return's own detail page —
+                                        this list view stays compact rather than embedding the full
+                                        allocator per item. */}
+                                    <Link
+                                        to={`/billing/returns/${returnItem.id}`}
+                                        className="block text-xs text-primary-600 hover:text-primary-700 hover:underline"
+                                    >
+                                        Allocate Shelves
+                                    </Link>
+                                    <Button
+                                        size="sm"
+                                        variant="success"
+                                        onClick={() => onAccept(returnItem.id)}
+                                    >
+                                        Accept Return
+                                    </Button>
+                                </>
                             )}
                             {returnItem.accepted_at && (
                                 <p className="text-xs text-neutral-400 mt-2">

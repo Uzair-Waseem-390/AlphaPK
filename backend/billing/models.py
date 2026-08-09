@@ -211,6 +211,37 @@ class InvoiceItem(models.Model):
     def returnable_quantity(self):
         return self.quantity - self.returned_quantity
 
+    @property
+    def allocated_quantity(self):
+        # Sums the in-memory prefetch cache when the caller prefetched
+        # shelf_allocations (the normal list/detail path) — .aggregate()
+        # would bypass that cache and re-query per item (N+1).
+        return sum(a.quantity for a in self.shelf_allocations.all())
+
+
+class InvoiceItemShelfAllocation(models.Model):
+    """
+    Draft plan for which shelf(s) this sale line is physically fulfilled
+    from. Consumption, not put-away — only shelves currently holding stock
+    of this product are valid (enforced by the selector listing candidates +
+    the service-layer quantity check). Editable while the invoice is DRAFT;
+    confirm_invoice blocks unless every item's allocations sum exactly to
+    its quantity.
+    """
+    invoice_item = models.ForeignKey(InvoiceItem, on_delete=models.CASCADE, related_name="shelf_allocations")
+    shelf        = models.ForeignKey("purchases.Shelf", on_delete=models.PROTECT, related_name="invoice_item_allocations")
+    quantity     = models.PositiveIntegerField()
+    created_at   = models.DateTimeField(auto_now_add=True)
+    updated_at   = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Invoice Item Shelf Allocation"
+        verbose_name_plural = "Invoice Item Shelf Allocations"
+        unique_together     = [("invoice_item", "shelf")]
+
+    def __str__(self):
+        return f"{self.invoice_item} ← {self.shelf.name}: {self.quantity}"
+
 
 # ---------------------------------------------------------------------------
 # FIFO Ledger — tracks which purchase batches were consumed per invoice item
@@ -346,6 +377,35 @@ class ReturnItem(models.Model):
 
     def __str__(self):
         return f"{self.return_record} — {self.invoice_item.product.name} × {self.quantity}"
+
+    @property
+    def allocated_quantity(self):
+        # Sums the in-memory prefetch cache when the caller prefetched
+        # shelf_allocations (the normal list/detail path) — .aggregate()
+        # would bypass that cache and re-query per item (N+1).
+        return sum(a.quantity for a in self.shelf_allocations.all())
+
+
+class InvoiceReturnItemShelfAllocation(models.Model):
+    """
+    Draft plan for which shelf(s) a customer-returned quantity is physically
+    put away onto. Put-away, not consumption — any shelf is a valid choice.
+    Editable while the return is PENDING; accept_return blocks unless every
+    item's allocations sum exactly to its quantity.
+    """
+    return_item = models.ForeignKey(ReturnItem, on_delete=models.CASCADE, related_name="shelf_allocations")
+    shelf       = models.ForeignKey("purchases.Shelf", on_delete=models.PROTECT, related_name="invoice_return_item_allocations")
+    quantity    = models.PositiveIntegerField()
+    created_at  = models.DateTimeField(auto_now_add=True)
+    updated_at  = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        verbose_name        = "Invoice Return Item Shelf Allocation"
+        verbose_name_plural = "Invoice Return Item Shelf Allocations"
+        unique_together     = [("return_item", "shelf")]
+
+    def __str__(self):
+        return f"{self.return_item} → {self.shelf.name}: {self.quantity}"
 
 
 # ---------------------------------------------------------------------------

@@ -20,14 +20,13 @@ def _clean(value):
 
 
 # ProductRateReadSerializer nests the full ProductReadSerializer (which in
-# turn nests category/shelf with their audit users) — everything here is
-# serialized; without the user relations each row costs up to 6 extra
-# queries (N+1).
+# turn nests category with its audit users) — everything here is
+# serialized; without the user relations each row costs extra queries (N+1).
+# Product no longer has a shelf (shelves are decoupled from Product).
 _RATE_RELATED = (
-    "product", "product__category", "product__shelf",
+    "product", "product__category",
     "product__created_by", "product__updated_by",
     "product__category__created_by", "product__category__updated_by",
-    "product__shelf__created_by", "product__shelf__updated_by",
     "updated_by", "created_by",
 )
 
@@ -36,7 +35,6 @@ def get_all_rates(
     *,
     search      : str = None,
     category_id : str = None,
-    shelf_id    : str = None,
     min_price   : str = None,
     max_price   : str = None,
 ) -> QuerySet:
@@ -44,7 +42,7 @@ def get_all_rates(
     Returns current active rates with optional filtering and searching.
 
     Search  : product name or product code (case-insensitive, partial match)
-    Filters : category id, shelf id, min/max selling price
+    Filters : category id, min/max selling price
     """
     from backend.search import search_q
 
@@ -56,8 +54,6 @@ def get_all_rates(
         qs = qs.filter(search_q(_clean(search), "product__name", "product__code"))
     if _clean(category_id):
         qs = qs.filter(product__category_id=_clean(category_id))
-    if _clean(shelf_id):
-        qs = qs.filter(product__shelf_id=_clean(shelf_id))
     if _clean(min_price):
         qs = qs.filter(selling_price__gte=_clean(min_price))
     if _clean(max_price):
@@ -79,12 +75,11 @@ def get_unpriced_products(*, search: str = None, category_id: str = None) -> Que
     from purchases.models import Product
 
     # Mirrors purchases.selectors._PRODUCT_RELATED — ProductReadSerializer
-    # nests category/shelf (each with their own audit users) plus the
-    # product's own audit users; without these every row costs N+1 queries.
+    # nests category (with its own audit users) plus the product's own audit
+    # users; without these every row costs N+1 queries.
     qs = Product.objects.select_related(
-        "category", "shelf", "created_by", "updated_by",
+        "category", "created_by", "updated_by",
         "category__created_by", "category__updated_by",
-        "shelf__created_by", "shelf__updated_by",
     ).filter(is_deleted=False, unpriced_entry__isnull=False)
     if _clean(search):
         qs = qs.filter(search_q(_clean(search), "name", "code"))
