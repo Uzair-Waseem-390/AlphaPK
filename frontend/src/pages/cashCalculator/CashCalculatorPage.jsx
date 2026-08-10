@@ -1,5 +1,6 @@
 import { useState, useMemo, useCallback, useRef } from 'react';
 import { motion } from 'framer-motion';
+import { Landmark, Coins, RotateCcw } from 'lucide-react';
 import Button from '../../components/ui/Button';
 
 // All denominations in order — used to navigate between rows with arrow keys
@@ -112,7 +113,7 @@ export default function CashCalculatorPage() {
 
     return (
         <motion.div
-            className="flex flex-col h-[calc(100vh-4rem)] overflow-hidden p-4 gap-3"
+            className="flex flex-col sm:h-[calc(100vh-4rem)] sm:overflow-hidden p-4 gap-3"
             variants={containerVariants}
             initial="hidden"
             animate="visible"
@@ -120,8 +121,8 @@ export default function CashCalculatorPage() {
             {/* ── Grand total banner ── */}
             <motion.div
                 variants={cardVariants}
-                className="shrink-0 rounded-2xl bg-gradient-to-br from-primary-600 to-indigo-600
-                           px-6 py-4 shadow-lg shadow-primary-500/20 text-white
+                className="shrink-0 rounded-2xl bg-gradient-to-br from-primary-700 to-accent-600
+                           px-6 py-4 shadow-lg shadow-primary-900/20 text-white
                            flex items-center justify-between"
             >
                 <div>
@@ -138,8 +139,8 @@ export default function CashCalculatorPage() {
                         {formatPKR(total)}
                     </motion.p>
                     <div className="mt-1 flex gap-5 text-xs opacity-75">
-                        <span>🏦 Notes&nbsp;<span className="font-semibold">{formatPKR(noteTotal)}</span></span>
-                        <span>🪙 Coins&nbsp;<span className="font-semibold">{formatPKR(coinTotal)}</span></span>
+                        <span className="inline-flex items-center gap-1"><Landmark className="w-3.5 h-3.5" /> Notes&nbsp;<span className="font-semibold">{formatPKR(noteTotal)}</span></span>
+                        <span className="inline-flex items-center gap-1"><Coins className="w-3.5 h-3.5" /> Coins&nbsp;<span className="font-semibold">{formatPKR(coinTotal)}</span></span>
                     </div>
                 </div>
 
@@ -148,14 +149,15 @@ export default function CashCalculatorPage() {
                     variant="secondary"
                     size="sm"
                     onClick={handleReset}
+                    icon={RotateCcw}
                     className="!bg-white/20 !border-white/30 !text-white hover:!bg-white/30"
                 >
-                    🔄&nbsp;Reset
+                    Reset
                 </Button>
             </motion.div>
 
-            {/* ── Two-column grid ── */}
-            <div className="flex gap-3 flex-1 min-h-0">
+            {/* ── Two-column grid (stacks on mobile) ── */}
+            <div className="flex flex-col sm:flex-row gap-3 flex-1 sm:min-h-0">
 
                 {/* Notes card */}
                 <motion.div
@@ -163,7 +165,7 @@ export default function CashCalculatorPage() {
                     className="flex flex-col flex-1 bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden"
                 >
                     <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-neutral-50 border-b border-neutral-200">
-                        <span>🏦</span>
+                        <Landmark className="w-4 h-4 text-neutral-500" />
                         <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
                             Banknotes
                         </span>
@@ -192,10 +194,10 @@ export default function CashCalculatorPage() {
                 {/* Coins card */}
                 <motion.div
                     variants={cardVariants}
-                    className="flex flex-col w-72 shrink-0 bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden"
+                    className="flex flex-col w-full sm:w-72 sm:shrink-0 bg-white rounded-2xl border border-neutral-200 shadow-sm overflow-hidden"
                 >
                     <div className="shrink-0 flex items-center gap-2 px-4 py-2 bg-neutral-50 border-b border-neutral-200">
-                        <span>🪙</span>
+                        <Coins className="w-4 h-4 text-neutral-500" />
                         <span className="text-[10px] font-bold uppercase tracking-widest text-neutral-500">
                             Coins
                         </span>

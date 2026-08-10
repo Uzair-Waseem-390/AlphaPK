@@ -10,6 +10,7 @@ import Select from '../ui/Select';
 import Input from '../ui/Input';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import Pagination from '../ui/Pagination';
+import EmptyState from '../ui/EmptyState';
 import DirectionBadge from './DirectionBadge';
 
 // Only a genuine ISO datetime (e.g. "2026-07-16T21:01:49...") should ever be
@@ -332,11 +333,7 @@ const BreakdownDrawer = ({ isOpen, onClose, title, type, initialFilters = {} }) 
                                     <LoadingSpinner size="lg" />
                                 </div>
                             ) : data.length === 0 ? (
-                                <div className="text-center py-12">
-                                    <div className="text-6xl mb-4">📊</div>
-                                    <h3 className="text-lg font-semibold text-neutral-900">No Data Found</h3>
-                                    <p className="text-sm text-neutral-500 mt-1">Try adjusting your filters</p>
-                                </div>
+                                <EmptyState title="No data found" description="Try adjusting your filters" />
                             ) : (
                                 <>
                                     <Table columns={columns} data={data} />

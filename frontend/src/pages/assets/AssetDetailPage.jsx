@@ -1,8 +1,14 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import {
+    ShieldAlert, FileQuestion, ScrollText, Info, AlertTriangle,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { assetsApi } from '../../services/assetsApi';
 import { useAssetValuationEntries, useAssetStats } from '../../hooks/useAssets';
+import { extractErrorMessage } from '../../utils/errorMessage';
+import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -12,23 +18,32 @@ import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
     return isNaN(num) ? '0.00' : num.toFixed(2);
 };
 
+const emptyDisposeFieldErrors = { disposal_type: '', disposal_date: '', sale_amount: '', reason: '' };
+
 const AssetDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [asset, setAsset] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [notFound, setNotFound] = useState(false);
+    const [fetchError, setFetchError] = useState('');
 
     const {
-        data: entries, meta, page, setPage, loading: entriesLoading, refetch: refetchEntries,
+        data: entries, meta, page, setPage, loading: entriesLoading, error: entriesError,
+        refetch: refetchEntries,
     } = useAssetValuationEntries({ asset_id: id });
     const { refetch: refetchStats } = useAssetStats();
 
@@ -38,6 +53,7 @@ const AssetDetailPage = () => {
     });
     const [revalueLoading, setRevalueLoading] = useState(false);
     const [revalueError, setRevalueError] = useState('');
+    const [revalueFieldError, setRevalueFieldError] = useState('');
 
     const [showDisposeModal, setShowDisposeModal] = useState(false);
     const [disposeForm, setDisposeForm] = useState({
@@ -46,19 +62,33 @@ const AssetDetailPage = () => {
     });
     const [disposeLoading, setDisposeLoading] = useState(false);
     const [disposeError, setDisposeError] = useState('');
+    const [disposeFieldErrors, setDisposeFieldErrors] = useState(emptyDisposeFieldErrors);
+    // Disposal is irreversible, so the form modal only stages the payload —
+    // the actual API call only fires after the user confirms in the
+    // dedicated ConfirmDialog gate below.
+    const [showDisposeConfirm, setShowDisposeConfirm] = useState(false);
+    const [pendingDisposePayload, setPendingDisposePayload] = useState(null);
 
     useEffect(() => {
         fetchAsset();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const fetchAsset = async () => {
         setLoading(true);
+        setFetchError('');
+        setNotFound(false);
         try {
             const data = await assetsApi.items.getById(id);
             setAsset(data);
         } catch (error) {
             console.error('Failed to fetch asset:', error);
             setAsset(null);
+            if (error.response?.status === 404) {
+                setNotFound(true);
+            } else {
+                setFetchError(extractErrorMessage(error, 'Failed to load asset'));
+            }
         } finally {
             setLoading(false);
         }
@@ -67,35 +97,67 @@ const AssetDetailPage = () => {
     const handleRevalue = async (e) => {
         e.preventDefault();
         setRevalueError('');
+        setRevalueFieldError('');
         setRevalueLoading(true);
         try {
             await assetsApi.items.revalue(id, { ...revalueForm, new_worth: parseFloat(revalueForm.new_worth) });
             setShowRevalueModal(false);
             setRevalueForm({ new_worth: '', revaluation_date: new Date().toISOString().split('T')[0], note: '' });
+            toast.success('Asset revalued successfully');
             await Promise.all([fetchAsset(), refetchEntries(), refetchStats()]);
         } catch (error) {
-            setRevalueError(error.response?.data?.detail || error.response?.data?.new_worth?.[0] || 'Failed to revalue asset');
+            const data = error.response?.data;
+            const nwError = Array.isArray(data?.new_worth) ? data.new_worth[0] : data?.new_worth;
+            if (nwError) {
+                setRevalueFieldError(nwError);
+            } else {
+                setRevalueError(extractErrorMessage(error, 'Failed to revalue asset'));
+            }
         } finally {
             setRevalueLoading(false);
         }
     };
 
-    const handleDispose = async (e) => {
+    // Step 1: stage the dispose payload and hand off to the ConfirmDialog —
+    // no API call happens here since this is an irreversible action.
+    const handleDisposeFormSubmit = (e) => {
         e.preventDefault();
+        const payload = { ...disposeForm };
+        if (payload.disposal_type === 'scrapped') {
+            delete payload.sale_amount;
+        } else {
+            payload.sale_amount = parseFloat(payload.sale_amount);
+        }
         setDisposeError('');
+        setDisposeFieldErrors(emptyDisposeFieldErrors);
+        setPendingDisposePayload(payload);
+        setShowDisposeModal(false);
+        setShowDisposeConfirm(true);
+    };
+
+    // Step 2: user confirmed in the dialog — now actually call the API.
+    const confirmDispose = async () => {
+        if (!pendingDisposePayload) return;
         setDisposeLoading(true);
         try {
-            const payload = { ...disposeForm };
-            if (payload.disposal_type === 'scrapped') {
-                delete payload.sale_amount;
-            } else {
-                payload.sale_amount = parseFloat(payload.sale_amount);
-            }
-            await assetsApi.items.dispose(id, payload);
-            setShowDisposeModal(false);
+            await assetsApi.items.dispose(id, pendingDisposePayload);
+            setShowDisposeConfirm(false);
+            setPendingDisposePayload(null);
+            toast.success('Asset disposed successfully');
             await Promise.all([fetchAsset(), refetchStats()]);
         } catch (error) {
-            setDisposeError(error.response?.data?.detail || error.response?.data?.sale_amount?.[0] || 'Failed to dispose asset');
+            // Reopen the form with the error surfaced so the admin can adjust
+            // and retry, instead of losing their input.
+            setShowDisposeConfirm(false);
+            setShowDisposeModal(true);
+            const data = error.response?.data;
+            const saleError = Array.isArray(data?.sale_amount) ? data.sale_amount[0] : data?.sale_amount;
+            const typeError = Array.isArray(data?.disposal_type) ? data.disposal_type[0] : data?.disposal_type;
+            if (saleError || typeError) {
+                setDisposeFieldErrors({ ...emptyDisposeFieldErrors, sale_amount: saleError || '', disposal_type: typeError || '' });
+            } else {
+                setDisposeError(extractErrorMessage(error, 'Failed to dispose asset'));
+            }
         } finally {
             setDisposeLoading(false);
         }
@@ -127,7 +189,10 @@ const AssetDetailPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
+                <div className="w-16 h-16 rounded-full bg-error-50 flex items-center justify-center mx-auto mb-4">
+                    <ShieldAlert className="w-8 h-8 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view assets.</p>
             </div>
@@ -142,13 +207,24 @@ const AssetDetailPage = () => {
         );
     }
 
-    if (!asset) {
+    if (notFound) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
+                <div className="w-16 h-16 rounded-full bg-neutral-100 flex items-center justify-center mx-auto mb-4">
+                    <FileQuestion className="w-8 h-8 text-neutral-400" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Asset Not Found</h2>
-                <Link to="/assets/items" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Assets
-                </Link>
+                <p className="text-neutral-500 mt-2">It may have been removed, or the link is incorrect.</p>
+                <BackLink to="/assets/items" className="mt-4 inline-flex">Back to Assets</BackLink>
+            </div>
+        );
+    }
+
+    if (fetchError || !asset) {
+        return (
+            <div className="space-y-4">
+                <BackLink to="/assets/items">Back to Assets</BackLink>
+                <InlineAlert variant="error" message={fetchError || 'Failed to load asset'} onRetry={fetchAsset} />
             </div>
         );
     }
@@ -160,25 +236,23 @@ const AssetDetailPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div>
-                    <Link to="/assets/items" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Assets
-                    </Link>
-                    <div className="flex items-center gap-3 mt-1">
+                    <BackLink to="/assets/items">Back to Assets</BackLink>
+                    <div className="flex items-center gap-3 mt-2">
                         <h1 className="text-3xl font-bold text-neutral-900">{asset.name}</h1>
                         {asset.is_disposed
                             ? <Badge variant="error">Disposed</Badge>
                             : <Badge variant="success">Active</Badge>}
                     </div>
-                    <p className="text-neutral-500">{asset.category_name} · {asset.acquisition_type === 'new' ? 'New purchase' : 'Existing asset'}</p>
+                    <p className="text-neutral-500 mt-1">{asset.category_name} &middot; {asset.acquisition_type === 'new' ? 'New purchase' : 'Existing asset'}</p>
                 </div>
                 {!asset.is_disposed && (
                     <div className="flex gap-2">
                         {isRevaluationCategory && (
-                            <Button variant="secondary" onClick={() => setShowRevalueModal(true)}>
+                            <Button variant="secondary" onClick={() => { setRevalueError(''); setRevalueFieldError(''); setShowRevalueModal(true); }}>
                                 Revalue
                             </Button>
                         )}
-                        <Button variant="danger" onClick={() => setShowDisposeModal(true)}>
+                        <Button variant="danger" onClick={() => { setDisposeError(''); setDisposeFieldErrors(emptyDisposeFieldErrors); setShowDisposeModal(true); }}>
                             Dispose
                         </Button>
                     </div>
@@ -215,18 +289,19 @@ const AssetDetailPage = () => {
 
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-neutral-900">Valuation History</h2>
+                {entriesError && (
+                    <InlineAlert variant="error" message={entriesError} onRetry={refetchEntries} />
+                )}
                 {entriesLoading ? (
                     <div className="flex items-center justify-center py-8">
                         <LoadingSpinner size="lg" />
                     </div>
                 ) : entries.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="text-6xl mb-4">📜</div>
-                        <h3 className="text-lg font-semibold text-neutral-900">No History Yet</h3>
-                        <p className="text-sm text-neutral-500 mt-1">
-                            {isRevaluationCategory ? 'Revalue this asset to create the first entry.' : 'Depreciation entries appear automatically as months pass.'}
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon={<ScrollText className="w-8 h-8 text-neutral-400" />}
+                        title="No History Yet"
+                        description={isRevaluationCategory ? 'Revalue this asset to create the first entry.' : 'Depreciation entries appear automatically as months pass.'}
+                    />
                 ) : (
                     <>
                         <Table columns={columns} data={entries} />
@@ -255,6 +330,7 @@ const AssetDetailPage = () => {
                         min="0"
                         value={revalueForm.new_worth}
                         onChange={(e) => setRevalueForm({ ...revalueForm, new_worth: e.target.value })}
+                        error={revalueFieldError}
                         required
                     />
                     <Input
@@ -270,11 +346,7 @@ const AssetDetailPage = () => {
                         onChange={(e) => setRevalueForm({ ...revalueForm, note: e.target.value })}
                         placeholder="e.g. 2026 market appraisal"
                     />
-                    {revalueError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{revalueError}</p>
-                        </div>
-                    )}
+                    {revalueError && <InlineAlert variant="error" message={revalueError} />}
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => setShowRevalueModal(false)}>
                             Cancel
@@ -286,14 +358,15 @@ const AssetDetailPage = () => {
                 </form>
             </Modal>
 
-            {/* Dispose Modal */}
+            {/* Dispose Modal — stages the payload; the real submit happens
+                after confirmation in the ConfirmDialog below. */}
             <Modal
                 isOpen={showDisposeModal}
                 onClose={() => setShowDisposeModal(false)}
                 title="Dispose Asset"
                 size="lg"
             >
-                <form onSubmit={handleDispose} className="space-y-4">
+                <form onSubmit={handleDisposeFormSubmit} className="space-y-4">
                     <Select
                         label="Disposal Type"
                         value={disposeForm.disposal_type}
@@ -302,6 +375,7 @@ const AssetDetailPage = () => {
                             { value: 'scrapped', label: 'Scrapped — no longer usable, no cash involved' },
                             { value: 'sold', label: 'Sold — enter sale amount, cash in hand increases' },
                         ]}
+                        error={disposeFieldErrors.disposal_type}
                         required
                     />
                     <Input
@@ -319,6 +393,7 @@ const AssetDetailPage = () => {
                             min="0.01"
                             value={disposeForm.sale_amount}
                             onChange={(e) => setDisposeForm({ ...disposeForm, sale_amount: e.target.value })}
+                            error={disposeFieldErrors.sale_amount}
                             required
                         />
                     )}
@@ -330,9 +405,10 @@ const AssetDetailPage = () => {
                     />
 
                     {disposeForm.disposal_type === 'sold' && disposeForm.sale_amount && (
-                        <div className="p-3 bg-blue-50 rounded-lg">
-                            <p className="text-sm text-blue-700">
-                                ℹ️ Cash in hand will increase by <strong>Rs. {fmt(disposeForm.sale_amount)}</strong>.
+                        <div className="flex items-start gap-2.5 p-3 bg-info-50 rounded-xl">
+                            <Info className="w-4 h-4 text-info-600 flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-info-700">
+                                Cash in hand will increase by <strong>Rs. {fmt(disposeForm.sale_amount)}</strong>.
                                 Gain/loss vs. current worth (Rs. {fmt(asset.current_worth)}) will be computed automatically:{' '}
                                 <strong className={parseFloat(disposeForm.sale_amount) - parseFloat(asset.current_worth) >= 0 ? 'text-success-600' : 'text-error-600'}>
                                     Rs. {fmt(parseFloat(disposeForm.sale_amount || 0) - parseFloat(asset.current_worth))}
@@ -341,27 +417,40 @@ const AssetDetailPage = () => {
                         </div>
                     )}
                     {disposeForm.disposal_type === 'scrapped' && (
-                        <div className="p-3 bg-amber-50 rounded-lg">
-                            <p className="text-sm text-amber-700">⚠️ No cash movement — this asset will simply be removed from active totals.</p>
+                        <div className="flex items-start gap-2.5 p-3 bg-warning-50 rounded-xl">
+                            <AlertTriangle className="w-4 h-4 text-warning-600 flex-shrink-0 mt-0.5" />
+                            <p className="text-sm text-warning-700">No cash movement — this asset will simply be removed from active totals.</p>
                         </div>
                     )}
 
-                    {disposeError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{disposeError}</p>
-                        </div>
-                    )}
+                    {disposeError && <InlineAlert variant="error" message={disposeError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => setShowDisposeModal(false)}>
                             Cancel
                         </Button>
-                        <Button type="submit" variant="danger" loading={disposeLoading}>
-                            Confirm Disposal
+                        <Button type="submit" variant="danger">
+                            Review &amp; Dispose
                         </Button>
                     </div>
                 </form>
             </Modal>
+
+            {/* Final irreversible-action gate */}
+            <ConfirmDialog
+                isOpen={showDisposeConfirm}
+                onClose={() => { setShowDisposeConfirm(false); setShowDisposeModal(true); }}
+                onConfirm={confirmDispose}
+                title="Confirm Asset Disposal"
+                message={
+                    pendingDisposePayload
+                        ? `Dispose "${asset.name}" as ${pendingDisposePayload.disposal_type}${pendingDisposePayload.disposal_type === 'sold' ? ` for Rs. ${fmt(pendingDisposePayload.sale_amount)}` : ''}? This cannot be undone.`
+                        : 'This cannot be undone.'
+                }
+                confirmText="Confirm Disposal"
+                variant="danger"
+                loading={disposeLoading}
+            />
         </div>
     );
 };

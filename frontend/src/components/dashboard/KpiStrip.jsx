@@ -10,8 +10,8 @@ const fmt = (value) => {
 };
 
 const KPI_STYLES = {
-    primary: 'from-primary-500 to-primary-600',
-    green: 'from-emerald-500 to-emerald-600',
+    primary: 'from-primary-700 to-primary-800',
+    green: 'from-emerald-600 to-emerald-700',
     amber: 'from-amber-500 to-amber-600',
     rose: 'from-rose-500 to-rose-600',
 };
@@ -42,7 +42,11 @@ const KpiStrip = ({ items, loading }) => {
                 >
                     <div className="flex items-center justify-between">
                         <p className="text-sm font-medium text-white/80">{item.label}</p>
-                        <span className="text-xl opacity-90">{item.icon}</span>
+                        {item.icon && (
+                            <div className="w-9 h-9 rounded-lg bg-white/15 flex items-center justify-center">
+                                <item.icon className="w-4 h-4 text-white/90" />
+                            </div>
+                        )}
                     </div>
                     <p className="text-2xl font-bold mt-2 tracking-tight">
                         Rs. {fmt(item.value)}
@@ -60,7 +64,7 @@ KpiStrip.propTypes = {
     items: PropTypes.arrayOf(PropTypes.shape({
         label: PropTypes.string.isRequired,
         value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-        icon: PropTypes.string,
+        icon: PropTypes.elementType,
         color: PropTypes.oneOf(['primary', 'green', 'amber', 'rose']),
         subtitle: PropTypes.string,
         onClick: PropTypes.func,

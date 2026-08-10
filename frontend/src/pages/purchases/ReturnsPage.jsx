@@ -1,19 +1,27 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
-import { useParams, Link, useNavigate } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, CheckCircle2, Undo2 } from 'lucide-react';
 
 const ReturnsPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const { orderId } = useParams();
     const navigate = useNavigate();
@@ -25,6 +33,9 @@ const ReturnsPage = () => {
     });
     const [orderItems, setOrderItems] = useState([]);
     const [formLoading, setFormLoading] = useState(false);
+    const [formError, setFormError] = useState('');
+    const [acceptTarget, setAcceptTarget] = useState(null);
+    const [acceptLoading, setAcceptLoading] = useState(false);
 
     const fetchReturnsPage = (params) => {
         if (!orderId || orderId === 'undefined') {
@@ -34,7 +45,7 @@ const ReturnsPage = () => {
     };
 
     const {
-        data: returns, meta, page, setPage, loading,
+        data: returns, meta, page, setPage, loading, initialLoading, error: listError,
         refetch: fetchReturns,
     } = usePaginatedList(fetchReturnsPage, {}, 25, [orderId]);
 
@@ -42,6 +53,7 @@ const ReturnsPage = () => {
         if (orderId && orderId !== 'undefined') {
             fetchOrderItems();
         }
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [orderId]);
 
     const fetchOrderItems = async () => {
@@ -56,6 +68,7 @@ const ReturnsPage = () => {
     const handleCreateReturn = async (e) => {
         e.preventDefault();
         setFormLoading(true);
+        setFormError('');
         try {
             await purchasesApi.returns.create(orderId, {
                 items: formData.items.map(item => ({
@@ -67,21 +80,28 @@ const ReturnsPage = () => {
             setShowCreateModal(false);
             resetForm();
             fetchReturns();
+            toast.success('Return created successfully.');
         } catch (error) {
             console.error('Failed to create return:', error);
+            setFormError(extractErrorMessage(error, 'Failed to create return.'));
         } finally {
             setFormLoading(false);
         }
     };
 
-    const handleAcceptReturn = async (returnId) => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
-
+    const handleAcceptReturn = async () => {
+        if (!acceptTarget) return;
+        setAcceptLoading(true);
         try {
-            await purchasesApi.returns.accept(returnId);
+            await purchasesApi.returns.accept(acceptTarget);
             fetchReturns();
+            toast.success('Return accepted.');
+            setAcceptTarget(null);
         } catch (error) {
             console.error('Failed to accept return:', error);
+            toast.error(extractErrorMessage(error, 'Failed to accept return.'));
+        } finally {
+            setAcceptLoading(false);
         }
     };
 
@@ -90,6 +110,7 @@ const ReturnsPage = () => {
             items: [],
             note: '',
         });
+        setFormError('');
     };
 
     const handleAddReturnItem = () => {
@@ -148,7 +169,7 @@ const ReturnsPage = () => {
             label: 'Amount (PKR)',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return <span className="font-medium tabular-nums">{isNaN(num) ? '0.00' : num.toFixed(2)}</span>;
             }
         },
         {
@@ -156,18 +177,19 @@ const ReturnsPage = () => {
             label: 'Date',
             render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A'
         },
-        { key: 'note', label: 'Note', render: (value) => value || '-' },
+        { key: 'note', label: 'Note', render: (value) => value || <span className="text-neutral-400">&mdash;</span> },
         {
             key: 'actions',
             label: 'Actions',
-            width: '120px',
+            width: '150px',
             render: (_, row) => row.status === 'pending' && isAdmin && (
                 <Button
                     size="sm"
                     variant="success"
+                    icon={CheckCircle2}
                     onClick={(e) => {
                         e.stopPropagation();
-                        handleAcceptReturn(row.id);
+                        setAcceptTarget(row.id);
                     }}
                 >
                     Accept
@@ -176,7 +198,8 @@ const ReturnsPage = () => {
         },
     ];
 
-    if (loading) {
+    // Full-page spinner only before the very first fetch completes.
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -189,9 +212,7 @@ const ReturnsPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Invalid Order</h2>
                 <p className="text-neutral-500 mt-2">Please go back to the orders list.</p>
-                <Link to="/purchases/orders" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Orders
-                </Link>
+                <BackLink to="/purchases/orders" className="mt-4">Back to Orders</BackLink>
             </div>
         );
     }
@@ -204,10 +225,8 @@ const ReturnsPage = () => {
                     <p className="text-neutral-500 mt-1">
                         Manage returns for Order #{orderId}
                     </p>
-                    <div className="mt-2">
-                        <Link to="/purchases/returns" className="text-sm text-primary-600 hover:text-primary-700">
-                            View All Returns →
-                        </Link>
+                    <div className="mt-3">
+                        <BackLink to="/purchases/returns" direction="right">View All Returns</BackLink>
                     </div>
                 </div>
                 {isAdmin && (
@@ -216,22 +235,36 @@ const ReturnsPage = () => {
                             resetForm();
                             setShowCreateModal(true);
                         }}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
+                        icon={Plus}
                     >
                         Create Return
                     </Button>
                 )}
             </div>
 
-            <Table
-                columns={columns}
-                data={returns}
-                onRowClick={(ret) => navigate(`/purchases/returns/${ret.id}`)}
-            />
+            {listError && (
+                <InlineAlert variant="error" message={listError} onRetry={fetchReturns} />
+            )}
+
+            <div className={`relative transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
+                {loading && (
+                    <div className="absolute right-2 top-2 z-10">
+                        <LoadingSpinner size="sm" />
+                    </div>
+                )}
+                {returns.length === 0 && !loading ? (
+                    <EmptyState
+                        title="No returns for this order"
+                        description="Returns created for this order will appear here."
+                    />
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={returns}
+                        onRowClick={(ret) => navigate(`/purchases/returns/${ret.id}`)}
+                    />
+                )}
+            </div>
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -255,7 +288,7 @@ const ReturnsPage = () => {
                     <div>
                         <div className="flex items-center justify-between mb-3">
                             <h3 className="font-semibold text-neutral-900">Items to Return</h3>
-                            <Button size="sm" onClick={handleAddReturnItem}>
+                            <Button size="sm" variant="secondary" icon={Plus} onClick={handleAddReturnItem}>
                                 Add Item
                             </Button>
                         </div>
@@ -265,7 +298,7 @@ const ReturnsPage = () => {
                                 <p className="text-center text-neutral-500 py-4">No items added yet</p>
                             ) : (
                                 formData.items.map((item, index) => (
-                                    <div key={index} className="grid grid-cols-3 gap-2 p-3 bg-neutral-50 rounded-lg">
+                                    <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-2 p-3 bg-neutral-50 rounded-xl border border-neutral-200">
                                         <Select
                                             label="Product"
                                             value={item.invoice_item_id}
@@ -288,6 +321,7 @@ const ReturnsPage = () => {
                                             <Button
                                                 size="sm"
                                                 variant="danger"
+                                                icon={Trash2}
                                                 onClick={() => handleRemoveReturnItem(index)}
                                                 className="w-full"
                                             >
@@ -307,6 +341,8 @@ const ReturnsPage = () => {
                         placeholder="Return note (optional)"
                     />
 
+                    {formError && <InlineAlert variant="error" message={formError} />}
+
                     <div className="flex justify-end gap-3 pt-4 border-t border-neutral-200">
                         <Button
                             type="button"
@@ -318,12 +354,23 @@ const ReturnsPage = () => {
                         >
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button type="submit" loading={formLoading} icon={Undo2}>
                             Create Return
                         </Button>
                     </div>
                 </form>
             </Modal>
+
+            <ConfirmDialog
+                isOpen={!!acceptTarget}
+                onClose={() => setAcceptTarget(null)}
+                onConfirm={handleAcceptReturn}
+                title="Accept Return"
+                message="Are you sure you want to accept this return? This action cannot be undone."
+                confirmText="Accept"
+                variant="primary"
+                loading={acceptLoading}
+            />
         </div>
     );
 };

@@ -1,15 +1,24 @@
 import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
+import { Truck, Wallet, CheckCircle2, FileText } from 'lucide-react';
 import { purchasesApi } from '../../services/purchasesApi';
-import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
+import { extractErrorMessage } from '../../utils/errorMessage';
+
+const formatCurrency = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    return isNaN(num) ? '0.00' : num.toFixed(2);
+};
 
 const SupplierDetailPage = () => {
     const { id } = useParams();
@@ -17,13 +26,16 @@ const SupplierDetailPage = () => {
     const [supplier, setSupplier] = useState(null);
     const [payableSummary, setPayableSummary] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
 
     useEffect(() => {
         fetchData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const fetchData = async () => {
         setLoading(true);
+        setLoadError('');
         try {
             const [supplierData, summaryData] = await Promise.all([
                 purchasesApi.suppliers.getById(id),
@@ -32,8 +44,9 @@ const SupplierDetailPage = () => {
 
             setSupplier(supplierData);
             setPayableSummary(summaryData);
-        } catch (error) {
-            console.error('Failed to fetch supplier details:', error);
+        } catch (err) {
+            setSupplier(null);
+            setLoadError(extractErrorMessage(err, 'Failed to load supplier details.'));
         } finally {
             setLoading(false);
         }
@@ -46,25 +59,20 @@ const SupplierDetailPage = () => {
         return purchasesApi.orders.getAll({ ...params, supplier_code: supplier.code });
     };
 
-    const { data: orders, meta, page, setPage, loading: ordersLoading } = usePaginatedList(fetchOrdersPage, {}, 25, [supplier?.code]);
+    const { data: orders, meta, page, setPage, loading: ordersLoading, error: ordersError, refetch: refetchOrders } =
+        usePaginatedList(fetchOrdersPage, {}, 25, [supplier?.code]);
 
     const columns = [
         { key: 'order_number', label: 'Order #', width: '120px' },
         {
             key: 'net_payable',
             label: 'Net Payable (PKR)',
-            render: (value) => {
-                const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
-            }
+            render: (value) => formatCurrency(value),
         },
         {
             key: 'payable_outstanding',
             label: 'Outstanding (PKR)',
-            render: (value) => {
-                const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
-            }
+            render: (value) => formatCurrency(value),
         },
         {
             key: 'payment_status',
@@ -88,7 +96,7 @@ const SupplierDetailPage = () => {
             render: (_, row) => (
                 <Link
                     to={`/purchases/orders/${row.id}`}
-                    className="text-primary-600 hover:text-primary-700 text-sm"
+                    className="text-primary-600 hover:text-primary-700 text-sm font-medium"
                 >
                     View
                 </Link>
@@ -106,50 +114,53 @@ const SupplierDetailPage = () => {
 
     if (!supplier) {
         return (
-            <div className="text-center py-12">
-                <h2 className="text-2xl font-semibold text-neutral-900">Supplier Not Found</h2>
-                <Link to="/purchases/suppliers" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Suppliers
-                </Link>
+            <div className="space-y-4">
+                <BackLink to="/purchases/suppliers">Back to Suppliers</BackLink>
+                {loadError ? (
+                    <InlineAlert variant="error" message={loadError} onRetry={fetchData} />
+                ) : (
+                    <div className="text-center py-12">
+                        <h2 className="text-2xl font-semibold text-neutral-900">Supplier Not Found</h2>
+                    </div>
+                )}
             </div>
         );
     }
 
     const activeOrders = orders.filter(o => o.status !== 'draft');
     const draftOrders = orders.filter(o => o.status === 'draft');
+    const outstanding = parseFloat(payableSummary?.total_payable_outstanding || 0);
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
-                <div>
-                    <Link to="/purchases/suppliers" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Suppliers
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">{supplier.name}</h1>
-                    <p className="text-neutral-500">Code: {supplier.code}</p>
+            <div>
+                <BackLink to="/purchases/suppliers">Back to Suppliers</BackLink>
+                <div className="flex items-center gap-3 mt-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                        <Truck className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{supplier.name}</h1>
+                        <p className="text-neutral-500 text-sm sm:text-base">Code: {supplier.code}</p>
+                    </div>
                 </div>
-                <Link to="/purchases/suppliers">
-                    <Button variant="secondary">
-                        ← Back to Suppliers
-                    </Button>
-                </Link>
             </div>
 
             {/* Supplier Info */}
-            <Card className="p-6">
+            <Card className="p-4 sm:p-6" hover={false}>
                 <h3 className="font-semibold text-neutral-900 mb-3">Supplier Information</h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                         <p className="text-sm text-neutral-500">Name</p>
-                        <p className="font-medium">{supplier.name}</p>
+                        <p className="font-medium text-neutral-900">{supplier.name}</p>
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Code</p>
-                        <p className="font-medium">{supplier.code}</p>
+                        <p className="font-medium text-neutral-900">{supplier.code}</p>
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Created</p>
-                        <p className="font-medium">{new Date(supplier.created_at).toLocaleDateString()}</p>
+                        <p className="font-medium text-neutral-900">{new Date(supplier.created_at).toLocaleDateString()}</p>
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Status</p>
@@ -162,47 +173,59 @@ const SupplierDetailPage = () => {
 
             {/* Payable Summary */}
             {payableSummary && Object.keys(payableSummary).length > 0 && (
-                <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                    <Card className="p-4">
-                        <p className="text-sm text-neutral-500">Total Net Payable</p>
+                <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
+                    <Card className="p-4" hover={false}>
+                        <div className="flex items-center gap-2 mb-1">
+                            <FileText className="w-4 h-4 text-neutral-400" />
+                            <p className="text-sm text-neutral-500">Total Net Payable</p>
+                        </div>
                         <p className="text-xl font-bold text-neutral-900">
-                            {typeof payableSummary.total_net_payable === 'string'
-                                ? parseFloat(payableSummary.total_net_payable).toFixed(2)
-                                : '0.00'}
+                            Rs. {formatCurrency(payableSummary.total_net_payable)}
                         </p>
                     </Card>
-                    <Card className="p-4">
-                        <p className="text-sm text-neutral-500">Total Paid</p>
+                    <Card className="p-4" hover={false}>
+                        <div className="flex items-center gap-2 mb-1">
+                            <CheckCircle2 className="w-4 h-4 text-success-500" />
+                            <p className="text-sm text-neutral-500">Total Paid</p>
+                        </div>
                         <p className="text-xl font-bold text-success-600">
-                            {typeof payableSummary.total_paid === 'string'
-                                ? parseFloat(payableSummary.total_paid).toFixed(2)
-                                : '0.00'}
+                            Rs. {formatCurrency(payableSummary.total_paid)}
                         </p>
                     </Card>
-                    <Card className="p-4">
-                        <p className="text-sm text-neutral-500">Outstanding</p>
+                    <Card className="p-4" hover={false}>
+                        <div className="flex items-center gap-2 mb-1">
+                            <Wallet className="w-4 h-4 text-error-500" />
+                            <p className="text-sm text-neutral-500">Outstanding</p>
+                        </div>
                         <p className="text-xl font-bold text-error-600">
-                            {typeof payableSummary.total_payable_outstanding === 'string'
-                                ? parseFloat(payableSummary.total_payable_outstanding).toFixed(2)
-                                : '0.00'}
+                            Rs. {formatCurrency(payableSummary.total_payable_outstanding)}
                         </p>
                     </Card>
-                    <Card className="p-4">
-                        <p className="text-sm text-neutral-500">Payment Status</p>
-                        <Badge
-                            variant={parseFloat(payableSummary.total_payable_outstanding || 0) > 0 ? 'unpaid' : 'paid'}
-                        >
-                            {parseFloat(payableSummary.total_payable_outstanding || 0) > 0 ? 'Outstanding' : 'Settled'}
+                    <Card className="p-4" hover={false}>
+                        <p className="text-sm text-neutral-500 mb-1.5">Payment Status</p>
+                        <Badge variant={outstanding > 0 ? 'unpaid' : 'paid'}>
+                            {outstanding > 0 ? 'Outstanding' : 'Settled'}
                         </Badge>
                     </Card>
                 </div>
             )}
 
+            {ordersError && (
+                <InlineAlert variant="error" message={ordersError} onRetry={refetchOrders} />
+            )}
+
             {/* Order History */}
-            <Card className="p-6">
+            <Card className="p-4 sm:p-6" hover={false}>
                 <h3 className="font-semibold text-neutral-900 mb-3">Order History</h3>
-                {activeOrders.length === 0 ? (
-                    <p className="text-center text-neutral-500 py-4">No confirmed orders for this supplier</p>
+                {ordersLoading ? (
+                    <div className="flex items-center justify-center py-8">
+                        <LoadingSpinner size="md" />
+                    </div>
+                ) : activeOrders.length === 0 ? (
+                    <EmptyState
+                        title="No confirmed orders"
+                        description="This supplier has no confirmed orders yet."
+                    />
                 ) : (
                     <Table
                         columns={columns}
@@ -213,7 +236,7 @@ const SupplierDetailPage = () => {
 
             {/* Draft Orders */}
             {draftOrders.length > 0 && (
-                <Card className="p-6">
+                <Card className="p-4 sm:p-6" hover={false}>
                     <h3 className="font-semibold text-neutral-900 mb-3">Draft Orders</h3>
                     <Table
                         columns={columns}

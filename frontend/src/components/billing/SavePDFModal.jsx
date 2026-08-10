@@ -1,11 +1,20 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import PropTypes from 'prop-types';
+import { FileText } from 'lucide-react';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 
-const SavePDFModal = ({ isOpen, onClose, onSubmit, loading, defaultFileName }) => {
+const SavePDFModal = ({ isOpen, onClose, onSubmit, loading, defaultFileName, error }) => {
     const [fileName, setFileName] = useState(defaultFileName || '');
+
+    // Reset the field name whenever the modal is (re)opened so a previous
+    // save's leftover text/error doesn't linger for the next invoice/open.
+    useEffect(() => {
+        if (isOpen) {
+            setFileName(defaultFileName || '');
+        }
+    }, [isOpen, defaultFileName]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -25,6 +34,8 @@ const SavePDFModal = ({ isOpen, onClose, onSubmit, loading, defaultFileName }) =
                     value={fileName}
                     onChange={(e) => setFileName(e.target.value)}
                     placeholder="Enter file name"
+                    icon={FileText}
+                    error={error}
                     required
                 />
                 <p className="text-xs text-neutral-500">
@@ -49,6 +60,7 @@ SavePDFModal.propTypes = {
     onSubmit: PropTypes.func.isRequired,
     loading: PropTypes.bool,
     defaultFileName: PropTypes.string,
+    error: PropTypes.string,
 };
 
 export default SavePDFModal;

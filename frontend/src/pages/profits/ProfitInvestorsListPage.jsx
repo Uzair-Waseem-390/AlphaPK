@@ -1,9 +1,13 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import { Users, ShieldAlert } from 'lucide-react';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -17,16 +21,25 @@ const ProfitInvestorsListPage = () => {
 
     const [investors, setInvestors] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+
+    const fetchInvestors = useCallback(() => {
+        setLoading(true);
+        setError(null);
+        cashManagementApi.investors.getAll({ page_size: 500 })
+            .then((res) => setInvestors(res?.results ?? res ?? []))
+            .catch((err) => setError(extractErrorMessage(err, 'Failed to load investors')))
+            .finally(() => setLoading(false));
+    }, []);
 
     useEffect(() => {
-        cashManagementApi.investors.getAll({ page_size: 500 }).then((res) => {
-            setInvestors(res?.results ?? res ?? []);
-        }).finally(() => setLoading(false));
-    }, []);
+        fetchInvestors();
+    }, [fetchInvestors]);
 
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view investors.</p>
             </div>
@@ -44,25 +57,30 @@ const ProfitInvestorsListPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Investors</h1>
-                <p className="text-neutral-500 mt-1">
-                    Click an investor to view their profit history and settle monthly shares.
-                </p>
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                    <Users className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Investors</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        Click an investor to view their profit history and settle monthly shares.
+                    </p>
+                </div>
             </div>
 
-            {loading ? (
+            {error ? (
+                <InlineAlert variant="error" message={error} onRetry={fetchInvestors} />
+            ) : loading ? (
                 <div className="flex items-center justify-center py-8">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : investors.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🤝</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Investors Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Add investors from Cash Management → Investors.
-                    </p>
-                </div>
+                <EmptyState
+                    icon={<Users className="w-8 h-8 text-neutral-400" />}
+                    title="No Investors Yet"
+                    description="Add investors from Cash Management → Investors."
+                />
             ) : (
                 <Table
                     columns={columns}

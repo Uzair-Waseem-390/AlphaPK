@@ -5,17 +5,29 @@
 
 /* Theme Configuration for Tailwind v4 */
 @theme {
-    --color-primary-50: #eef2ff;
-    --color-primary-100: #e0e7ff;
-    --color-primary-200: #c7d2fe;
-    --color-primary-300: #a5b4fc;
-    --color-primary-400: #818cf8;
-    --color-primary-500: #6366f1;
-    --color-primary-600: #4f46e5;
-    --color-primary-700: #4338ca;
-    --color-primary-800: #3730a3;
-    --color-primary-900: #312e81;
-    --color-primary-950: #1e1b4b;
+    --color-primary-50: #f0f4f8;
+    --color-primary-100: #d9e2ec;
+    --color-primary-200: #bcccdc;
+    --color-primary-300: #9fb3c8;
+    --color-primary-400: #627d98;
+    --color-primary-500: #486581;
+    --color-primary-600: #334e68;
+    --color-primary-700: #243b53;
+    --color-primary-800: #102a43;
+    --color-primary-900: #0a1f33;
+    --color-primary-950: #061627;
+
+    --color-accent-50: #eff8ff;
+    --color-accent-100: #daf0ff;
+    --color-accent-200: #b6e1ff;
+    --color-accent-300: #79caff;
+    --color-accent-400: #35adff;
+    --color-accent-500: #0b8fff;
+    --color-accent-600: #0369a1;
+    --color-accent-700: #065386;
+    --color-accent-800: #0a4570;
+    --color-accent-900: #0e395e;
+    --color-accent-950: #09233d;
 
     --color-neutral-50: #f8fafc;
     --color-neutral-100: #f1f5f9;
@@ -92,7 +104,7 @@
 
 @layer components {
     .text-gradient {
-        background: linear-gradient(to right, var(--color-primary-600), #4f46e5);
+        background: linear-gradient(to right, var(--color-primary-700), var(--color-accent-600));
         -webkit-background-clip: text;
         -webkit-text-fill-color: transparent;
         background-clip: text;
@@ -100,17 +112,17 @@
 
     .btn-primary {
         padding: 0.75rem 1.5rem;
-        background: linear-gradient(to right, var(--color-primary-600), #4f46e5);
+        background: linear-gradient(to right, var(--color-primary-700), var(--color-accent-600));
         color: white;
         font-weight: 500;
         border-radius: 0.75rem;
         transition: all 0.3s ease;
-        box-shadow: 0 10px 15px -3px rgba(99, 102, 241, 0.3);
+        box-shadow: 0 10px 15px -3px rgba(51, 78, 104, 0.3);
     }
 
     .btn-primary:hover {
-        background: linear-gradient(to right, var(--color-primary-700), #4338ca);
-        box-shadow: 0 20px 25px -5px rgba(99, 102, 241, 0.4);
+        background: linear-gradient(to right, var(--color-primary-800), var(--color-accent-700));
+        box-shadow: 0 20px 25px -5px rgba(51, 78, 104, 0.4);
         transform: translateY(-2px);
     }
 
@@ -194,11 +206,11 @@
 
     0%,
     100% {
-        box-shadow: 0 0 20px rgba(99, 102, 241, 0.3);
+        box-shadow: 0 0 20px rgba(11, 143, 255, 0.3);
     }
 
     50% {
-        box-shadow: 0 0 40px rgba(99, 102, 241, 0.6);
+        box-shadow: 0 0 40px rgba(11, 143, 255, 0.6);
     }
 }
 

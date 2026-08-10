@@ -1,5 +1,4 @@
 import { useState, useEffect } from 'react';
-import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
@@ -8,8 +7,11 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { Link } from 'react-router-dom';
+import { SlidersHorizontal, Eye, Wallet, X } from 'lucide-react';
 
 const GlobalPaymentsPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
@@ -25,7 +27,7 @@ const GlobalPaymentsPage = () => {
     };
 
     const {
-        data: payments, meta, page, setPage, loading,
+        data: payments, meta, page, setPage, loading, initialLoading, error: listError, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
 
@@ -121,9 +123,9 @@ const GlobalPaymentsPage = () => {
             render: (_, row) => (
                 <Link
                     to={`/purchases/payments/ref/${row.reference_number}`}
-                    className="text-primary-600 hover:text-primary-700 text-sm"
+                    className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium"
                 >
-                    View
+                    <Eye className="w-4 h-4" /> View
                 </Link>
             ),
         },
@@ -148,7 +150,10 @@ const GlobalPaymentsPage = () => {
         { name: 'date_to', label: 'Date To', type: 'date' },
     ];
 
-    if (loading) {
+    // Full-page spinner only before the first fetch completes — later
+    // search/filter changes keep the page shell mounted with a small inline
+    // indicator instead of blanking to a spinner.
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -158,15 +163,20 @@ const GlobalPaymentsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
-                <p className="text-neutral-500 mt-1">
-                    Search and manage all payments across all purchase orders
-                </p>
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center flex-shrink-0">
+                    <Wallet className="w-5.5 h-5.5" />
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
+                    <p className="text-neutral-500 mt-1">
+                        Search and manage all payments across all purchase orders
+                    </p>
+                </div>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -174,22 +184,20 @@ const GlobalPaymentsPage = () => {
                             className="w-full"
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Show Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" icon={X} onClick={handleResetFilters}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -201,7 +209,25 @@ const GlobalPaymentsPage = () => {
                 )}
             </div>
 
-            <Table columns={columns} data={payments} />
+            {listError && (
+                <InlineAlert variant="error" message={listError} onRetry={refetch} />
+            )}
+
+            <div className={`relative transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
+                {loading && (
+                    <div className="absolute right-2 top-2 z-10">
+                        <LoadingSpinner size="sm" />
+                    </div>
+                )}
+                {payments.length === 0 && !loading ? (
+                    <EmptyState
+                        title="No payments found"
+                        description="Try adjusting your search or filters."
+                    />
+                ) : (
+                    <Table columns={columns} data={payments} />
+                )}
+            </div>
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -209,14 +235,6 @@ const GlobalPaymentsPage = () => {
                     totalPages={meta.totalPages}
                     onPageChange={setPage}
                 />
-            )}
-
-            {payments.length === 0 && (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">💰</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Payments Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
-                </div>
             )}
         </div>
     );

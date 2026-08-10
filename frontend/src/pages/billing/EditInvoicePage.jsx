@@ -1,22 +1,31 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { motion, AnimatePresence } from 'framer-motion';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, ListPlus, CalendarDays, Wallet, FileWarning } from 'lucide-react';
 import { billingApi } from '../../services/billingApi';
 import { ratesApi } from '../../services/ratesApi';
+import { useToast } from '../../context/ToastContext';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
 import DraftPreviewPanel from '../../components/billing/DraftPreviewPanel';
+import { extractErrorMessage } from '../../utils/errorMessage';
+
+const firstMsg = (val) => (Array.isArray(val) ? val[0] : val);
 
 const EditInvoicePage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
-    const { user } = useAuth();
+    const { toast } = useToast();
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [saving, setSaving] = useState(false);
     const [invoice, setInvoice] = useState(null);
     const [preview, setPreview] = useState(null);
@@ -29,12 +38,18 @@ const EditInvoicePage = () => {
         items: [],
     });
 
+    const [generalError, setGeneralError] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({});
+    const [itemErrors, setItemErrors] = useState([]);
+
     useEffect(() => {
         loadData();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [id]);
 
     const loadData = async () => {
         setLoading(true);
+        setLoadError('');
         try {
             const invoiceData = await billingApi.invoices.getById(id);
             setInvoice(invoiceData);
@@ -53,6 +68,7 @@ const EditInvoicePage = () => {
                     gst: item.gst || 0,
                     wht: item.wht || 0,
                     selling_price: item.selling_price || 0,
+                    _key: `existing-${item.id}`,
                 })) || [],
             });
 
@@ -61,7 +77,7 @@ const EditInvoicePage = () => {
                 setPreview(invoiceData.draft_preview);
             }
         } catch (error) {
-            console.error('Failed to load data:', error);
+            setLoadError(extractErrorMessage(error, 'Failed to load invoice.'));
         } finally {
             setLoading(false);
         }
@@ -87,7 +103,7 @@ const EditInvoicePage = () => {
             ...prev,
             items: [
                 ...prev.items,
-                { product_id: '', quantity: 1, discount: 0, gst: 0, wht: 0, selling_price: 0 }
+                { product_id: '', quantity: 1, discount: 0, gst: 0, wht: 0, selling_price: 0, _key: `${Date.now()}-${prev.items.length}` }
             ]
         }));
     };
@@ -109,10 +125,56 @@ const EditInvoicePage = () => {
             ...prev,
             items: prev.items.filter((_, i) => i !== index)
         }));
+        setItemErrors(prev => prev.filter((_, i) => i !== index));
+    };
+
+    const applyServerErrors = (error) => {
+        const data = error?.response?.data;
+        const nextFieldErrors = {};
+        let nextGeneralError = '';
+        let nextItemErrors = [];
+
+        if (data && typeof data === 'object') {
+            if (data.advance_amount) nextFieldErrors.advance_amount = firstMsg(data.advance_amount);
+            if (data.payment_due_date) nextFieldErrors.payment_due_date = firstMsg(data.payment_due_date);
+
+            if (data.items) {
+                if (Array.isArray(data.items)) {
+                    nextItemErrors = data.items.map(entry => {
+                        if (!entry || typeof entry !== 'object') return null;
+                        return Object.fromEntries(
+                            Object.entries(entry).map(([k, v]) => [k, firstMsg(v)])
+                        );
+                    });
+                    nextGeneralError = 'Please fix the highlighted line item(s) below.';
+                } else {
+                    nextGeneralError = firstMsg(data.items);
+                }
+            }
+
+            if (data.quantity) {
+                nextGeneralError = nextGeneralError || firstMsg(data.quantity);
+            }
+            if (data.status) {
+                nextGeneralError = nextGeneralError || firstMsg(data.status);
+            }
+        }
+
+        if (!nextGeneralError && !Object.keys(nextFieldErrors).length) {
+            nextGeneralError = extractErrorMessage(error, 'Failed to update invoice.');
+        }
+
+        setFieldErrors(nextFieldErrors);
+        setItemErrors(nextItemErrors);
+        setGeneralError(nextGeneralError);
+        toast.error(nextGeneralError || 'Failed to update invoice.');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setGeneralError('');
+        setFieldErrors({});
+        setItemErrors([]);
         setSaving(true);
         try {
             const data = {
@@ -128,9 +190,10 @@ const EditInvoicePage = () => {
                 })),
             };
             await billingApi.invoices.update(id, data);
+            toast.success('Draft invoice updated.');
             navigate(`/billing/invoices/${id}`);
         } catch (error) {
-            console.error('Failed to update invoice:', error);
+            applyServerErrors(error);
         } finally {
             setSaving(false);
         }
@@ -148,26 +211,35 @@ const EditInvoicePage = () => {
         );
     }
 
+    if (loadError) {
+        return (
+            <div className="space-y-4">
+                <InlineAlert variant="error" message={loadError} onRetry={loadData} />
+                <Button onClick={() => navigate('/billing/invoices')}>Back to Invoices</Button>
+            </div>
+        );
+    }
+
     if (!invoice || invoice.status !== 'draft') {
         return (
-            <div className="text-center py-12">
-                <h2 className="text-2xl font-semibold text-neutral-900">Invoice Not Editable</h2>
-                <p className="text-neutral-500 mt-1">Only draft invoices can be edited.</p>
+            <EmptyState
+                title="Invoice Not Editable"
+                description="Only draft invoices can be edited."
+                icon={<FileWarning className="w-8 h-8 text-neutral-400" />}
+            >
                 <Button onClick={() => navigate('/billing/invoices')} className="mt-4">
                     Back to Invoices
                 </Button>
-            </div>
+            </EmptyState>
         );
     }
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to={`/billing/invoices/${id}`} className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Invoice
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Edit Invoice</h1>
+                    <BackLink to={`/billing/invoices/${id}`}>Back to Invoice</BackLink>
+                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Edit Invoice</h1>
                     <p className="text-neutral-500">{invoice.bill_number}</p>
                 </div>
                 <div className="flex gap-3">
@@ -180,9 +252,13 @@ const EditInvoicePage = () => {
                 </div>
             </div>
 
+            {generalError && (
+                <InlineAlert variant="error" message={generalError} />
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-6">
-                <Card className="p-6">
-                    <div className="grid grid-cols-2 gap-4 max-w-2xl">
+                <Card className="p-6" hover={false}>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <SearchableSelect
                             label="Customer"
                             value={formData.customer_id}
@@ -198,13 +274,15 @@ const EditInvoicePage = () => {
                         <Input
                             label="Due Date"
                             type="date"
+                            icon={CalendarDays}
                             value={formData.payment_due_date}
                             onChange={(e) => setFormData(prev => ({ ...prev, payment_due_date: e.target.value }))}
+                            error={fieldErrors.payment_due_date}
                             required
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 max-w-md mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <Select
                             label="Payment Type"
                             value={formData.payment_type}
@@ -222,38 +300,51 @@ const EditInvoicePage = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
+                                icon={Wallet}
                                 value={formData.advance_amount}
                                 onChange={(e) => setFormData(prev => ({ ...prev, advance_amount: e.target.value }))}
                                 placeholder="Enter advance amount"
+                                error={fieldErrors.advance_amount}
                                 required
                             />
                         )}
                     </div>
                 </Card>
 
-                <Card className="p-6">
+                <Card className="p-6" hover={false}>
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-semibold text-neutral-900">Line Items</h3>
-                        <Button size="sm" onClick={handleAddItem}>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center">
+                                <ListPlus className="w-4 h-4 text-primary-600" />
+                            </div>
+                            <h3 className="font-semibold text-neutral-900">Line Items</h3>
+                        </div>
+                        <Button size="sm" onClick={handleAddItem} icon={Plus}>
                             Add Item
                         </Button>
                     </div>
 
-                    <div className="space-y-3 max-h-[500px] overflow-y-auto">
+                    <div className="space-y-3 max-h-[600px] overflow-y-auto pr-1">
                         {formData.items.length === 0 ? (
-                            <p className="text-center text-neutral-500 py-8">No items added yet. Click "Add Item" to start.</p>
+                            <EmptyState
+                                title="No items added yet"
+                                description='Click "Add Item" to start.'
+                            />
                         ) : (
-                            formData.items.map((item, index) => (
-                                <LineItemRow
-                                    key={index}
-                                    index={index}
-                                    item={item}
-                                    onSearchProducts={searchProducts}
-                                    onUpdate={handleUpdateItem}
-                                    onRemove={handleRemoveItem}
-                                    canEdit={true}
-                                />
-                            ))
+                            <AnimatePresence initial={false}>
+                                {formData.items.map((item, index) => (
+                                    <LineItemRow
+                                        key={item._key || index}
+                                        index={index}
+                                        item={item}
+                                        onSearchProducts={searchProducts}
+                                        onUpdate={handleUpdateItem}
+                                        onRemove={handleRemoveItem}
+                                        canEdit={true}
+                                        errors={itemErrors[index] || undefined}
+                                    />
+                                ))}
+                            </AnimatePresence>
                         )}
                     </div>
                 </Card>

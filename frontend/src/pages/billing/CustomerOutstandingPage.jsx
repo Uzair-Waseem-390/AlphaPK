@@ -1,7 +1,6 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
-import { useAuth } from '../../context/AuthContext';
-import { billingApi } from '../../services/billingApi';
+import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal, X, CheckCircle2 } from 'lucide-react';
 import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
@@ -9,11 +8,13 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import Card from '../../components/ui/Card';
+import { billingApi } from '../../services/billingApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
-import { useNavigate } from 'react-router-dom';
 
 const CustomerOutstandingPage = () => {
-    const { user } = useAuth();
     const navigate = useNavigate();
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -26,7 +27,7 @@ const CustomerOutstandingPage = () => {
     };
 
     const {
-        data: customers, meta, page, setPage, loading,
+        data: customers, meta, setPage, loading, error, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchCustomersPage, {}, 25, [searchTerm]);
 
@@ -81,13 +82,10 @@ const CustomerOutstandingPage = () => {
         { name: 'max_outstanding', label: 'Max Outstanding', type: 'number' },
     ];
 
-    if (loading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <LoadingSpinner size="lg" />
-            </div>
-        );
-    }
+    // Section-level spinner: header renders immediately, only the results
+    // area blocks on the first load. Later filter/search changes keep the
+    // existing rows visible (loading indicator inside the table area).
+    const initialLoading = loading && customers.length === 0 && !error;
 
     return (
         <div className="space-y-6">
@@ -99,67 +97,77 @@ const CustomerOutstandingPage = () => {
                 </p>
             </div>
 
-            <div className="space-y-4">
-                <div className="flex gap-4">
-                    <div className="flex-1">
-                        <SearchBar
-                            onSearch={handleSearch}
-                            placeholder="Search by name or code..."
-                            className="w-full"
-                            value={searchTerm}
-                        />
-                    </div>
+            <Card className="p-4 sm:p-5" hover={false}>
+                <div className="flex flex-col sm:flex-row gap-3">
+                    <SearchBar
+                        onSearch={handleSearch}
+                        placeholder="Search by name or code..."
+                        className="flex-1"
+                        value={searchTerm}
+                    />
                     <Button
                         variant="secondary"
                         onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
+                        icon={SlidersHorizontal}
+                        className="flex-shrink-0"
                     >
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
                     {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
+                        <Button variant="secondary" onClick={handleResetFilters} icon={X} className="flex-shrink-0">
                             Clear All
                         </Button>
                     )}
                 </div>
 
                 {showFilters && (
-                    <FilterBar
-                        filters={filterConfig}
-                        onApply={handleApplyFilters}
-                        onReset={handleResetFilters}
-                    />
-                )}
-            </div>
-
-            {customers.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">✅</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Customers with Outstanding</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        All customers have settled their balances.
-                    </p>
-                </div>
-            ) : (
-                <>
-                    <Table
-                        columns={columns}
-                        data={customers}
-                        onRowClick={(customer) => navigate(`/billing/customers/${customer.id}`)}
-                    />
-
-                    {meta.totalPages > 1 && (
-                        <Pagination
-                            currentPage={meta.currentPage}
-                            totalPages={meta.totalPages}
-                            onPageChange={setPage}
+                    <div className="mt-4">
+                        <FilterBar
+                            filters={filterConfig}
+                            onApply={handleApplyFilters}
+                            onReset={handleResetFilters}
                         />
-                    )}
-                </>
+                    </div>
+                )}
+            </Card>
+
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
+
+            {initialLoading ? (
+                <div className="flex items-center justify-center min-h-[40vh]">
+                    <LoadingSpinner size="lg" />
+                </div>
+            ) : customers.length === 0 ? (
+                !error && (
+                    <EmptyState
+                        icon={<CheckCircle2 className="w-8 h-8 text-success-500" />}
+                        title="No Customers with Outstanding"
+                        description="All customers have settled their balances."
+                    />
+                )
+            ) : (
+                <Card className="p-0 overflow-hidden" hover={false}>
+                    <div className={`relative transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
+                        {loading && (
+                            <div className="absolute right-4 top-4 z-10">
+                                <LoadingSpinner size="sm" />
+                            </div>
+                        )}
+                        <Table
+                            columns={columns}
+                            data={customers}
+                            onRowClick={(customer) => navigate(`/billing/customers/${customer.id}`)}
+                        />
+                    </div>
+                </Card>
+            )}
+
+            {meta.totalPages > 1 && customers.length > 0 && (
+                <Pagination
+                    currentPage={meta.currentPage}
+                    totalPages={meta.totalPages}
+                    onPageChange={setPage}
+                />
             )}
         </div>
     );

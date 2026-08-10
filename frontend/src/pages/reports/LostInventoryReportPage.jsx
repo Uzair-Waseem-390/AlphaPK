@@ -1,9 +1,12 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { PackageX, Printer, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { reportsApi } from '../../services/reportsApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
@@ -11,6 +14,9 @@ import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -91,6 +97,7 @@ const columns = [
 const LostInventoryReportPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [showFilters, setShowFilters] = useState(false);
@@ -98,7 +105,7 @@ const LostInventoryReportPage = () => {
 
     const {
         data: results, meta, extra, page, setPage, loading, error,
-        filters, setFilters,
+        filters, setFilters, refetch,
     } = usePaginatedList(reportsApi.lostInventory.get, {});
 
     const stats = extra?.stats;
@@ -116,7 +123,7 @@ const LostInventoryReportPage = () => {
         try {
             await printReport('/reports/lost-inventory/print/', filters);
         } catch (err) {
-            alert(err.message || 'Failed to print report');
+            toast.error(extractErrorMessage(err, 'Failed to print report'));
         } finally {
             setPrinting(false);
         }
@@ -126,10 +133,13 @@ const LostInventoryReportPage = () => {
         <div className="space-y-6">
             {/* Header */}
             <div>
-                <Link to="/reports" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Reports
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Lost Inventory Report</h1>
+                <BackLink to="/reports">Back to Reports</BackLink>
+                <div className="flex items-center gap-3 mt-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
+                        <PackageX className="w-5 h-5 text-white" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Lost Inventory Report</h1>
+                </div>
                 <p className="text-neutral-500 mt-1">
                     Products marked as lost, damaged, or missing — including partial or full recoveries
                 </p>
@@ -137,25 +147,20 @@ const LostInventoryReportPage = () => {
 
             {/* Filters */}
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-wrap gap-3">
                     <Button
                         variant="secondary"
                         onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                    d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
+                        icon={SlidersHorizontal}
                     >
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
                     {Object.keys(filters).length > 0 && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
+                        <Button variant="secondary" icon={X} onClick={handleResetFilters}>
                             Clear Filters
                         </Button>
                     )}
-                    <Button variant="secondary" onClick={handlePrint} loading={printing}>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
                         Print
                     </Button>
                 </div>
@@ -169,11 +174,7 @@ const LostInventoryReportPage = () => {
                 )}
             </div>
 
-            {error && (
-                <div className="p-4 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{error}</p>
-                </div>
-            )}
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             {loading ? (
                 <div className="flex items-center justify-center min-h-[40vh]">
@@ -213,16 +214,15 @@ const LostInventoryReportPage = () => {
 
                     {/* Table */}
                     {results.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="text-6xl mb-4">📉</div>
-                            <h3 className="text-lg font-semibold text-neutral-900">No Lost Inventory Found</h3>
-                            <p className="text-sm text-neutral-500 mt-1">
-                                Try adjusting your date filters
-                            </p>
-                        </div>
+                        <EmptyState
+                            title="No Lost Inventory Found"
+                            description="Try adjusting your date filters"
+                        />
                     ) : (
                         <>
-                            <Table columns={columns} data={results} />
+                            <Card className="p-0 overflow-hidden">
+                                <Table columns={columns} data={results} />
+                            </Card>
                             {meta.totalPages > 1 && (
                                 <Pagination
                                     currentPage={meta.currentPage}

@@ -1,6 +1,7 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { extractErrorMessage } from '../utils/errorMessage';
 import { usersApi } from '../utils/api';
 import Input from '../components/common/Input';
 import Button from '../components/common/Button';
@@ -9,18 +10,17 @@ import ChangePasswordModal from '../components/users/ChangePasswordModal';
 
 const Profile = () => {
     const { user, updateUser } = useAuth();
+    const { toast } = useToast();
     const [formData, setFormData] = useState({
         first_name: user?.first_name || '',
         last_name: user?.last_name || '',
     });
     const [loading, setLoading] = useState(false);
     const [showPasswordModal, setShowPasswordModal] = useState(false);
-    const [success, setSuccess] = useState('');
 
     const handleChange = (e) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
-        setSuccess('');
     };
 
     const handleSubmit = async (e) => {
@@ -29,9 +29,10 @@ const Profile = () => {
         try {
             const updatedUser = await usersApi.updateProfile(formData);
             updateUser(updatedUser);
-            setSuccess('Profile updated successfully!');
+            toast.success('Profile updated successfully');
         } catch (error) {
             console.error('Failed to update profile:', error);
+            toast.error(extractErrorMessage(error, 'Failed to update profile'));
         } finally {
             setLoading(false);
         }
@@ -40,7 +41,7 @@ const Profile = () => {
     const handleChangePassword = async (data) => {
         // data will contain { new_password, confirm_password }
         await usersApi.changeOwnPassword(data);
-        setSuccess('Password changed successfully!');
+        toast.success('Password changed successfully');
     };
 
     if (!user) return null;
@@ -55,7 +56,7 @@ const Profile = () => {
             <Card className="p-6">
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <div className="flex items-center gap-4 pb-4 border-b border-neutral-200">
-                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white text-2xl font-semibold">
+                        <div className="w-20 h-20 rounded-2xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center text-white text-2xl font-semibold">
                             {user.first_name?.[0]}{user.last_name?.[0]}
                         </div>
                         <div>
@@ -90,16 +91,6 @@ const Profile = () => {
                         value={user.email}
                         disabled
                     />
-
-                    {success && (
-                        <motion.p
-                            initial={{ opacity: 0 }}
-                            animate={{ opacity: 1 }}
-                            className="text-success-600 bg-success-50 p-3 rounded-lg"
-                        >
-                            {success}
-                        </motion.p>
-                    )}
 
                     <div className="flex gap-3 pt-4">
                         <Button type="submit" loading={loading}>

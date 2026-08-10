@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { AlertTriangle } from 'lucide-react';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 
@@ -28,14 +29,17 @@ const DraftPreview = ({ items, totals, warnings }) => {
             <h3 className="font-semibold text-neutral-900 mb-4">Order Preview</h3>
 
             {warnings && (warnings.missing_rate || warnings.missing_stock) && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-sm text-amber-700">
-                        {warnings.missing_rate && '⚠️ Some products are missing selling prices. '}
-                        {warnings.missing_stock && '⚠️ Some products have insufficient stock.'}
-                    </p>
-                    <p className="text-xs text-amber-600 mt-1">
-                        Preview only — no stock reserved, no prices committed. Confirm to finalise.
-                    </p>
+                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg flex items-start gap-2">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-sm text-amber-700">
+                            {warnings.missing_rate && 'Some products are missing selling prices. '}
+                            {warnings.missing_stock && 'Some products have insufficient stock.'}
+                        </p>
+                        <p className="text-xs text-amber-600 mt-1">
+                            Preview only — no stock reserved, no prices committed. Confirm to finalise.
+                        </p>
+                    </div>
                 </div>
             )}
 

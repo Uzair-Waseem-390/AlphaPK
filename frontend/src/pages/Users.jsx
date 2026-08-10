@@ -3,6 +3,8 @@ import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { usersApi } from '../utils/api';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
+import { extractErrorMessage } from '../utils/errorMessage';
 import { usePaginatedList } from '../hooks/usePaginatedList';
 import UserCard from '../components/users/UserCard';
 import UserForm from '../components/users/UserForm';
@@ -15,6 +17,7 @@ import Pagination from '../components/ui/Pagination';
 
 const Users = () => {
     const { user: currentUser } = useAuth();
+    const { toast } = useToast();
     const navigate = useNavigate();
     const [filteredUsers, setFilteredUsers] = useState([]);
     const [searchTerm, setSearchTerm] = useState('');
@@ -59,8 +62,10 @@ const Users = () => {
             await usersApi.create(data);
             await refetch();
             setShowCreateModal(false);
+            toast.success('User created successfully');
         } catch (error) {
             console.error('Failed to create user:', error);
+            throw error; // Re-thrown so UserForm can show field/generic errors and stay open
         } finally {
             setFormLoading(false);
         }
@@ -72,33 +77,35 @@ const Users = () => {
             await usersApi.updateProfile(data);
             await refetch();
             setShowEditModal(false);
+            toast.success('User updated successfully');
         } catch (error) {
             console.error('Failed to update user:', error);
+            throw error; // Re-thrown so UserForm can show field/generic errors and stay open
         } finally {
             setFormLoading(false);
         }
     };
 
+    // Confirmation now lives solely in UserCard's ConfirmDialog — no second
+    // native window.confirm() prompt.
     const handleDeleteUser = async (email) => {
-        if (!window.confirm(`Are you sure you want to delete ${email}?`)) return;
-
         try {
             await usersApi.delete(email);
             await refetch();
+            toast.success('User deleted successfully');
         } catch (error) {
             console.error('Failed to delete user:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete user'));
         }
     };
 
-    // Update the handleChangePassword function in Users.jsx
     const handleChangePassword = async (data) => {
         // data will contain { email, new_password, confirm_password }
         setFormLoading(true);
         try {
             await usersApi.changeUserPassword(data);
             setShowPasswordModal(false);
-            // Show success message (you can add a toast notification here)
-            alert('Password changed successfully!');
+            toast.success('Password changed successfully');
         } catch (error) {
             console.error('Failed to change password:', error);
             throw error; // Re-throw so the modal can handle the error

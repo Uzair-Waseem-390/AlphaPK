@@ -1,31 +1,38 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
+import { ArrowRightLeft, LayoutGrid, PackageSearch } from 'lucide-react';
 import { purchasesApi } from '../../services/purchasesApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import SearchBar from '../../components/ui/SearchBar';
 import Pagination from '../../components/ui/Pagination';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import MoveStockModal from '../../components/purchases/MoveStockModal';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const ShelfDetailPage = () => {
     const { id } = useParams();
 
     const [shelf, setShelf] = useState(null);
     const [shelfLoading, setShelfLoading] = useState(true);
+    const [shelfError, setShelfError] = useState('');
     const [searchTerm, setSearchTerm] = useState('');
     const [showMoveModal, setShowMoveModal] = useState(false);
 
     const fetchShelf = async () => {
         setShelfLoading(true);
+        setShelfError('');
         try {
             const data = await purchasesApi.shelves.getById(id);
             setShelf(data);
         } catch (err) {
-            console.error('Failed to fetch shelf:', err);
             setShelf(null);
+            setShelfError(extractErrorMessage(err, 'Failed to load shelf.'));
         } finally {
             setShelfLoading(false);
         }
@@ -43,7 +50,7 @@ const ShelfDetailPage = () => {
     };
 
     const {
-        data: stock, meta, page, setPage, loading, refetch,
+        data: stock, meta, page, setPage, loading, error: stockError, refetch,
     } = usePaginatedList(fetchStockPage, {}, 25, [id, searchTerm]);
 
     const handleSearch = (value) => {
@@ -67,7 +74,11 @@ const ShelfDetailPage = () => {
             label: 'Product Code',
             render: (_value, row) => row.product?.code || 'N/A',
         },
-        { key: 'quantity', label: 'Quantity' },
+        {
+            key: 'quantity',
+            label: 'Quantity',
+            render: (value) => <span className="font-semibold text-neutral-900">{value}</span>,
+        },
         {
             key: 'last_updated_at',
             label: 'Last Updated',
@@ -85,12 +96,16 @@ const ShelfDetailPage = () => {
 
     if (!shelf) {
         return (
-            <div className="text-center py-12">
-                <h2 className="text-2xl font-semibold text-neutral-900">Shelf Not Found</h2>
-                <p className="text-neutral-500 mt-1">The shelf you&apos;re looking for doesn&apos;t exist.</p>
-                <Link to="/purchases/shelves" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Shelves
-                </Link>
+            <div className="space-y-4">
+                <BackLink to="/purchases/shelves">Back to Shelves</BackLink>
+                {shelfError ? (
+                    <InlineAlert variant="error" message={shelfError} onRetry={fetchShelf} />
+                ) : (
+                    <div className="text-center py-12">
+                        <h2 className="text-2xl font-semibold text-neutral-900">Shelf Not Found</h2>
+                        <p className="text-neutral-500 mt-1">The shelf you&apos;re looking for doesn&apos;t exist.</p>
+                    </div>
+                )}
             </div>
         );
     }
@@ -105,29 +120,31 @@ const ShelfDetailPage = () => {
             />
 
             <div className="space-y-6">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+                <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
                     <div>
-                        <Link to="/purchases/shelves" className="text-sm text-primary-600 hover:text-primary-700">
-                            ← Back to Shelves
-                        </Link>
-                        <h1 className="text-3xl font-bold text-neutral-900 mt-1">{shelf.name}</h1>
-                        {shelf.description && (
-                            <p className="text-neutral-500 mt-1">{shelf.description}</p>
-                        )}
+                        <BackLink to="/purchases/shelves">Back to Shelves</BackLink>
+                        <div className="flex items-center gap-3 mt-3">
+                            <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                                <LayoutGrid className="w-5 h-5 text-white" />
+                            </div>
+                            <div>
+                                <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{shelf.name}</h1>
+                                {shelf.description && (
+                                    <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">{shelf.description}</p>
+                                )}
+                            </div>
+                        </div>
                     </div>
                     <Button
                         onClick={() => setShowMoveModal(true)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 7h12m0 0l-4-4m4 4l-4 4m0 6H4m0 0l4 4m-4-4l4-4" />
-                            </svg>
-                        )}
+                        icon={ArrowRightLeft}
+                        className="sm:flex-shrink-0"
                     >
                         Move Stock
                     </Button>
                 </div>
 
-                <Card className="p-6">
+                <Card className="p-4 sm:p-6" hover={false}>
                     <div className="flex items-center justify-between mb-4">
                         <h3 className="font-semibold text-neutral-900">Products on this Shelf</h3>
                     </div>
@@ -140,10 +157,22 @@ const ShelfDetailPage = () => {
                         />
                     </div>
 
+                    {stockError && (
+                        <div className="mb-4">
+                            <InlineAlert variant="error" message={stockError} onRetry={refetch} />
+                        </div>
+                    )}
+
                     {loading ? (
                         <div className="flex items-center justify-center py-12">
                             <LoadingSpinner size="lg" />
                         </div>
+                    ) : stock.length === 0 ? (
+                        <EmptyState
+                            icon={<PackageSearch className="w-8 h-8 text-neutral-400" />}
+                            title="No products on this shelf"
+                            description={searchTerm ? 'Try adjusting your search.' : 'Move stock here to see it listed.'}
+                        />
                     ) : (
                         <>
                             <Table columns={columns} data={stock} />

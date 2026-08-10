@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useRates } from '../../hooks/useRates';
 import { ratesApi } from '../../services/ratesApi';
 import RateTable from '../../components/rates/RateTable';
@@ -14,6 +15,7 @@ import { useNavigate, Link } from 'react-router-dom';
 
 const RatesPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
@@ -80,9 +82,10 @@ const RatesPage = () => {
             setShowModal(false);
             setSelectedProduct(null);
             setSelectedRate(null);
+            toast.success(selectedRate ? 'Price updated successfully' : 'Price set successfully');
         } catch (error) {
             console.error('Failed to save rate:', error);
-            alert(error.response?.data?.detail || 'Failed to save rate');
+            throw error; // Re-thrown so RateFormModal can show field/generic errors and stay open
         } finally {
             setFormLoading(false);
         }

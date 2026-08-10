@@ -2,10 +2,21 @@ import { motion } from 'framer-motion';
 import { useState } from 'react';
 import Card from '../common/Card';
 import Button from '../common/Button';
-import Modal from '../common/Modal';
+import ConfirmDialog from '../ui/ConfirmDialog';
 
 const UserCard = ({ user, onDelete, onEdit }) => {
     const [showDeleteModal, setShowDeleteModal] = useState(false);
+    const [deleting, setDeleting] = useState(false);
+
+    const handleConfirmDelete = async () => {
+        setDeleting(true);
+        try {
+            await onDelete(user.email);
+            setShowDeleteModal(false);
+        } finally {
+            setDeleting(false);
+        }
+    };
     const roleColors = {
         superuser: 'bg-purple-100 text-purple-700',
         admin: 'bg-blue-100 text-blue-700',
@@ -31,7 +42,7 @@ const UserCard = ({ user, onDelete, onEdit }) => {
                     <div className="flex items-start justify-between">
                         <div className="flex-1">
                             <div className="flex items-center gap-3 mb-2">
-                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-500 to-indigo-600 flex items-center justify-center text-white font-semibold text-lg">
+                                <div className="w-12 h-12 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center text-white font-semibold text-lg">
                                     {user.first_name?.[0]}{user.last_name?.[0]}
                                 </div>
                                 <div>
@@ -80,28 +91,16 @@ const UserCard = ({ user, onDelete, onEdit }) => {
                 </Card>
             </motion.div>
 
-            <Modal
+            <ConfirmDialog
                 isOpen={showDeleteModal}
                 onClose={() => setShowDeleteModal(false)}
+                onConfirm={handleConfirmDelete}
                 title="Delete User"
-            >
-                <div className="space-y-4">
-                    <p className="text-neutral-600">
-                        Are you sure you want to delete <strong>{user.email}</strong>? This action cannot be undone.
-                    </p>
-                    <div className="flex justify-end gap-3">
-                        <Button variant="secondary" onClick={() => setShowDeleteModal(false)}>
-                            Cancel
-                        </Button>
-                        <Button variant="danger" onClick={() => {
-                            onDelete(user.email);
-                            setShowDeleteModal(false);
-                        }}>
-                            Delete User
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
+                message={`Are you sure you want to delete ${user.email}? This action cannot be undone.`}
+                confirmText="Delete User"
+                variant="danger"
+                loading={deleting}
+            />
         </>
     );
 };

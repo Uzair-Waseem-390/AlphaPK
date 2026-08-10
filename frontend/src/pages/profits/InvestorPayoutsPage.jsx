@@ -4,6 +4,9 @@ import Badge from '../../components/ui/Badge';
 import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import { HandCoins, ShieldAlert } from 'lucide-react';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -26,11 +29,12 @@ const InvestorPayoutsPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data: payouts, meta, page, setPage, loading } = useInvestorProfitPayouts();
+    const { data: payouts, meta, page, setPage, loading, error, refetch } = useInvestorProfitPayouts();
 
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view investor payments.</p>
             </div>
@@ -50,36 +54,37 @@ const InvestorPayoutsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
-                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
-                <p className="text-sm text-amber-700">
-                    Figures here are computed from an internal estimate, not a certified valuation. Review
-                    with an accountant before relying on them. The developer is not responsible at all for
-                    decisions made from this page.
-                </p>
+            <InlineAlert
+                variant="warning"
+                message="Figures here are computed from an internal estimate, not a certified valuation. Review with an accountant before relying on them. The developer is not responsible at all for decisions made from this page."
+            />
+
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                    <HandCoins className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Investor Payments</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        Every profit payout and reinvestment ever recorded, across every investor and month —
+                        newest first. Capital withdrawals aren't shown here; see the Investors page in Cash
+                        Management for those.
+                    </p>
+                </div>
             </div>
 
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Investor Payments</h1>
-                <p className="text-neutral-500 mt-1">
-                    Every profit payout and reinvestment ever recorded, across every investor and month —
-                    newest first. Capital withdrawals aren't shown here; see the Investors page in Cash
-                    Management for those.
-                </p>
-            </div>
-
-            {loading ? (
+            {error ? (
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
+            ) : loading ? (
                 <div className="flex items-center justify-center py-8">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : payouts.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">💵</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Profit Payments Recorded Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        These appear once a finalized month's share is settled with an investor.
-                    </p>
-                </div>
+                <EmptyState
+                    icon={<HandCoins className="w-8 h-8 text-neutral-400" />}
+                    title="No Profit Payments Recorded Yet"
+                    description="These appear once a finalized month's share is settled with an investor."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={payouts} />

@@ -1,32 +1,45 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
+import InlineAlert from '../../components/ui/InlineAlert';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 import ReturnForm from '../../components/purchases/ReturnForm';
+import { Pencil, XCircle, CheckCircle2, ArrowLeft, ExternalLink, Save } from 'lucide-react';
 
 const PurchaseReturnDetailPage = () => {
     const { returnId } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [returnItem, setReturnItem] = useState(null);
     const [order, setOrder] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [candidateShelves, setCandidateShelves] = useState({});
     const [allocationDrafts, setAllocationDrafts] = useState({});
     const [savingAllocationFor, setSavingAllocationFor] = useState(null);
+    const [allocationError, setAllocationError] = useState('');
     const [acceptError, setAcceptError] = useState('');
     const [showEditForm, setShowEditForm] = useState(false);
     const [formLoading, setFormLoading] = useState(false);
+    const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
+    const [acceptLoading, setAcceptLoading] = useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [cancelLoading, setCancelLoading] = useState(false);
 
     useEffect(() => {
         fetchReturnDetails();
@@ -71,14 +84,14 @@ const PurchaseReturnDetailPage = () => {
             .filter((a) => a.shelf_id && a.quantity)
             .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
         setSavingAllocationFor(itemId);
+        setAllocationError('');
         try {
             await purchasesApi.purchaseReturnItems.setShelfAllocations(itemId, allocations);
             await fetchReturnDetails();
+            toast.success('Shelf allocations saved.');
         } catch (error) {
             console.error('Failed to save shelf allocations:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message
-                || error.response?.data?.allocations || 'Failed to save shelf allocations';
-            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+            setAllocationError(extractErrorMessage(error, 'Failed to save shelf allocations.'));
         } finally {
             setSavingAllocationFor(null);
         }
@@ -86,6 +99,7 @@ const PurchaseReturnDetailPage = () => {
 
     const fetchReturnDetails = async () => {
         setLoading(true);
+        setLoadError('');
         try {
             const returnsRes = await purchasesApi.returns.getAll({ page_size: 500 });
             const allReturns = returnsRes?.results ?? returnsRes ?? [];
@@ -109,22 +123,26 @@ const PurchaseReturnDetailPage = () => {
             console.error('Failed to fetch return details:', error);
             setReturnItem(null);
             setOrder(null);
+            setLoadError(extractErrorMessage(error, 'Failed to load return details.'));
         } finally {
             setLoading(false);
         }
     };
 
     const handleAcceptReturn = async () => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
+        setAcceptLoading(true);
         setAcceptError('');
         try {
             await purchasesApi.returns.accept(returnId);
             await fetchReturnDetails();
-            alert('Return accepted successfully!');
+            toast.success('Return accepted successfully.');
+            setShowAcceptConfirm(false);
         } catch (error) {
             console.error('Failed to accept return:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to accept return';
-            setAcceptError(errorMsg);
+            setAcceptError(extractErrorMessage(error, 'Failed to accept return.'));
+            setShowAcceptConfirm(false);
+        } finally {
+            setAcceptLoading(false);
         }
     };
 
@@ -134,26 +152,26 @@ const PurchaseReturnDetailPage = () => {
             await purchasesApi.returns.update(returnId, data);
             setShowEditForm(false);
             await fetchReturnDetails();
+            toast.success('Return updated successfully.');
         } catch (error) {
             console.error('Failed to update return:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message
-                || error.response?.data?.items || 'Failed to update return';
-            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+            toast.error(extractErrorMessage(error, 'Failed to update return.'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleCancelReturn = async () => {
-        if (!window.confirm('Cancel this return? This cannot be undone.')) return;
+        setCancelLoading(true);
         try {
             await purchasesApi.returns.cancel(returnId);
-            alert('Return cancelled.');
+            toast.success('Return cancelled.');
             navigate('/purchases/returns');
         } catch (error) {
             console.error('Failed to cancel return:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to cancel return';
-            alert(errorMsg);
+            toast.error(extractErrorMessage(error, 'Failed to cancel return.'));
+            setCancelLoading(false);
+            setShowCancelConfirm(false);
         }
     };
 
@@ -216,57 +234,60 @@ const PurchaseReturnDetailPage = () => {
         );
     }
 
+    if (loadError) {
+        return (
+            <div className="space-y-6">
+                <BackLink to="/purchases/returns">Back to Returns</BackLink>
+                <InlineAlert variant="error" message={loadError} onRetry={fetchReturnDetails} />
+            </div>
+        );
+    }
+
     if (!returnItem) {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Return Not Found</h2>
                 <p className="text-neutral-500 mt-1">The return you're looking for doesn't exist.</p>
-                <Link to="/purchases/returns" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Returns
-                </Link>
+                <BackLink to="/purchases/returns" className="mt-4">Back to Returns</BackLink>
             </div>
         );
     }
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/purchases/returns" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Returns
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Return Details</h1>
+                    <BackLink to="/purchases/returns">Back to Returns</BackLink>
+                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Return Details</h1>
                     <div className="flex items-center gap-3 mt-1">
                         <p className="text-neutral-500">{returnItem.reference_number}</p>
                         {getStatusBadge(returnItem.status)}
                     </div>
                 </div>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap gap-2">
                     {returnItem.status === 'pending' && isAdmin && (
                         <>
-                            <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                            <Button variant="secondary" icon={Pencil} onClick={() => setShowEditForm(true)}>
                                 Edit
                             </Button>
-                            <Button variant="danger" onClick={handleCancelReturn}>
+                            <Button variant="danger" icon={XCircle} onClick={() => setShowCancelConfirm(true)}>
                                 Cancel Return
                             </Button>
-                            <Button variant="success" onClick={handleAcceptReturn}>
+                            <Button variant="success" icon={CheckCircle2} onClick={() => setShowAcceptConfirm(true)}>
                                 Accept Return
                             </Button>
                         </>
                     )}
                     <Link to="/purchases/returns">
-                        <Button variant="secondary">
-                            ← Back
+                        <Button variant="secondary" icon={ArrowLeft}>
+                            Back
                         </Button>
                     </Link>
                 </div>
             </div>
 
             {acceptError && (
-                <div className="p-4 rounded-lg bg-error-50 border border-error-200 text-sm text-error-700">
-                    {acceptError}
-                </div>
+                <InlineAlert variant="error" message={acceptError} />
             )}
 
             {/* Return Information */}
@@ -390,14 +411,17 @@ const PurchaseReturnDetailPage = () => {
 
             {/* Shelf Allocation — pending returns only, required before accept */}
             {returnItem.status === 'pending' && (
-                <Card className="p-6">
+                <Card className="p-6" hover={false}>
                     <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
                     <p className="text-sm text-neutral-500 mb-4">
                         Select which shelf(s) each returned item is being pulled from before accepting this return.
                     </p>
+                    {allocationError && (
+                        <InlineAlert variant="error" message={allocationError} className="mb-4" />
+                    )}
                     <div className="space-y-6">
                         {returnItem.items?.map((item) => (
-                            <div key={item.id} className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+                            <div key={item.id} className="p-4 bg-neutral-50 rounded-xl border border-neutral-200">
                                 <div className="mb-3">
                                     <p className="font-medium">{item.product_name} {item.product_code ? `(${item.product_code})` : ''}</p>
                                     <p className="text-sm text-neutral-500">Quantity: {item.quantity}</p>
@@ -413,6 +437,7 @@ const PurchaseReturnDetailPage = () => {
                                 <div className="flex justify-end mt-3">
                                     <Button
                                         size="sm"
+                                        icon={Save}
                                         onClick={() => handleSaveAllocations(item.id)}
                                         loading={savingAllocationFor === item.id}
                                     >
@@ -468,7 +493,7 @@ const PurchaseReturnDetailPage = () => {
                     </div>
                     <div className="mt-4">
                         <Link to={`/purchases/orders/${order.id}`}>
-                            <Button variant="secondary" size="sm">
+                            <Button variant="secondary" size="sm" icon={ExternalLink}>
                                 View Full Order
                             </Button>
                         </Link>
@@ -478,14 +503,14 @@ const PurchaseReturnDetailPage = () => {
 
             {/* Actions */}
             {returnItem.status === 'pending' && isAdmin && (
-                <div className="flex gap-3 pt-4 border-t border-neutral-200">
-                    <Button variant="secondary" onClick={() => setShowEditForm(true)}>
+                <div className="flex flex-wrap gap-3 pt-4 border-t border-neutral-200">
+                    <Button variant="secondary" icon={Pencil} onClick={() => setShowEditForm(true)}>
                         Edit
                     </Button>
-                    <Button variant="danger" onClick={handleCancelReturn}>
+                    <Button variant="danger" icon={XCircle} onClick={() => setShowCancelConfirm(true)}>
                         Cancel Return
                     </Button>
-                    <Button variant="success" onClick={handleAcceptReturn}>
+                    <Button variant="success" icon={CheckCircle2} onClick={() => setShowAcceptConfirm(true)}>
                         Accept Return
                     </Button>
                 </div>
@@ -508,6 +533,28 @@ const PurchaseReturnDetailPage = () => {
                     submitLabel="Save Changes"
                 />
             </Modal>
+
+            <ConfirmDialog
+                isOpen={showAcceptConfirm}
+                onClose={() => setShowAcceptConfirm(false)}
+                onConfirm={handleAcceptReturn}
+                title="Accept Return"
+                message="Are you sure you want to accept this return? This action cannot be undone."
+                confirmText="Accept"
+                variant="primary"
+                loading={acceptLoading}
+            />
+
+            <ConfirmDialog
+                isOpen={showCancelConfirm}
+                onClose={() => setShowCancelConfirm(false)}
+                onConfirm={handleCancelReturn}
+                title="Cancel Return"
+                message="Cancel this return? This cannot be undone."
+                confirmText="Cancel Return"
+                variant="danger"
+                loading={cancelLoading}
+            />
         </div>
     );
 };

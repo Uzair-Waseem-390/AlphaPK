@@ -1,4 +1,5 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
+import { extractErrorMessage } from '../utils/errorMessage';
 
 // Shared primitive: unwraps a {count, total_pages, current_page, page_size,
 // results} paginated response and tracks page/filters state. Every list
@@ -61,7 +62,7 @@ export const usePaginatedList = (fetchFn, initialFilters = {}, pageSize = 25, de
                 setExtra(rest);
             }
         } catch (err) {
-            setError(err.message || 'Failed to fetch data');
+            setError(extractErrorMessage(err, 'Failed to fetch data'));
             setResults([]);
         } finally {
             setLoading(false);

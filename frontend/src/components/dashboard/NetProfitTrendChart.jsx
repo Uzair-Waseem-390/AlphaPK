@@ -3,6 +3,7 @@ import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContai
 import Card from '../ui/Card';
 import Select from '../ui/Select';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import InlineAlert from '../ui/InlineAlert';
 import { useNetProfitTrend } from '../../hooks/useProfits';
 
 const formatCurrency = (value) => {
@@ -44,7 +45,7 @@ const MONTHS_OPTIONS = [
 
 const NetProfitTrendChart = () => {
     const [months, setMonths] = useState(12);
-    const { data, loading, error } = useNetProfitTrend(months);
+    const { data, loading, error, refetch } = useNetProfitTrend(months);
 
     return (
         <Card className="p-6">
@@ -64,9 +65,7 @@ const NetProfitTrendChart = () => {
             </div>
 
             {error && (
-                <div className="p-4 bg-error-50 border border-error-200 rounded-lg mb-4">
-                    <p className="text-sm text-error-600">{error}</p>
-                </div>
+                <InlineAlert variant="error" message={error} onRetry={refetch} className="mb-4" />
             )}
 
             {loading ? (

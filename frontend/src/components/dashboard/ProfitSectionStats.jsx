@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { Banknote, TrendingUp, Package, DollarSign } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -29,14 +30,14 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Cash in Hand"
                     value={stats?.cash_in_hand}
-                    icon="💵"
+                    icon={Banknote}
                     color="primary"
                     onClick={() => onCardClick('cashInHand', 'Cash in Hand Breakdown')}
                 />
                 <StatCard
                     label="Net Revenue"
                     value={stats?.net_invoice_revenue}
-                    icon="📈"
+                    icon={TrendingUp}
                     color="green"
                     subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_revenue)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
@@ -44,7 +45,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Net COGS"
                     value={stats?.net_invoice_cogs}
-                    icon="📦"
+                    icon={Package}
                     color="amber"
                     subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_cogs)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
@@ -52,7 +53,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Net Gross Profit"
                     value={stats?.net_gross_profit}
-                    icon="💰"
+                    icon={DollarSign}
                     color="green"
                     subtitle={`Gross (before returns): Rs. ${fmt(stats?.total_gross_profit)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}

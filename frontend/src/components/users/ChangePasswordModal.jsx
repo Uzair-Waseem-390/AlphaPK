@@ -1,8 +1,8 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import Modal from '../common/Modal';
 import Input from '../common/Input';
 import Button from '../common/Button';
+import InlineAlert from '../ui/InlineAlert';
 
 const ChangePasswordModal = ({ isOpen, onClose, onSubmit, loading, isSuperuser }) => {
     const [formData, setFormData] = useState({
@@ -152,15 +152,7 @@ const ChangePasswordModal = ({ isOpen, onClose, onSubmit, loading, isSuperuser }
                     required
                 />
 
-                {apiError && (
-                    <motion.p
-                        initial={{ opacity: 0 }}
-                        animate={{ opacity: 1 }}
-                        className="text-sm text-error-500 bg-error-50 p-3 rounded-lg"
-                    >
-                        {apiError}
-                    </motion.p>
-                )}
+                {apiError && <InlineAlert variant="error" message={apiError} />}
 
                 <div className="flex justify-end gap-3 pt-4">
                     <Button type="button" variant="secondary" onClick={handleClose}>

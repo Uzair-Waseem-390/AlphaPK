@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
 import { authApi } from '../utils/api';
+import { extractErrorMessage } from '../utils/errorMessage';
 
 const AuthContext = createContext();
 
@@ -48,7 +49,7 @@ export const AuthProvider = ({ children }) => {
         } catch (error) {
             return {
                 success: false,
-                error: error.response?.data?.detail || 'Login failed'
+                error: extractErrorMessage(error, 'Login failed'),
             };
         }
     };

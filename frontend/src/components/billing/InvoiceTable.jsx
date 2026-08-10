@@ -1,7 +1,8 @@
-import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Pencil, Trash2, CheckCircle2, Printer, CalendarClock } from 'lucide-react';
 import Table from '../ui/Table';
 import Button from '../ui/Button';
+import EmptyState from '../ui/EmptyState';
 import InvoiceStatusBadge from './InvoiceStatusBadge';
 import PaymentStatusBadge from './PaymentStatusBadge';
 
@@ -17,7 +18,7 @@ const InvoiceTable = ({
     showActions = true
 }) => {
     const columns = [
-        { key: 'bill_number', label: 'Bill #', width: '120px' },
+        { key: 'bill_number', label: 'Bill #', width: '120px', render: (value) => <span className="font-medium text-neutral-900">{value}</span> },
         {
             key: 'customer',
             label: 'Customer',
@@ -33,7 +34,7 @@ const InvoiceTable = ({
             label: 'Total (PKR)',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return <span className="font-medium">{isNaN(num) ? '0.00' : num.toFixed(2)}</span>;
             }
         },
         {
@@ -70,14 +71,15 @@ const InvoiceTable = ({
         columns.push({
             key: 'actions',
             label: 'Actions',
-            width: '200px',
+            width: '220px',
             render: (_, row) => (
-                <div className="flex gap-1 flex-wrap">
+                <div className="flex gap-1.5 flex-wrap">
                     {row.status === 'draft' && (
                         <>
                             <Button
                                 size="sm"
                                 variant="secondary"
+                                icon={Pencil}
                                 onClick={(e) => { e.stopPropagation(); onEdit(row); }}
                             >
                                 Edit
@@ -85,6 +87,7 @@ const InvoiceTable = ({
                             <Button
                                 size="sm"
                                 variant="danger"
+                                icon={Trash2}
                                 onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
                             >
                                 Delete
@@ -93,6 +96,7 @@ const InvoiceTable = ({
                                 <Button
                                     size="sm"
                                     variant="success"
+                                    icon={CheckCircle2}
                                     onClick={(e) => { e.stopPropagation(); onConfirm(row.id); }}
                                 >
                                     Confirm
@@ -106,26 +110,20 @@ const InvoiceTable = ({
                                 <Button
                                     size="sm"
                                     variant="secondary"
-                                    style={{ width: '5.5rem', height: '2.25rem' }}
+                                    title="Print"
                                     onClick={(e) => { e.stopPropagation(); onPrint(row.id, false); }}
                                 >
-                                    Print
+                                    <Printer className="w-4 h-4 shrink-0" />
                                 </Button>
                             )}
                             {isAdmin && row.payment_status !== 'paid' && onExtendDueDate && (
                                 <Button
                                     size="sm"
                                     variant="secondary"
-                                    style={{ width: '5.5rem', height: '2.25rem' }}
                                     title="Extend Due Date"
                                     onClick={(e) => { e.stopPropagation(); onExtendDueDate(row); }}
                                 >
-                                    <svg className="w-4 h-4 shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                            d="M8 7V3m8 4V3m-9 8h10M5 21h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v12a2 2 0 002 2z" />
-                                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2}
-                                            d="M12 14v3m0 0h1.5M12 17h-1.5" />
-                                    </svg>
+                                    <CalendarClock className="w-4 h-4 shrink-0" />
                                 </Button>
                             )}
                         </>
@@ -137,11 +135,10 @@ const InvoiceTable = ({
 
     if (invoices.length === 0) {
         return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">📄</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Invoices Found</h3>
-                <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
-            </div>
+            <EmptyState
+                title="No Invoices Found"
+                description="Try adjusting your search or filters"
+            />
         );
     }
 

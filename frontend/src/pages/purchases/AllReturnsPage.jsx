@@ -1,24 +1,34 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal, X, CheckCircle2, Undo2 } from 'lucide-react';
 
 const AllReturnsPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
     const [searchTerm, setSearchTerm] = useState('');
     const [suppliers, setSuppliers] = useState([]);
     const [showFilters, setShowFilters] = useState(false);
+    const [acceptTarget, setAcceptTarget] = useState(null);
+    const [acceptLoading, setAcceptLoading] = useState(false);
 
     const fetchReturnsPage = (params) => {
         const p = { ...params };
@@ -29,7 +39,7 @@ const AllReturnsPage = () => {
     };
 
     const {
-        data: returns, meta, page, setPage, loading,
+        data: returns, meta, page, setPage, loading, initialLoading, error: listError,
         filters, setFilters, refetch: fetchAllReturns,
     } = usePaginatedList(fetchReturnsPage, {}, 25, [searchTerm]);
 
@@ -60,14 +70,19 @@ const AllReturnsPage = () => {
         setPage(1);
     };
 
-    const handleAcceptReturn = async (returnId) => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
-
+    const handleAcceptReturn = async () => {
+        if (!acceptTarget) return;
+        setAcceptLoading(true);
         try {
-            await purchasesApi.returns.accept(returnId);
+            await purchasesApi.returns.accept(acceptTarget);
             fetchAllReturns();
+            toast.success('Return accepted.');
+            setAcceptTarget(null);
         } catch (error) {
             console.error('Failed to accept return:', error);
+            toast.error(extractErrorMessage(error, 'Failed to accept return.'));
+        } finally {
+            setAcceptLoading(false);
         }
     };
 
@@ -101,7 +116,7 @@ const AllReturnsPage = () => {
             label: 'Amount (PKR)',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return <span className="font-medium tabular-nums">{isNaN(num) ? '0.00' : num.toFixed(2)}</span>;
             }
         },
         {
@@ -109,7 +124,7 @@ const AllReturnsPage = () => {
             label: 'Date',
             render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A'
         },
-        { key: 'note', label: 'Note', render: (value) => value || '-' },
+        { key: 'note', label: 'Note', render: (value) => value || <span className="text-neutral-400">&mdash;</span> },
         {
             key: 'actions',
             label: 'Actions',
@@ -118,9 +133,10 @@ const AllReturnsPage = () => {
                 <Button
                     size="sm"
                     variant="success"
+                    icon={CheckCircle2}
                     onClick={(e) => {
                         e.stopPropagation();
-                        handleAcceptReturn(row.id);
+                        setAcceptTarget(row.id);
                     }}
                 >
                     Accept
@@ -164,7 +180,7 @@ const AllReturnsPage = () => {
         { name: 'date_to', label: 'Date To', type: 'date' },
     ];
 
-    if (loading) {
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -175,17 +191,20 @@ const AllReturnsPage = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">All Returns</h1>
-                    <p className="text-neutral-500 mt-1">View all purchase returns across all orders</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center flex-shrink-0">
+                        <Undo2 className="w-5.5 h-5.5" />
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-bold text-neutral-900">All Returns</h1>
+                        <p className="text-neutral-500 mt-1">View all purchase returns across all orders</p>
+                    </div>
                 </div>
-                <Link to="/purchases/orders" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Orders
-                </Link>
+                <BackLink to="/purchases/orders">Back to Orders</BackLink>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -193,22 +212,20 @@ const AllReturnsPage = () => {
                             className="w-full"
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Show Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" icon={X} onClick={handleResetFilters}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -220,11 +237,29 @@ const AllReturnsPage = () => {
                 )}
             </div>
 
-            <Table
-                columns={columns}
-                data={returns}
-                onRowClick={(ret) => navigate(`/purchases/returns/${ret.id}`)}
-            />
+            {listError && (
+                <InlineAlert variant="error" message={listError} onRetry={fetchAllReturns} />
+            )}
+
+            <div className={`relative transition-opacity ${loading ? 'opacity-60' : 'opacity-100'}`}>
+                {loading && (
+                    <div className="absolute right-2 top-2 z-10">
+                        <LoadingSpinner size="sm" />
+                    </div>
+                )}
+                {returns.length === 0 && !loading ? (
+                    <EmptyState
+                        title="No returns found"
+                        description="Try adjusting your search or filters."
+                    />
+                ) : (
+                    <Table
+                        columns={columns}
+                        data={returns}
+                        onRowClick={(ret) => navigate(`/purchases/returns/${ret.id}`)}
+                    />
+                )}
+            </div>
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -233,6 +268,17 @@ const AllReturnsPage = () => {
                     onPageChange={setPage}
                 />
             )}
+
+            <ConfirmDialog
+                isOpen={!!acceptTarget}
+                onClose={() => setAcceptTarget(null)}
+                onConfirm={handleAcceptReturn}
+                title="Accept Return"
+                message="Are you sure you want to accept this return? This action cannot be undone."
+                confirmText="Accept"
+                variant="primary"
+                loading={acceptLoading}
+            />
         </div>
     );
 };

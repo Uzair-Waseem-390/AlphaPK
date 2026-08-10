@@ -1,5 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { motion } from 'framer-motion';
+import { AlertTriangle, SlidersHorizontal, X, CircleCheckBig } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { billingApi } from '../../services/billingApi';
 import Table from '../../components/ui/Table';
@@ -10,7 +12,24 @@ import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
 import InvoiceStatusBadge from '../../components/billing/InvoiceStatusBadge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+
+const formatCurrency = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num)) return 'PKR 0.00';
+    return `PKR ${num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+// Visual urgency cue for the outstanding amount column — higher balances
+// read as more urgent at a glance.
+const urgencyClasses = (num) => {
+    if (isNaN(num) || num <= 0) return 'text-neutral-500';
+    if (num >= 100000) return 'text-error-700 font-bold';
+    if (num >= 25000) return 'text-warning-700 font-semibold';
+    return 'text-neutral-800 font-semibold';
+};
 
 const OutstandingInvoicesPage = () => {
     const navigate = useNavigate();
@@ -27,7 +46,7 @@ const OutstandingInvoicesPage = () => {
     };
 
     const {
-        data: invoices, meta, page, setPage, loading,
+        data: invoices, meta, setPage, loading, error, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchOutstandingInvoicesPage, {}, 25, [searchTerm]);
 
@@ -59,18 +78,20 @@ const OutstandingInvoicesPage = () => {
         },
         {
             key: 'grand_total',
-            label: 'Grand Total (PKR)',
-            render: (value) => {
-                const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
-            }
+            label: 'Grand Total',
+            render: (value) => formatCurrency(value)
         },
         {
             key: 'credit_outstanding',
-            label: 'Outstanding (PKR)',
+            label: 'Outstanding',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return (
+                    <span className={`inline-flex items-center gap-1.5 ${urgencyClasses(num)}`}>
+                        {!isNaN(num) && num >= 100000 && <AlertTriangle className="w-3.5 h-3.5" />}
+                        {formatCurrency(value)}
+                    </span>
+                );
             }
         },
         {
@@ -103,7 +124,7 @@ const OutstandingInvoicesPage = () => {
         { name: 'max_outstanding', label: 'Max Outstanding', type: 'number' },
     ];
 
-    if (loading) {
+    if (loading && invoices.length === 0 && !error) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -112,19 +133,31 @@ const OutstandingInvoicesPage = () => {
     }
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Outstanding Invoices</h1>
-                <p className="text-neutral-500 mt-1">
-                    All invoices with outstanding balance (credit_outstanding &gt; 0)
-                </p>
-                <p className="text-sm text-neutral-400 mt-1">
-                    {meta.count} invoice{meta.count !== 1 ? 's' : ''} with outstanding balance
-                </p>
+        <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+        >
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-warning-500 to-error-500 flex items-center justify-center shadow-lg shadow-warning-500/20">
+                    <AlertTriangle className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Outstanding Invoices</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        All invoices with an outstanding balance
+                    </p>
+                    {!error && (
+                        <p className="text-sm text-neutral-400 mt-0.5">
+                            {meta.count} invoice{meta.count !== 1 ? 's' : ''} with outstanding balance
+                        </p>
+                    )}
+                </div>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -133,22 +166,20 @@ const OutstandingInvoicesPage = () => {
                             value={searchTerm}
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -160,21 +191,29 @@ const OutstandingInvoicesPage = () => {
                 )}
             </div>
 
-            {invoices.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">✅</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Outstanding Invoices</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        All invoices have been fully paid or there are no invoices yet.
-                    </p>
-                </div>
-            ) : (
+            {error && (
+                <InlineAlert
+                    variant="error"
+                    message={error || 'Failed to load outstanding invoices.'}
+                    onRetry={refetch}
+                />
+            )}
+
+            {!error && invoices.length === 0 ? (
+                <EmptyState
+                    icon={<CircleCheckBig className="w-8 h-8 text-success-500" />}
+                    title="No Outstanding Invoices"
+                    description="All invoices have been fully paid or there are no invoices yet."
+                />
+            ) : !error && (
                 <>
-                    <Table
-                        columns={columns}
-                        data={invoices}
-                        onRowClick={(invoice) => navigate(`/billing/invoices/${invoice.id}`)}
-                    />
+                    <div className={loading ? 'opacity-60 pointer-events-none transition-opacity' : 'transition-opacity'}>
+                        <Table
+                            columns={columns}
+                            data={invoices}
+                            onRowClick={(invoice) => navigate(`/billing/invoices/${invoice.id}`)}
+                        />
+                    </div>
 
                     {meta.totalPages > 1 && (
                         <Pagination
@@ -185,7 +224,7 @@ const OutstandingInvoicesPage = () => {
                     )}
                 </>
             )}
-        </div>
+        </motion.div>
     );
 };
 

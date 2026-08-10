@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Plus, Pencil, Trash2, Tag } from 'lucide-react';
 import { useCRUD } from '../../hooks/usePurchases';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -8,15 +9,21 @@ import Input from '../../components/ui/Input';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import Card from '../../components/ui/Card';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import Pagination from '../../components/ui/Pagination';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const CategoriesPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data, meta, page, setPage, loading, create, update, delete: deleteCategory, refetch } = useCRUD(
+    const { data, meta, page, setPage, loading, error, create, update, delete: deleteCategory, refetch } = useCRUD(
         purchasesApi.categories
     );
 
@@ -25,7 +32,9 @@ const CategoriesPage = () => {
     const [editingCategory, setEditingCategory] = useState(null);
     const [formData, setFormData] = useState({ name: '', description: '' });
     const [formLoading, setFormLoading] = useState(false);
+    const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const filteredData = data.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -35,10 +44,15 @@ const CategoriesPage = () => {
     const columns = [
         { key: 'id', label: 'ID', width: '80px' },
         { key: 'name', label: 'Name' },
-        { key: 'description', label: 'Description' },
+        {
+            key: 'description',
+            label: 'Description',
+            render: (value) => value || <span className="text-neutral-400">—</span>,
+        },
         {
             key: 'is_deleted',
             label: 'Status',
+            width: '110px',
             render: (value) => (
                 <Badge variant={value ? 'error' : 'success'}>
                     {value ? 'Deleted' : 'Active'}
@@ -48,26 +62,30 @@ const CategoriesPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '120px',
+            width: '100px',
             render: (_, row) => isAdmin && !row.is_deleted && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1">
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             handleEdit(row);
                         }}
-                        className="text-primary-600 hover:text-primary-700"
+                        title="Edit category"
+                        aria-label="Edit category"
+                        className="p-2 rounded-lg text-neutral-500 hover:text-primary-700 hover:bg-primary-50 transition-colors"
                     >
-                        Edit
+                        <Pencil className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setDeleteConfirm(row);
                         }}
-                        className="text-error-600 hover:text-error-700"
+                        title="Delete category"
+                        aria-label="Delete category"
+                        className="p-2 rounded-lg text-neutral-500 hover:text-error-600 hover:bg-error-50 transition-colors"
                     >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 </div>
             ),
@@ -77,38 +95,51 @@ const CategoriesPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormLoading(true);
+        setFormError('');
         try {
             if (editingCategory) {
                 await update(editingCategory.id, formData);
+                toast.success('Category updated successfully');
             } else {
                 await create(formData);
+                toast.success('Category created successfully');
             }
             setShowModal(false);
             resetForm();
-        } catch (error) {
-            console.error('Failed to save category:', error);
+        } catch (err) {
+            setFormError(extractErrorMessage(err, 'Failed to save category.'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (id) => {
-        await deleteCategory(id);
-        setDeleteConfirm(null);
+        setDeleteLoading(true);
+        try {
+            await deleteCategory(id);
+            toast.success('Category deleted successfully');
+            setDeleteConfirm(null);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to delete category.'));
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const handleEdit = (category) => {
         setEditingCategory(category);
         setFormData({ name: category.name, description: category.description || '' });
+        setFormError('');
         setShowModal(true);
     };
 
     const resetForm = () => {
         setFormData({ name: '', description: '' });
         setEditingCategory(null);
+        setFormError('');
     };
 
-    if (loading) {
+    if (loading && data.length === 0) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -119,9 +150,14 @@ const CategoriesPage = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Categories</h1>
-                    <p className="text-neutral-500 mt-1">Manage product categories</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                        <Tag className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Categories</h1>
+                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage product categories</p>
+                    </div>
                 </div>
                 {isAdmin && (
                     <Button
@@ -129,29 +165,36 @@ const CategoriesPage = () => {
                             resetForm();
                             setShowModal(true);
                         }}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
+                        icon={Plus}
                     >
                         Add Category
                     </Button>
                 )}
             </div>
 
-            <div className="flex gap-4">
-                <SearchBar
-                    onSearch={setSearchTerm}
-                    placeholder="Search categories..."
-                    className="flex-1"
-                />
-            </div>
+            {error && (
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
+            )}
 
-            <Table
-                columns={columns}
-                data={filteredData}
+            <SearchBar
+                onSearch={setSearchTerm}
+                placeholder="Search categories..."
+                className="w-full sm:max-w-md"
             />
+
+            <Card className="p-0 overflow-hidden" hover={false}>
+                {filteredData.length === 0 ? (
+                    <EmptyState
+                        icon={<Tag className="w-8 h-8 text-neutral-400" />}
+                        title="No categories found"
+                        description={searchTerm ? 'Try adjusting your search.' : 'Get started by adding your first category.'}
+                    />
+                ) : (
+                    <div className="p-2">
+                        <Table columns={columns} data={filteredData} />
+                    </div>
+                )}
+            </Card>
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -170,6 +213,7 @@ const CategoriesPage = () => {
                 title={editingCategory ? 'Edit Category' : 'Create Category'}
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {formError && <InlineAlert variant="error" message={formError} />}
                     <Input
                         label="Name"
                         value={formData.name}
@@ -207,6 +251,9 @@ const CategoriesPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Category"
                 message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
+                confirmText="Delete"
+                variant="danger"
+                loading={deleteLoading}
             />
         </div>
     );

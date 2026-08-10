@@ -3,6 +3,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useBusinessWorth } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import InlineAlert from '../../components/ui/InlineAlert';
+import { Wallet, ShieldAlert } from 'lucide-react';
 import {
     PieChart, Pie, Cell, Tooltip, Legend, ResponsiveContainer,
     BarChart, Bar, XAxis, YAxis, CartesianGrid, ReferenceLine,
@@ -74,7 +76,7 @@ const BreakdownTooltip = ({ active, payload }) => {
 const BusinessWorthPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
-    const { data, loading, error } = useBusinessWorth();
+    const { data, loading, error, refetch } = useBusinessWorth();
 
     const ownershipData = useMemo(() => {
         if (!data) return [];
@@ -110,6 +112,7 @@ const BusinessWorthPage = () => {
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view business worth.</p>
             </div>
@@ -118,27 +121,23 @@ const BusinessWorthPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
-                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+            <InlineAlert
+                variant="warning"
+                title="This is an internal estimate, not a certified valuation."
+                message="Computed live from cash, inventory, assets, receivables, payables, and tax figures already tracked elsewhere in this system. Review with an accountant before using it to actually distribute profit. The developer is not responsible at all for decisions made from this page."
+            />
+
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                    <Wallet className="w-5 h-5 text-white" />
+                </div>
                 <div>
-                    <p className="text-sm font-semibold text-amber-800">
-                        This is an internal estimate, not a certified valuation.
-                    </p>
-                    <p className="text-sm text-amber-700 mt-0.5">
-                        Computed live from cash, inventory, assets, receivables, payables, and tax figures
-                        already tracked elsewhere in this system. Review with an accountant before using it
-                        to actually distribute profit. The developer is not responsible at all for decisions
-                        made from this page.
+                    <h1 className="text-3xl font-bold text-neutral-900">Business Worth</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        Everything the business owns, minus everything it owes — and how that worth is split
+                        between the owner and every investor.
                     </p>
                 </div>
-            </div>
-
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Business Worth</h1>
-                <p className="text-neutral-500 mt-1">
-                    Everything the business owns, minus everything it owes — and how that worth is split
-                    between the owner and every investor.
-                </p>
             </div>
 
             {loading ? (
@@ -146,9 +145,7 @@ const BusinessWorthPage = () => {
                     <LoadingSpinner size="lg" />
                 </div>
             ) : error ? (
-                <div className="p-4 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{error}</p>
-                </div>
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
             ) : (
                 <>
                     {/* Hero total */}

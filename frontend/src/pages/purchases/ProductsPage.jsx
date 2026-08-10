@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react';
+import { Plus, SlidersHorizontal, X, Pencil, Trash2, PackageSearch } from 'lucide-react';
 import { useCRUD } from '../../hooks/usePurchases';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -12,13 +13,18 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const ProductsPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const { toast } = useToast();
 
-    const { data, meta, page, setPage, loading, filters, setFilters, create, update, delete: deleteProduct, refetch } = useCRUD(
+    const { data, meta, page, setPage, loading, error, filters, setFilters, create, update, delete: deleteProduct, refetch } = useCRUD(
         purchasesApi.products,
         { search: '', category: '' }
     );
@@ -36,7 +42,9 @@ const ProductsPage = () => {
         category: '',
     });
     const [formLoading, setFormLoading] = useState(false);
+    const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleting, setDeleting] = useState(false);
 
     useEffect(() => {
         loadLookups();
@@ -51,6 +59,7 @@ const ProductsPage = () => {
             setCategories(cats.filter(c => !c.is_deleted));
         } catch (error) {
             console.error('Failed to load lookups:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load categories'));
         }
     };
 
@@ -104,24 +113,26 @@ const ProductsPage = () => {
             label: 'Actions',
             width: '120px',
             render: (_, row) => isAdmin && !row.is_deleted && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1">
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             handleEdit(row);
                         }}
-                        className="text-primary-600 hover:text-primary-700"
+                        title="Edit product"
+                        className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-neutral-500 hover:text-primary-600 hover:bg-primary-50 transition-colors"
                     >
-                        Edit
+                        <Pencil className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setDeleteConfirm(row);
                         }}
-                        className="text-error-600 hover:text-error-700"
+                        title="Delete product"
+                        className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-neutral-500 hover:text-error-600 hover:bg-error-50 transition-colors"
                     >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 </div>
             ),
@@ -131,6 +142,7 @@ const ProductsPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormLoading(true);
+        setFormError('');
         try {
             const submitData = {
                 ...formData,
@@ -138,21 +150,33 @@ const ProductsPage = () => {
             };
             if (editingProduct) {
                 await update(editingProduct.id, submitData);
+                toast.success('Product updated successfully');
             } else {
                 await create(submitData);
+                toast.success('Product created successfully');
             }
             setShowModal(false);
             resetForm();
         } catch (error) {
             console.error('Failed to save product:', error);
+            setFormError(extractErrorMessage(error, 'Failed to save product'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (id) => {
-        await deleteProduct(id);
-        setDeleteConfirm(null);
+        setDeleting(true);
+        try {
+            await deleteProduct(id);
+            toast.success('Product deleted successfully');
+            setDeleteConfirm(null);
+        } catch (error) {
+            console.error('Failed to delete product:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete product'));
+        } finally {
+            setDeleting(false);
+        }
     };
 
     const handleEdit = (product) => {
@@ -168,6 +192,7 @@ const ProductsPage = () => {
     const resetForm = () => {
         setFormData({ name: '', code: '', category: '' });
         setEditingProduct(null);
+        setFormError('');
     };
 
     if (loading) {
@@ -191,40 +216,39 @@ const ProductsPage = () => {
                             resetForm();
                             setShowModal(true);
                         }}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
+                        icon={Plus}
                     >
                         Add Product
                     </Button>
                 )}
             </div>
 
+            {error && (
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
+            )}
+
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <SearchBar
                         onSearch={handleSearch}
                         placeholder="Search products..."
                         className="flex-1"
                     />
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(activeFilters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                            className="flex-1 sm:flex-none"
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(activeFilters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X} className="flex-1 sm:flex-none">
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -246,10 +270,18 @@ const ProductsPage = () => {
                 )}
             </div>
 
-            <Table
-                columns={columns}
-                data={filteredData}
-            />
+            {filteredData.length === 0 ? (
+                <EmptyState
+                    title="No products found"
+                    description="Try adjusting your search or filters, or add a new product."
+                    icon={<PackageSearch className="w-8 h-8 text-neutral-400" />}
+                />
+            ) : (
+                <Table
+                    columns={columns}
+                    data={filteredData}
+                />
+            )}
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -268,6 +300,9 @@ const ProductsPage = () => {
                 title={editingProduct ? 'Edit Product' : 'Create Product'}
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {formError && (
+                        <InlineAlert variant="error" message={formError} />
+                    )}
                     <Input
                         label="Name"
                         value={formData.name}
@@ -314,6 +349,8 @@ const ProductsPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Product"
                 message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
+                confirmText="Delete"
+                loading={deleting}
             />
         </div>
     );

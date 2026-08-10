@@ -1,6 +1,7 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { systemApi } from '../../services/systemApi';
 import { useCashFlowStats } from '../../hooks/useCashFlow';
 import { useTaxesStats } from '../../hooks/useTaxes';
@@ -18,16 +19,18 @@ import TaxesSectionStats from './TaxesSectionStats';
 import CashManagementSectionStats from './CashManagementSectionStats';
 import AssetsSectionStats from './AssetsSectionStats';
 import RecurringExpensesSectionStats from './RecurringExpensesSectionStats';
+import { DollarSign, ShoppingCart, AlertTriangle, Landmark, Banknote, BarChart3, Receipt, Package } from 'lucide-react';
 import GrossProfitTrendChart from './GrossProfitTrendChart';
 import NetProfitTrendChart from './NetProfitTrendChart';
 import BreakdownDrawer from './BreakdownDrawer';
 import CollapsibleGroup from './CollapsibleGroup';
 import KpiStrip from './KpiStrip';
-import LoadingSpinner from '../ui/LoadingSpinner';
 import Badge from '../ui/Badge';
+import InlineAlert from '../ui/InlineAlert';
 
 const AdminDashboard = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
 
     // IMPORTANT — SYSTEM DESIGN, DO NOT REMOVE THIS WHEN REPLACING THE DASHBOARD:
     // This triggers every "catch-up on read" calculation in the backend
@@ -41,15 +44,17 @@ const AdminDashboard = () => {
     useEffect(() => {
         systemApi.triggerAllCatchUps().catch((err) => {
             console.error('Failed to trigger backend catch-up calculations:', err);
+            toast.error('Some background calculations failed to refresh — figures may be slightly stale.');
         });
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
-    const { data: stats, loading: statsLoading } = useCashFlowStats();
-    const { data: taxStats, loading: taxStatsLoading } = useTaxesStats();
-    const { data: cashMgmtStats, loading: cashMgmtStatsLoading } = useCashManagementStats();
-    const { data: assetStats, loading: assetStatsLoading } = useAssetStats();
-    const { data: recurringExpenseStats, loading: recurringExpenseStatsLoading } = useRecurringExpenseFlowStats();
-    const { data: profitFlowStats, loading: profitFlowLoading } = useProfitFlowStats();
+    const { data: stats, loading: statsLoading, error: statsError } = useCashFlowStats();
+    const { data: taxStats, loading: taxStatsLoading, error: taxStatsError } = useTaxesStats();
+    const { data: cashMgmtStats, loading: cashMgmtStatsLoading, error: cashMgmtStatsError } = useCashManagementStats();
+    const { data: assetStats, loading: assetStatsLoading, error: assetStatsError } = useAssetStats();
+    const { data: recurringExpenseStats, loading: recurringExpenseStatsLoading, error: recurringExpenseStatsError } = useRecurringExpenseFlowStats();
+    const { data: profitFlowStats, loading: profitFlowLoading, error: profitFlowError } = useProfitFlowStats();
 
     // UI State
     const [drawerOpen, setDrawerOpen] = useState(false);
@@ -60,26 +65,39 @@ const AdminDashboard = () => {
         setDrawerOpen(true);
     };
 
-    if (statsLoading) {
-        return (
-            <div className="flex items-center justify-center min-h-[60vh]">
-                <LoadingSpinner size="lg" />
-            </div>
-        );
-    }
+    // Surface hook errors as transient toasts — persistent context lives in the
+    // InlineAlert rendered inside the affected section below.
+    useEffect(() => {
+        if (statsError) toast.error(statsError);
+    }, [statsError]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (taxStatsError) toast.error(taxStatsError);
+    }, [taxStatsError]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (cashMgmtStatsError) toast.error(cashMgmtStatsError);
+    }, [cashMgmtStatsError]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (assetStatsError) toast.error(assetStatsError);
+    }, [assetStatsError]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (recurringExpenseStatsError) toast.error(recurringExpenseStatsError);
+    }, [recurringExpenseStatsError]); // eslint-disable-line react-hooks/exhaustive-deps
+    useEffect(() => {
+        if (profitFlowError) toast.error(profitFlowError);
+    }, [profitFlowError]); // eslint-disable-line react-hooks/exhaustive-deps
 
     const kpiItems = [
         {
             label: 'Cash in Hand',
             value: stats?.cash_in_hand,
-            icon: '💵',
+            icon: Banknote,
             color: 'primary',
             onClick: () => handleCardClick('cashInHand', 'Cash in Hand Breakdown'),
         },
         {
             label: 'Net Profit',
             value: profitFlowStats?.total_net_profit,
-            icon: '📊',
+            icon: BarChart3,
             color: 'green',
             subtitle: `${profitFlowStats?.months_finalized_count ?? 0} months finalized`,
             onClick: () => handleCardClick('monthlyProfit', 'Monthly Net Profit'),
@@ -87,14 +105,14 @@ const AdminDashboard = () => {
         {
             label: 'Customer Outstanding',
             value: stats?.customer_outstanding,
-            icon: '🧾',
+            icon: Receipt,
             color: 'amber',
             onClick: () => handleCardClick('customerOutstanding', 'Customer Outstanding Breakdown'),
         },
         {
             label: 'Supplier Outstanding',
             value: stats?.total_outstanding_payable,
-            icon: '📦',
+            icon: Package,
             color: 'rose',
             onClick: () => handleCardClick('supplierOutstanding', 'Supplier Outstanding Breakdown'),
         },
@@ -106,7 +124,7 @@ const AdminDashboard = () => {
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="bg-gradient-to-r from-primary-600 to-indigo-600 rounded-2xl p-6 text-white"
+                className="bg-gradient-to-r from-primary-700 to-accent-600 rounded-2xl p-6 text-white"
             >
                 <h1 className="text-2xl font-bold">
                     Welcome back, {user?.first_name} {user?.last_name}!
@@ -132,10 +150,11 @@ const AdminDashboard = () => {
             <div className="space-y-4">
                 <CollapsibleGroup
                     title="Sales & Profit"
-                    icon="💰"
+                    icon={DollarSign}
                     description="Profit, receivables, and customer returns"
                     defaultOpen
                 >
+                    {statsError && <InlineAlert variant="error" message={statsError} />}
                     <ProfitSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
                     <ReceivablesSection stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
                     <ReturnsSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
@@ -143,9 +162,11 @@ const AdminDashboard = () => {
 
                 <CollapsibleGroup
                     title="Purchasing & Expenses"
-                    icon="🛒"
+                    icon={ShoppingCart}
                     description="Payables, expenses, and recurring costs"
                 >
+                    {statsError && <InlineAlert variant="error" message={statsError} />}
+                    {recurringExpenseStatsError && <InlineAlert variant="error" message={recurringExpenseStatsError} />}
                     <PayablesSection stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
                     <ExpensesSectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
                     <RecurringExpensesSectionStats stats={recurringExpenseStats} loading={recurringExpenseStatsLoading} />
@@ -153,18 +174,22 @@ const AdminDashboard = () => {
 
                 <CollapsibleGroup
                     title="Operations & Risk"
-                    icon="⚠️"
+                    icon={AlertTriangle}
                     description="Lost inventory and tax position"
                 >
+                    {statsError && <InlineAlert variant="error" message={statsError} />}
+                    {taxStatsError && <InlineAlert variant="error" message={taxStatsError} />}
                     <LostInventorySectionStats stats={stats} loading={statsLoading} onCardClick={handleCardClick} />
                     <TaxesSectionStats stats={taxStats} loading={taxStatsLoading} />
                 </CollapsibleGroup>
 
                 <CollapsibleGroup
                     title="Capital & Assets"
-                    icon="🏦"
+                    icon={Landmark}
                     description="Investor capital and fixed assets"
                 >
+                    {cashMgmtStatsError && <InlineAlert variant="error" message={cashMgmtStatsError} />}
+                    {assetStatsError && <InlineAlert variant="error" message={assetStatsError} />}
                     <CashManagementSectionStats stats={cashMgmtStats} loading={cashMgmtStatsLoading} />
                     <AssetsSectionStats stats={assetStats} loading={assetStatsLoading} />
                 </CollapsibleGroup>

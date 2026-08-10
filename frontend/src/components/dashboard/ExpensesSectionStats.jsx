@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Wallet, ClipboardList } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -23,14 +24,14 @@ const ExpensesSectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Total Expenses"
                     value={stats?.total_expenses_amount}
-                    icon="💸"
+                    icon={Wallet}
                     color="orange"
                     onClick={() => onCardClick('expenses', 'Expenses Breakdown')}
                 />
                 <StatCard
                     label="Number of Expenses"
                     value={stats?.total_number_of_expenses}
-                    icon="📋"
+                    icon={ClipboardList}
                     color="orange"
                     isCurrency={false}
                     onClick={() => onCardClick('expenses', 'Expenses Breakdown')}

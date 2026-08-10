@@ -14,11 +14,11 @@ const Button = ({
     ...props
 }) => {
     const variants = {
-        primary: 'bg-gradient-to-r from-primary-600 to-indigo-600 text-white hover:from-primary-700 hover:to-indigo-700 shadow-lg shadow-primary-500/30',
+        primary: 'bg-gradient-to-r from-primary-700 to-accent-600 text-white hover:from-primary-800 hover:to-accent-700 shadow-lg shadow-primary-900/20',
         secondary: 'bg-white text-neutral-700 border border-neutral-200 hover:bg-neutral-50 hover:border-neutral-300 shadow-sm',
         danger: 'bg-gradient-to-r from-error-500 to-rose-600 text-white hover:from-error-600 hover:to-rose-700 shadow-lg shadow-error-500/30',
         success: 'bg-gradient-to-r from-success-500 to-emerald-600 text-white hover:from-success-600 hover:to-emerald-700 shadow-lg shadow-success-500/30',
-        outline: 'border-2 border-primary-500 text-primary-600 hover:bg-primary-50',
+        outline: 'border-2 border-primary-500 text-primary-700 hover:bg-primary-50',
     };
 
     const sizes = {

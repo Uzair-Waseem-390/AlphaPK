@@ -8,13 +8,14 @@ import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const LedgerListPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data, meta, page, setPage, loading, filters, setFilters, refetch } = useLedgerList();
+    const { data, meta, page, setPage, loading, error, filters, setFilters, refetch } = useLedgerList();
     const [searchTerm, setSearchTerm] = useState('');
 
     // Redirect normal users
@@ -68,6 +69,8 @@ const LedgerListPage = () => {
                     </Button>
                 )}
             </div>
+
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             <LedgerListTable
                 ledgers={data}

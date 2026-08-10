@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
+import { Building2, Briefcase, TrendingDown } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -27,7 +28,7 @@ const AssetsSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Total Asset Cost"
                     value={stats?.total_asset_cost}
-                    icon="🏢"
+                    icon={Building2}
                     color="blue"
                     subtitle="Active assets, at cost"
                     onClick={goToAssets}
@@ -35,7 +36,7 @@ const AssetsSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Total Current Worth"
                     value={stats?.total_current_worth}
-                    icon="💼"
+                    icon={Briefcase}
                     color="purple"
                     subtitle="Book value today"
                     onClick={goToAssets}
@@ -43,7 +44,7 @@ const AssetsSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Accumulated Depreciation"
                     value={stats?.total_accumulated_depreciation}
-                    icon="📉"
+                    icon={TrendingDown}
                     color="orange"
                     subtitle="Cost minus current worth"
                     onClick={goToAssets}

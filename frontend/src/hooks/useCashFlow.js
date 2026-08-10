@@ -97,6 +97,7 @@ export const useExpenses = (initialFilters = {}) => {
 
     const create = async (payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await cashFlowApi.expenses.create(payload);
             await refetch();
@@ -111,6 +112,7 @@ export const useExpenses = (initialFilters = {}) => {
 
     const update = async (id, payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await cashFlowApi.expenses.update(id, payload);
             await refetch();
@@ -125,6 +127,7 @@ export const useExpenses = (initialFilters = {}) => {
 
     const deleteItem = async (id) => {
         setMutating(true);
+        setMutationError(null);
         try {
             await cashFlowApi.expenses.delete(id);
             if (data.length === 1 && page > 1) {
@@ -145,7 +148,12 @@ export const useExpenses = (initialFilters = {}) => {
         meta,
         page,
         setPage,
-        loading: listLoading || mutating,
+        // Only the list fetch gates a full-page spinner — a create/update/
+        // delete in flight (`mutating`) must not blank the whole page out
+        // from under the user, since callers already show their own
+        // form/button-level loading state for that.
+        loading: listLoading,
+        mutating,
         error: listError || mutationError,
         filters,
         setFilters,
@@ -168,6 +176,7 @@ export const useExpenseCategories = (initialFilters = {}) => {
 
     const create = async (payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await cashFlowApi.categories.create(payload);
             await refetch();
@@ -182,6 +191,7 @@ export const useExpenseCategories = (initialFilters = {}) => {
 
     const update = async (id, payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await cashFlowApi.categories.update(id, payload);
             await refetch();
@@ -196,6 +206,7 @@ export const useExpenseCategories = (initialFilters = {}) => {
 
     const deleteItem = async (id) => {
         setMutating(true);
+        setMutationError(null);
         try {
             await cashFlowApi.categories.delete(id);
             if (data.length === 1 && page > 1) {
@@ -216,7 +227,12 @@ export const useExpenseCategories = (initialFilters = {}) => {
         meta,
         page,
         setPage,
-        loading: listLoading || mutating,
+        // Only the list fetch gates a full-page spinner — a create/update/
+        // delete in flight (`mutating`) must not blank the whole page out
+        // from under the user, since callers already show their own
+        // form/button-level loading state for that.
+        loading: listLoading,
+        mutating,
         error: listError || mutationError,
         filters,
         setFilters,

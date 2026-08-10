@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
+import { Wallet, Search, Handshake, TrendingUp, LineChart } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -29,7 +30,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Net Cash Lost"
                     value={stats?.net_cash_lost}
-                    icon="💸"
+                    icon={Wallet}
                     color="red"
                     subtitle="Lost minus recovered"
                     onClick={goToCashManagement}
@@ -37,7 +38,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Cash Recovered"
                     value={stats?.total_cash_recovered}
-                    icon="🔍"
+                    icon={Search}
                     color="green"
                     subtitle="All-time"
                     onClick={goToCashManagement}
@@ -45,7 +46,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Investor Capital"
                     value={stats?.net_investor_capital}
-                    icon="🤝"
+                    icon={Handshake}
                     color="purple"
                     subtitle="Currently in the business"
                     onClick={goToCashManagement}
@@ -53,7 +54,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Total Invested"
                     value={stats?.total_investor_capital}
-                    icon="📈"
+                    icon={TrendingUp}
                     color="blue"
                     subtitle="All-time, gross"
                     onClick={goToCashManagement}
@@ -61,7 +62,7 @@ const CashManagementSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Investor Net Worth"
                     value={stats?.total_investor_net_worth}
-                    icon="💹"
+                    icon={LineChart}
                     color="green"
                     subtitle="Theoretical, growth-compounded"
                     onClick={goToCashManagement}

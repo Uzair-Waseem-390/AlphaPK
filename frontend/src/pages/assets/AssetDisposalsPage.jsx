@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Trash2, ShieldAlert, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAssetDisposals } from '../../hooks/useAssets';
 import { assetsApi } from '../../services/assetsApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -21,16 +26,26 @@ const AssetDisposalsPage = () => {
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
-        data: disposals, meta, page, setPage, loading, filters, setFilters,
+        data: disposals, meta, page, setPage, loading, error: listError, filters, setFilters, refetch,
     } = useAssetDisposals();
 
     const [showFilters, setShowFilters] = useState(false);
     const [categories, setCategories] = useState([]);
+    const [categoriesError, setCategoriesError] = useState('');
+
+    const loadCategories = () => {
+        setCategoriesError('');
+        assetsApi.categories.getAll({ page_size: 500 })
+            .then((res) => setCategories(res?.results ?? res ?? []))
+            .catch((error) => {
+                console.error('Failed to load asset categories:', error);
+                setCategoriesError(extractErrorMessage(error, 'Failed to load categories'));
+            });
+    };
 
     useEffect(() => {
-        assetsApi.categories.getAll({ page_size: 500 }).then((res) => {
-            setCategories(res?.results ?? res ?? []);
-        });
+        loadCategories();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, []);
 
     const handleApplyFilters = (values) => setFilters(values);
@@ -78,7 +93,10 @@ const AssetDisposalsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
+                <div className="w-16 h-16 rounded-full bg-error-50 flex items-center justify-center mx-auto mb-4">
+                    <ShieldAlert className="w-8 h-8 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view asset disposals.</p>
             </div>
@@ -88,15 +106,20 @@ const AssetDisposalsPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/assets" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Assets
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Asset Disposals</h1>
+                <BackLink to="/assets">Back to Assets</BackLink>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-2">Asset Disposals</h1>
                 <p className="text-neutral-500 mt-1">Audit trail of every asset that's been scrapped or sold</p>
             </div>
 
-            <div className="flex gap-4">
-                <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+            {categoriesError && (
+                <InlineAlert variant="warning" message={categoriesError} onRetry={loadCategories} />
+            )}
+            {listError && (
+                <InlineAlert variant="error" message={listError} onRetry={refetch} />
+            )}
+
+            <div className="flex gap-3">
+                <Button variant="secondary" icon={showFilters ? X : SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
                 {Object.keys(filters).length > 0 && (
@@ -108,15 +131,15 @@ const AssetDisposalsPage = () => {
             )}
 
             {loading ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex items-center justify-center py-12">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : disposals.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🗑️</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Disposals Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Disposed assets will appear here.</p>
-                </div>
+                <EmptyState
+                    icon={<Trash2 className="w-8 h-8 text-neutral-400" />}
+                    title="No Disposals Yet"
+                    description="Disposed assets will appear here."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={disposals} onRowClick={handleRowClick} />

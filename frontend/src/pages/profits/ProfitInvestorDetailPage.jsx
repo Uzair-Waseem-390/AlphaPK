@@ -1,16 +1,22 @@
-import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { profitsApi } from '../../services/profitsApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { useInvestorMonthlyShares } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
+import BackLink from '../../components/ui/BackLink';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import { Wallet, ArrowDownCircle, TrendingUp, ShieldAlert, ReceiptText } from 'lucide-react';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -33,12 +39,14 @@ const statusBadge = (status) => {
 const ProfitInvestorDetailPage = () => {
     const { id } = useParams();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [investor, setInvestor] = useState(null);
     const [investorLoading, setInvestorLoading] = useState(true);
+    const [investorError, setInvestorError] = useState(null);
 
-    const { data: shares, meta, page, setPage, loading: sharesLoading, refetch } = useInvestorMonthlyShares(id);
+    const { data: shares, meta, page, setPage, loading: sharesLoading, error: sharesError, refetch } = useInvestorMonthlyShares(id);
 
     const [settleShare, setSettleShare] = useState(null);
     const [formData, setFormData] = useState({
@@ -46,22 +54,25 @@ const ProfitInvestorDetailPage = () => {
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [amountError, setAmountError] = useState('');
 
-    const fetchInvestor = () => {
+    const fetchInvestor = useCallback(() => {
         setInvestorLoading(true);
+        setInvestorError(null);
         cashManagementApi.investors.getById(id)
             .then(setInvestor)
+            .catch((err) => setInvestorError(extractErrorMessage(err, 'Failed to load investor')))
             .finally(() => setInvestorLoading(false));
-    };
+    }, [id]);
 
     useEffect(() => {
         fetchInvestor();
-        // eslint-disable-next-line react-hooks/exhaustive-deps
-    }, [id]);
+    }, [fetchInvestor]);
 
     const resetForm = () => {
         setFormData({ amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '' });
         setFormError('');
+        setAmountError('');
     };
 
     const openSettle = (share) => {
@@ -72,6 +83,7 @@ const ProfitInvestorDetailPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
+        setAmountError('');
         setFormLoading(true);
         try {
             await profitsApi.payouts.create(settleShare.id, {
@@ -82,12 +94,14 @@ const ProfitInvestorDetailPage = () => {
             resetForm();
             refetch();
             fetchInvestor();
+            toast.success(`${formData.action_type === 'reinvest' ? 'Reinvestment' : 'Payout'} recorded successfully`);
         } catch (err) {
-            setFormError(
-                err.response?.data?.amount?.[0] ||
-                err.response?.data?.detail ||
-                'Failed to record settlement'
-            );
+            const fieldAmountError = err.response?.data?.amount?.[0];
+            if (fieldAmountError) {
+                setAmountError(fieldAmountError);
+            } else {
+                setFormError(extractErrorMessage(err, 'Failed to record settlement'));
+            }
         } finally {
             setFormLoading(false);
         }
@@ -96,6 +110,7 @@ const ProfitInvestorDetailPage = () => {
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view this.</p>
             </div>
@@ -110,13 +125,20 @@ const ProfitInvestorDetailPage = () => {
         );
     }
 
+    if (investorError) {
+        return (
+            <div className="space-y-4">
+                <BackLink to="/profits/investors">Back to Investors</BackLink>
+                <InlineAlert variant="error" message={investorError} onRetry={fetchInvestor} />
+            </div>
+        );
+    }
+
     if (!investor) {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Investor Not Found</h2>
-                <Link to="/profits/investors" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Investors
-                </Link>
+                <BackLink to="/profits/investors" className="mt-4">Back to Investors</BackLink>
             </div>
         );
     }
@@ -132,37 +154,40 @@ const ProfitInvestorDetailPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
-                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
-                <p className="text-sm text-amber-700">
-                    Profit share figures here are computed from an internal estimate, not a certified
-                    valuation. Review with an accountant before settling anything. The developer is not
-                    responsible at all for decisions made from this page.
-                </p>
-            </div>
+            <InlineAlert
+                variant="warning"
+                message="Profit share figures here are computed from an internal estimate, not a certified valuation. Review with an accountant before settling anything. The developer is not responsible at all for decisions made from this page."
+            />
 
             <div>
-                <Link to="/profits/investors" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Investors
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">{investor.name}</h1>
+                <BackLink to="/profits/investors">Back to Investors</BackLink>
+                <h1 className="text-3xl font-bold text-neutral-900 mt-2">{investor.name}</h1>
                 <p className="text-neutral-500">{investor.contact_number || investor.email || '—'}</p>
             </div>
 
             {/* Header stats */}
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <Card className="p-4">
-                    <p className="text-xs text-neutral-500 mb-1">Current Invested Money</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <Wallet className="w-4 h-4 text-info-500" />
+                        <p className="text-xs text-neutral-500">Current Invested Money</p>
+                    </div>
                     <p className="text-xl font-bold text-info-600">Rs. {fmt(investor.total_invested)}</p>
                     <p className="text-xs text-neutral-400 mt-1">All-time, gross</p>
                 </Card>
                 <Card className="p-4">
-                    <p className="text-xs text-neutral-500 mb-1">Current Withdrawal</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <ArrowDownCircle className="w-4 h-4 text-orange-500" />
+                        <p className="text-xs text-neutral-500">Current Withdrawal</p>
+                    </div>
                     <p className="text-xl font-bold text-orange-600">Rs. {fmt(investor.total_withdrawn)}</p>
                     <p className="text-xs text-neutral-400 mt-1">All-time, gross</p>
                 </Card>
                 <Card className="p-4">
-                    <p className="text-xs text-neutral-500 mb-1">Net Stake</p>
+                    <div className="flex items-center gap-2 mb-1">
+                        <TrendingUp className="w-4 h-4 text-success-500" />
+                        <p className="text-xs text-neutral-500">Net Stake</p>
+                    </div>
                     <p className="text-xl font-bold text-success-600">Rs. {fmt(investor.net_stake)}</p>
                     <p className="text-xs text-neutral-400 mt-1">Invested minus withdrawn</p>
                 </Card>
@@ -176,14 +201,18 @@ const ProfitInvestorDetailPage = () => {
                     Capital withdrawals aren't handled here; use Cash Management → Investors for those.
                 </p>
 
-                {sharesLoading ? (
+                {sharesError ? (
+                    <InlineAlert variant="error" message={sharesError} onRetry={refetch} />
+                ) : sharesLoading ? (
                     <div className="flex items-center justify-center py-8">
                         <LoadingSpinner size="lg" />
                     </div>
                 ) : shares.length === 0 ? (
-                    <div className="text-center py-8">
-                        <p className="text-sm text-neutral-500">No finalized months with a share for this investor yet.</p>
-                    </div>
+                    <EmptyState
+                        icon={<ReceiptText className="w-8 h-8 text-neutral-400" />}
+                        title="No Shares Yet"
+                        description="No finalized months with a share for this investor yet."
+                    />
                 ) : (
                     <>
                         <div className="overflow-x-auto">
@@ -245,7 +274,8 @@ const ProfitInvestorDetailPage = () => {
                             min="0.01"
                             max={settleShare.amount_remaining}
                             value={formData.amount}
-                            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                            onChange={(e) => { setFormData({ ...formData, amount: e.target.value }); setAmountError(''); }}
+                            error={amountError}
                             required
                         />
 
@@ -286,20 +316,17 @@ const ProfitInvestorDetailPage = () => {
                         />
 
                         {formData.amount && parseFloat(formData.amount) > 0 && (
-                            <div className="p-3 bg-amber-50 rounded-lg">
-                                <p className="text-sm text-amber-700">
-                                    {formData.action_type === 'reinvest'
-                                        ? `⚠️ Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new investment for ${investor.name} — net cash effect is zero, but both are recorded.`
-                                        : `⚠️ This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${investor.name}.`}
-                                </p>
-                            </div>
+                            <InlineAlert
+                                variant="info"
+                                message={
+                                    formData.action_type === 'reinvest'
+                                        ? `Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new investment for ${investor.name} — net cash effect is zero, but both are recorded.`
+                                        : `This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${investor.name}.`
+                                }
+                            />
                         )}
 
-                        {formError && (
-                            <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                                <p className="text-sm text-error-600">{formError}</p>
-                            </div>
-                        )}
+                        {formError && <InlineAlert variant="error" message={formError} />}
 
                         <div className="flex justify-end gap-3 pt-4">
                             <Button type="button" variant="secondary" onClick={() => { setSettleShare(null); resetForm(); }}>

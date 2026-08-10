@@ -1,9 +1,13 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, ShieldAlert, Receipt } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { useRecurringExpensePayments } from '../../hooks/useRecurringExpenses';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -12,6 +16,8 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -28,6 +34,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [assignment, setAssignment] = useState(null);
@@ -35,6 +42,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
     const [unassignConfirm, setUnassignConfirm] = useState(false);
     const [unassignError, setUnassignError] = useState('');
     const [unassigning, setUnassigning] = useState(false);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const {
         data: payments, meta, page, setPage, loading: paymentsLoading,
@@ -80,21 +88,26 @@ const RecurringExpenseAssignmentDetailPage = () => {
             setShowModal(false);
             resetForm();
             await Promise.all([refetchPayments(), fetchAssignment()]);
+            toast.success('Payment recorded successfully');
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.amount?.[0] || 'Failed to record payment');
+            setFormError(extractErrorMessage(error, 'Failed to record payment'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (paymentId) => {
+        setDeleteLoading(true);
         try {
             await deletePayment(paymentId);
             setDeleteConfirm(null);
             await Promise.all([refetchPayments(), fetchAssignment()]);
+            toast.success('Payment deleted and balances restored');
         } catch (error) {
             setDeleteConfirm(null);
-            alert(error.response?.data?.detail || 'Failed to delete payment');
+            toast.error(extractErrorMessage(error, 'Failed to delete payment'));
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -103,10 +116,13 @@ const RecurringExpenseAssignmentDetailPage = () => {
         setUnassigning(true);
         try {
             await recurringExpensesApi.assignments.delete(id);
+            toast.success('Assignment unassigned');
             navigate('/recurring-expenses/assignments');
         } catch (error) {
             setUnassignConfirm(false);
-            setUnassignError(error.response?.data?.detail || 'Failed to unassign — it may already have payments recorded.');
+            // Most likely cause: a payment was recorded against this assignment
+            // in the meantime, which the backend blocks (see services.py).
+            setUnassignError(extractErrorMessage(error, "Failed to unassign — it may already have payments recorded."));
         } finally {
             setUnassigning(false);
         }
@@ -123,9 +139,9 @@ const RecurringExpenseAssignmentDetailPage = () => {
             render: (_v, row) => (
                 <button
                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(row); }}
-                    className="text-error-600 hover:text-error-700 text-sm"
+                    className="inline-flex items-center gap-1 text-error-600 hover:text-error-700 text-sm font-medium min-h-[44px] sm:min-h-0"
                 >
-                    Delete
+                    <Trash2 className="w-3.5 h-3.5" /> Delete
                 </button>
             ),
         },
@@ -133,9 +149,12 @@ const RecurringExpenseAssignmentDetailPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can view this.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can view this.</p>
             </div>
         );
     }
@@ -152,9 +171,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Assignment Not Found</h2>
-                <Link to="/recurring-expenses/assignments" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Assignments
-                </Link>
+                <BackLink to="/recurring-expenses/assignments" className="mt-4">Back to Assignments</BackLink>
             </div>
         );
     }
@@ -165,9 +182,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div>
-                    <Link to="/recurring-expenses/assignments" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Assignments
-                    </Link>
+                    <BackLink to="/recurring-expenses/assignments">Back to Assignments</BackLink>
                     <div className="flex items-center gap-3 mt-1">
                         <h1 className="text-3xl font-bold text-neutral-900">{assignment.name_snapshot}</h1>
                         {statusBadge(assignment.payment_status)}
@@ -181,15 +196,13 @@ const RecurringExpenseAssignmentDetailPage = () => {
                         </Button>
                     )}
                     {amountPending > 0 && (
-                        <Button onClick={() => { resetForm(); setShowModal(true); }}>Record Payment</Button>
+                        <Button icon={Plus} onClick={() => { resetForm(); setShowModal(true); }}>Record Payment</Button>
                     )}
                 </div>
             </div>
 
             {unassignError && (
-                <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{unassignError}</p>
-                </div>
+                <InlineAlert variant="error" title="Couldn't unassign" message={unassignError} />
             )}
 
             <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
@@ -225,11 +238,11 @@ const RecurringExpenseAssignmentDetailPage = () => {
                         <LoadingSpinner size="lg" />
                     </div>
                 ) : payments.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="text-6xl mb-4">💵</div>
-                        <h3 className="text-lg font-semibold text-neutral-900">No Payments Yet</h3>
-                        <p className="text-sm text-neutral-500 mt-1">Record a payment to reduce the pending balance.</p>
-                    </div>
+                    <EmptyState
+                        icon={<Receipt className="w-8 h-8 text-neutral-400" />}
+                        title="No Payments Yet"
+                        description="Record a payment to reduce the pending balance."
+                    />
                 ) : (
                     <>
                         <Table columns={columns} data={payments} />
@@ -274,11 +287,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
                         placeholder="Optional"
                     />
 
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
-                        </div>
-                    )}
+                    {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
@@ -295,6 +304,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
                 isOpen={!!deleteConfirm}
                 onClose={() => setDeleteConfirm(null)}
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
+                loading={deleteLoading}
                 title="Delete Payment"
                 message={`Are you sure you want to delete this Rs. ${fmt(deleteConfirm?.amount)} payment? This will restore cash in hand and this assignment's pending balance.`}
             />

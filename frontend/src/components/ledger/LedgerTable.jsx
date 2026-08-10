@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import LedgerRow from './LedgerRow';
+import EmptyState from '../ui/EmptyState';
 
 const LedgerTable = ({ entries, loading }) => {
     if (loading) {
@@ -37,13 +38,7 @@ const LedgerTable = ({ entries, loading }) => {
     }
 
     if (entries.length === 0) {
-        return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">📒</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Entries Found</h3>
-                <p className="text-sm text-neutral-500 mt-1">Try adjusting your filters</p>
-            </div>
-        );
+        return <EmptyState title="No entries found" description="Try adjusting your filters" />;
     }
 
     return (

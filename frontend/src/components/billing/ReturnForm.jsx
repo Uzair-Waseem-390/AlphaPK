@@ -1,16 +1,20 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Plus, Trash2, PackageOpen } from 'lucide-react';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import InlineAlert from '../ui/InlineAlert';
 
 const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, initialNote, submitLabel }) => {
     const [items, setItems] = useState(initialItems || []);
     const [note, setNote] = useState(initialNote || '');
     const [errors, setErrors] = useState({});
+    const [formError, setFormError] = useState('');
 
     const handleAddItem = () => {
+        setFormError('');
         setItems(prev => [
             ...prev,
             { invoice_item_id: '', quantity: 1 }
@@ -54,11 +58,12 @@ const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, ini
 
     const handleSubmit = (e) => {
         e.preventDefault();
-        if (!validate()) return;
+        setFormError('');
         if (items.length === 0) {
-            alert('Please add at least one item to return');
+            setFormError('Please add at least one item to return.');
             return;
         }
+        if (!validate()) return;
         onSubmit({
             items: items.map(item => ({
                 invoice_item_id: parseInt(item.invoice_item_id),
@@ -77,31 +82,45 @@ const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, ini
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
             {!hasReturnableItems ? (
-                <div className="text-center py-4 text-neutral-500">
+                <div className="text-center py-8 text-neutral-500">
+                    <PackageOpen className="w-10 h-10 mx-auto mb-2 text-neutral-300" />
                     No items available for return. All items have been fully returned.
                 </div>
             ) : (
                 <>
+                    <AnimatePresence>
+                        {formError && (
+                            <motion.div initial={{ opacity: 0, y: -6 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }}>
+                                <InlineAlert variant="error" message={formError} />
+                            </motion.div>
+                        )}
+                    </AnimatePresence>
+
                     <div>
                         <div className="flex items-center justify-between mb-3">
                             <h4 className="font-medium text-neutral-900">Items to Return</h4>
-                            <Button size="sm" onClick={handleAddItem}>
+                            <Button size="sm" onClick={handleAddItem} icon={Plus}>
                                 Add Item
                             </Button>
                         </div>
 
                         {items.length === 0 ? (
-                            <div className="text-center py-8 bg-neutral-50 rounded-lg border border-dashed border-neutral-300">
+                            <div className="text-center py-8 bg-neutral-50 rounded-xl border border-dashed border-neutral-300">
                                 <p className="text-neutral-500">Click "Add Item" to start adding items to return</p>
                             </div>
                         ) : (
-                            <div className="space-y-3 max-h-60 overflow-y-auto">
+                            <div className="space-y-3 max-h-72 overflow-y-auto pr-1">
                                 {items.map((item, index) => {
                                     const selectedItem = orderItems.find(i => i.id === parseInt(item.invoice_item_id));
                                     const returnableQty = selectedItem?.returnable_quantity || 0;
 
                                     return (
-                                        <div key={index} className="grid grid-cols-1 md:grid-cols-3 gap-3 p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+                                        <motion.div
+                                            key={index}
+                                            initial={{ opacity: 0, y: 8 }}
+                                            animate={{ opacity: 1, y: 0 }}
+                                            className="grid grid-cols-1 md:grid-cols-[1fr_140px_auto] gap-3 p-4 bg-neutral-50 rounded-xl border border-neutral-200"
+                                        >
                                             <Select
                                                 label="Product"
                                                 value={item.invoice_item_id}
@@ -134,15 +153,17 @@ const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, ini
                                                     size="sm"
                                                     variant="danger"
                                                     onClick={() => handleRemoveItem(index)}
-                                                    className="w-full"
+                                                    icon={Trash2}
+                                                    className="w-full md:w-11 h-11 !px-0"
+                                                    title="Remove item"
                                                 >
-                                                    Remove
+                                                    <span className="md:hidden">Remove</span>
                                                 </Button>
                                             </div>
                                             {errors[`item_${index}`] && (
-                                                <p className="col-span-3 text-sm text-error-500 mt-1">{errors[`item_${index}`]}</p>
+                                                <p className="col-span-full text-sm text-error-500 -mt-1">{errors[`item_${index}`]}</p>
                                             )}
-                                        </div>
+                                        </motion.div>
                                     );
                                 })}
                             </div>
@@ -156,7 +177,7 @@ const ReturnForm = ({ onSubmit, onCancel, loading, orderItems, initialItems, ini
                         placeholder="Reason for return..."
                     />
 
-                    <div className="flex justify-end gap-3 pt-4 border-t border-neutral-200">
+                    <div className="flex flex-col-reverse sm:flex-row justify-end gap-3 pt-4 border-t border-neutral-200">
                         <Button type="button" variant="secondary" onClick={onCancel}>
                             Cancel
                         </Button>

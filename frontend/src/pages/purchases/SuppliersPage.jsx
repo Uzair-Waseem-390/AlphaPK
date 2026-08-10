@@ -1,5 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { Plus, Pencil, Trash2, BookOpen, Truck } from 'lucide-react';
 import { useCRUD } from '../../hooks/usePurchases';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -9,15 +10,21 @@ import Input from '../../components/ui/Input';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import Card from '../../components/ui/Card';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const SuppliersPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
-    const { data, loading, create, update, delete: deleteSupplier, refetch } = useCRUD(
+    const { data, loading, error, create, update, delete: deleteSupplier, refetch } = useCRUD(
         purchasesApi.suppliers,
         { search: '' }
     );
@@ -30,7 +37,9 @@ const SuppliersPage = () => {
         code: '',
     });
     const [formLoading, setFormLoading] = useState(false);
+    const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const filteredData = data.filter(item =>
         item.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
@@ -43,6 +52,7 @@ const SuppliersPage = () => {
         {
             key: 'is_deleted',
             label: 'Status',
+            width: '110px',
             render: (value) => (
                 <Badge variant={value ? 'error' : 'success'}>
                     {value ? 'Deleted' : 'Active'}
@@ -52,35 +62,41 @@ const SuppliersPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '180px', // Increased width to accommodate new button
+            width: '150px',
             render: (_, row) => isAdmin && !row.is_deleted && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1">
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             handleEdit(row);
                         }}
-                        className="text-primary-600 hover:text-primary-700 text-sm"
+                        title="Edit supplier"
+                        aria-label="Edit supplier"
+                        className="p-2 rounded-lg text-neutral-500 hover:text-primary-700 hover:bg-primary-50 transition-colors"
                     >
-                        Edit
+                        <Pencil className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             navigate(`/ledger/supplier/${row.id}`);
                         }}
-                        className="text-indigo-600 hover:text-indigo-700 text-sm"
+                        title="View ledger"
+                        aria-label="View ledger"
+                        className="p-2 rounded-lg text-neutral-500 hover:text-indigo-700 hover:bg-indigo-50 transition-colors"
                     >
-                        Ledger
+                        <BookOpen className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => {
                             e.stopPropagation();
                             setDeleteConfirm(row);
                         }}
-                        className="text-error-600 hover:text-error-700 text-sm"
+                        title="Delete supplier"
+                        aria-label="Delete supplier"
+                        className="p-2 rounded-lg text-neutral-500 hover:text-error-600 hover:bg-error-50 transition-colors"
                     >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 </div>
             ),
@@ -90,6 +106,7 @@ const SuppliersPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormLoading(true);
+        setFormError('');
         try {
             const submitData = {
                 ...formData,
@@ -97,13 +114,15 @@ const SuppliersPage = () => {
             };
             if (editingSupplier) {
                 await update(editingSupplier.id, submitData);
+                toast.success('Supplier updated successfully');
             } else {
                 await create(submitData);
+                toast.success('Supplier created successfully');
             }
             setShowModal(false);
             resetForm();
-        } catch (error) {
-            console.error('Failed to save supplier:', error);
+        } catch (err) {
+            setFormError(extractErrorMessage(err, 'Failed to save supplier.'));
         } finally {
             setFormLoading(false);
         }
@@ -115,8 +134,16 @@ const SuppliersPage = () => {
     };
 
     const handleDelete = async (id) => {
-        await deleteSupplier(id);
-        setDeleteConfirm(null);
+        setDeleteLoading(true);
+        try {
+            await deleteSupplier(id);
+            toast.success('Supplier deleted successfully');
+            setDeleteConfirm(null);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to delete supplier.'));
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const handleEdit = (supplier) => {
@@ -125,15 +152,17 @@ const SuppliersPage = () => {
             name: supplier.name,
             code: supplier.code,
         });
+        setFormError('');
         setShowModal(true);
     };
 
     const resetForm = () => {
         setFormData({ name: '', code: '' });
         setEditingSupplier(null);
+        setFormError('');
     };
 
-    if (loading) {
+    if (loading && data.length === 0) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -144,9 +173,14 @@ const SuppliersPage = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Suppliers</h1>
-                    <p className="text-neutral-500 mt-1">Manage suppliers and view outstanding</p>
+                <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                        <Truck className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Suppliers</h1>
+                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage suppliers and view outstanding</p>
+                    </div>
                 </div>
                 {isAdmin && (
                     <Button
@@ -154,30 +188,40 @@ const SuppliersPage = () => {
                             resetForm();
                             setShowModal(true);
                         }}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
+                        icon={Plus}
                     >
                         Add Supplier
                     </Button>
                 )}
             </div>
 
-            <div className="flex gap-4">
-                <SearchBar
-                    onSearch={setSearchTerm}
-                    placeholder="Search suppliers by name or code..."
-                    className="flex-1"
-                />
-            </div>
+            {error && (
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
+            )}
 
-            <Table
-                columns={columns}
-                data={filteredData}
-                onRowClick={handleViewDetails}
+            <SearchBar
+                onSearch={setSearchTerm}
+                placeholder="Search suppliers by name or code..."
+                className="w-full sm:max-w-md"
             />
+
+            <Card className="p-0 overflow-hidden" hover={false}>
+                {filteredData.length === 0 ? (
+                    <EmptyState
+                        icon={<Truck className="w-8 h-8 text-neutral-400" />}
+                        title="No suppliers found"
+                        description={searchTerm ? 'Try adjusting your search.' : 'Get started by adding your first supplier.'}
+                    />
+                ) : (
+                    <div className="p-2">
+                        <Table
+                            columns={columns}
+                            data={filteredData}
+                            onRowClick={handleViewDetails}
+                        />
+                    </div>
+                )}
+            </Card>
 
             {/* Create/Edit Modal */}
             <Modal
@@ -189,6 +233,7 @@ const SuppliersPage = () => {
                 title={editingSupplier ? 'Edit Supplier' : 'Create Supplier'}
             >
                 <form onSubmit={handleSubmit} className="space-y-4">
+                    {formError && <InlineAlert variant="error" message={formError} />}
                     <Input
                         label="Name"
                         value={formData.name}
@@ -227,6 +272,9 @@ const SuppliersPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Supplier"
                 message={`Are you sure you want to delete "${deleteConfirm?.name}"? This action cannot be undone.`}
+                confirmText="Delete"
+                variant="danger"
+                loading={deleteLoading}
             />
         </div>
     );

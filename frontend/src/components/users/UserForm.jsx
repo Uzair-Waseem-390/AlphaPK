@@ -2,6 +2,10 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import Input from '../common/Input';
 import Button from '../common/Button';
+import InlineAlert from '../ui/InlineAlert';
+import { extractErrorMessage } from '../../utils/errorMessage';
+
+const FIELD_KEYS = ['email', 'first_name', 'last_name', 'password', 'role'];
 
 const UserForm = ({ initialData, onSubmit, onCancel, loading }) => {
     const [formData, setFormData] = useState({
@@ -13,6 +17,7 @@ const UserForm = ({ initialData, onSubmit, onCancel, loading }) => {
     });
 
     const [errors, setErrors] = useState({});
+    const [apiError, setApiError] = useState('');
 
     useEffect(() => {
         if (initialData) {
@@ -32,6 +37,7 @@ const UserForm = ({ initialData, onSubmit, onCancel, loading }) => {
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: '' }));
         }
+        if (apiError) setApiError('');
     };
 
     const validate = () => {
@@ -47,15 +53,37 @@ const UserForm = ({ initialData, onSubmit, onCancel, loading }) => {
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
-        if (validate()) {
-            const submitData = { ...formData };
-            if (initialData) {
-                delete submitData.password;
-                delete submitData.email;
+        setApiError('');
+        if (!validate()) return;
+
+        const submitData = { ...formData };
+        if (initialData) {
+            delete submitData.password;
+            delete submitData.email;
+        }
+
+        try {
+            await onSubmit(submitData);
+        } catch (error) {
+            const data = error?.response?.data;
+            if (data && typeof data === 'object' && !Array.isArray(data)) {
+                const fieldErrors = {};
+                let genericMessage = '';
+                Object.keys(data).forEach((key) => {
+                    const val = Array.isArray(data[key]) ? data[key][0] : data[key];
+                    if (FIELD_KEYS.includes(key)) {
+                        fieldErrors[key] = val;
+                    } else {
+                        genericMessage = val || genericMessage;
+                    }
+                });
+                if (Object.keys(fieldErrors).length) setErrors(prev => ({ ...prev, ...fieldErrors }));
+                if (genericMessage) setApiError(genericMessage);
+            } else {
+                setApiError(extractErrorMessage(error, 'Failed to save user'));
             }
-            onSubmit(submitData);
         }
     };
 
@@ -124,6 +152,8 @@ const UserForm = ({ initialData, onSubmit, onCancel, loading }) => {
                     <option value="admin">Admin</option>
                 </select>
             </div>
+
+            {apiError && <InlineAlert variant="error" message={apiError} />}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button type="button" variant="secondary" onClick={onCancel}>

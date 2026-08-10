@@ -1,15 +1,19 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
+import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
-import { useAuth } from '../../context/AuthContext';
+import { Plus, Receipt, ListPlus, User, CalendarDays, Wallet } from 'lucide-react';
 import { billingApi } from '../../services/billingApi';
 import { ratesApi } from '../../services/ratesApi';
+import { useToast } from '../../context/ToastContext';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Card from '../../components/ui/Card';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const defaultDueDate = () => {
     const d = new Date();
@@ -17,9 +21,13 @@ const defaultDueDate = () => {
     return d.toISOString().slice(0, 10);
 };
 
+// Normalizes a DRF field error value (string, or list-of-strings) to a
+// single display string.
+const firstMsg = (val) => (Array.isArray(val) ? val[0] : val);
+
 const CreateInvoicePage = () => {
-    const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [selectedCustomerLabel, setSelectedCustomerLabel] = useState('');
 
@@ -30,6 +38,11 @@ const CreateInvoicePage = () => {
         payment_due_date: defaultDueDate(),
         items: [],
     });
+
+    // Backend validation errors, mapped onto the relevant UI element.
+    const [generalError, setGeneralError] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({});
+    const [itemErrors, setItemErrors] = useState([]);
 
     const searchCustomers = async (query) => {
         const res = await billingApi.customers.getAll({ search: query, page_size: 25 });
@@ -57,7 +70,7 @@ const CreateInvoicePage = () => {
             ...prev,
             items: [
                 ...prev.items,
-                { product_id: '', quantity: 1, discount: 0, gst: 0, wht: 0, selling_price: 0 }
+                { product_id: '', quantity: 1, discount: 0, gst: 0, wht: 0, selling_price: 0, _key: `${Date.now()}-${prev.items.length}` }
             ]
         }));
     };
@@ -79,6 +92,7 @@ const CreateInvoicePage = () => {
             ...prev,
             items: prev.items.filter((_, i) => i !== index)
         }));
+        setItemErrors(prev => prev.filter((_, i) => i !== index));
     };
 
     // Calculate totals
@@ -110,8 +124,53 @@ const CreateInvoicePage = () => {
         return { subtotal, gstTotal, whtTotal, grandTotal };
     };
 
+    const applyServerErrors = (error) => {
+        const data = error?.response?.data;
+        const nextFieldErrors = {};
+        let nextGeneralError = '';
+        let nextItemErrors = [];
+
+        if (data && typeof data === 'object') {
+            if (data.advance_amount) nextFieldErrors.advance_amount = firstMsg(data.advance_amount);
+            if (data.payment_due_date) nextFieldErrors.payment_due_date = firstMsg(data.payment_due_date);
+            if (data.customer_id) nextFieldErrors.customer_id = firstMsg(data.customer_id);
+
+            if (data.items) {
+                if (Array.isArray(data.items)) {
+                    nextItemErrors = data.items.map(entry => {
+                        if (!entry || typeof entry !== 'object') return null;
+                        return Object.fromEntries(
+                            Object.entries(entry).map(([k, v]) => [k, firstMsg(v)])
+                        );
+                    });
+                    nextGeneralError = 'Please fix the highlighted line item(s) below.';
+                } else {
+                    nextGeneralError = firstMsg(data.items);
+                }
+            }
+
+            // Service-level errors that aren't tied to a specific field
+            // (e.g. stock shortfalls) surface as a top-level "quantity" key.
+            if (data.quantity) {
+                nextGeneralError = nextGeneralError || firstMsg(data.quantity);
+            }
+        }
+
+        if (!nextGeneralError && !Object.keys(nextFieldErrors).length) {
+            nextGeneralError = extractErrorMessage(error, 'Failed to create invoice.');
+        }
+
+        setFieldErrors(nextFieldErrors);
+        setItemErrors(nextItemErrors);
+        setGeneralError(nextGeneralError);
+        toast.error(nextGeneralError || 'Failed to create invoice.');
+    };
+
     const handleSubmit = async (e) => {
         e.preventDefault();
+        setGeneralError('');
+        setFieldErrors({});
+        setItemErrors([]);
         setLoading(true);
         try {
             const data = {
@@ -128,10 +187,10 @@ const CreateInvoicePage = () => {
                 })),
             };
             const result = await billingApi.invoices.create(data);
+            toast.success('Draft invoice created.');
             navigate(`/billing/invoices/${result.id}`);
         } catch (error) {
-            console.error('Failed to create invoice:', error);
-            alert(error.response?.data?.detail || 'Failed to create invoice');
+            applyServerErrors(error);
         } finally {
             setLoading(false);
         }
@@ -145,7 +204,7 @@ const CreateInvoicePage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <h1 className="text-3xl font-bold text-neutral-900">Create Invoice</h1>
                     <p className="text-neutral-500 mt-1">Create a new draft invoice</p>
@@ -154,15 +213,26 @@ const CreateInvoicePage = () => {
                     <Button variant="secondary" onClick={handleCancel}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} loading={loading}>
+                    <Button onClick={handleSubmit} loading={loading} icon={Receipt}>
                         Create Draft
                     </Button>
                 </div>
             </div>
 
+            {generalError && (
+                <InlineAlert variant="error" message={generalError} />
+            )}
+
             <form onSubmit={handleSubmit} className="space-y-6">
-                <Card className="p-6">
-                    <div className="grid grid-cols-2 gap-4 max-w-2xl">
+                <Card className="p-6" hover={false}>
+                    <div className="flex items-center gap-2 mb-5">
+                        <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center">
+                            <User className="w-4 h-4 text-primary-600" />
+                        </div>
+                        <h3 className="font-semibold text-neutral-900">Customer &amp; Terms</h3>
+                    </div>
+
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                         <SearchableSelect
                             label="Customer"
                             value={formData.customer_id}
@@ -173,19 +243,22 @@ const CreateInvoicePage = () => {
                             }}
                             onSearch={searchCustomers}
                             placeholder="Search customer by name or code"
+                            error={fieldErrors.customer_id}
                             required
                         />
 
                         <Input
                             label="Due Date"
                             type="date"
+                            icon={CalendarDays}
                             value={formData.payment_due_date}
                             onChange={(e) => setFormData(prev => ({ ...prev, payment_due_date: e.target.value }))}
+                            error={fieldErrors.payment_due_date}
                             required
                         />
                     </div>
 
-                    <div className="grid grid-cols-2 gap-4 max-w-md mt-4">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4 mt-4">
                         <Select
                             label="Payment Type"
                             value={formData.payment_type}
@@ -203,44 +276,61 @@ const CreateInvoicePage = () => {
                                 type="number"
                                 step="0.01"
                                 min="0"
+                                icon={Wallet}
                                 value={formData.advance_amount}
                                 onChange={(e) => setFormData(prev => ({ ...prev, advance_amount: e.target.value }))}
                                 placeholder="Enter advance amount"
+                                error={fieldErrors.advance_amount}
                                 required
                             />
                         )}
                     </div>
                 </Card>
 
-                <Card className="p-6">
+                <Card className="p-6" hover={false}>
                     <div className="flex items-center justify-between mb-4">
-                        <h3 className="font-semibold text-neutral-900">Line Items</h3>
-                        <Button size="sm" onClick={handleAddItem}>
+                        <div className="flex items-center gap-2">
+                            <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center">
+                                <ListPlus className="w-4 h-4 text-primary-600" />
+                            </div>
+                            <h3 className="font-semibold text-neutral-900">Line Items</h3>
+                        </div>
+                        <Button size="sm" onClick={handleAddItem} icon={Plus}>
                             Add Item
                         </Button>
                     </div>
 
                     <div className="space-y-3">
                         {formData.items.length === 0 ? (
-                            <p className="text-center text-neutral-500 py-8">No items added yet. Click "Add Item" to start.</p>
+                            <EmptyState
+                                title="No items added yet"
+                                description='Click "Add Item" to start building this invoice.'
+                            />
                         ) : (
-                            formData.items.map((item, index) => (
-                                <LineItemRow
-                                    key={index}
-                                    index={index}
-                                    item={item}
-                                    onSearchProducts={searchProducts}
-                                    onUpdate={handleUpdateItem}
-                                    onRemove={handleRemoveItem}
-                                    canEdit={true}
-                                />
-                            ))
+                            <AnimatePresence initial={false}>
+                                {formData.items.map((item, index) => (
+                                    <LineItemRow
+                                        key={item._key || index}
+                                        index={index}
+                                        item={item}
+                                        onSearchProducts={searchProducts}
+                                        onUpdate={handleUpdateItem}
+                                        onRemove={handleRemoveItem}
+                                        canEdit={true}
+                                        errors={itemErrors[index] || undefined}
+                                    />
+                                ))}
+                            </AnimatePresence>
                         )}
                     </div>
 
-                    {/* Simple Totals Summary */}
+                    {/* Totals Summary */}
                     {formData.items.length > 0 && (
-                        <div className="mt-6 pt-4 border-t border-neutral-200">
+                        <motion.div
+                            initial={{ opacity: 0 }}
+                            animate={{ opacity: 1 }}
+                            className="mt-6 pt-4 border-t border-neutral-200"
+                        >
                             <div className="flex flex-col items-end space-y-2 max-w-xs ml-auto">
                                 <div className="flex justify-between w-full">
                                     <span className="text-sm text-neutral-500">Subtotal:</span>
@@ -267,7 +357,7 @@ const CreateInvoicePage = () => {
                                     </span>
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
                     )}
                 </Card>
             </form>

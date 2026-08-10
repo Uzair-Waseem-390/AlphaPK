@@ -9,6 +9,7 @@ Act as a **15+ year senior React + Vite engineer** building premium SaaS product
 * Freely redesign layout, theme, colors, typography, spacing, sizing, and components.
 * Use professional icons/logos, **never emojis**.
 * Add subtle, purposeful animations for transitions, interactions, loading, and feedback; avoid excessive motion.
+* Make sure that the UI/UX is mobile friendly and responsive on all devices
 * Inspect `frontend/src/style/` before theme changes and keep design tokens centralized.
 
 ### Performance

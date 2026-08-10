@@ -1,29 +1,37 @@
 import { useState, useEffect, useCallback } from 'react';
-import { dataEntryApi, extractApiError } from '../../services/dataEntryApi';
+import { motion } from 'framer-motion';
+import { PackagePlus, ClipboardList, Plus, Trash2 } from 'lucide-react';
+import { dataEntryApi } from '../../services/dataEntryApi';
 import { purchasesApi } from '../../services/purchasesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
+import { useToast } from '../../context/ToastContext';
 import Card from '../ui/Card';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import SearchableSelect from '../ui/SearchableSelect';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import InlineAlert from '../ui/InlineAlert';
+import EmptyState from '../ui/EmptyState';
 
 const fmt = (v) => Number(v || 0).toFixed(2);
 const emptyRow = () => ({ product_id: '', product_label: '', shelf_id: '', shelf_label: '', quantity: '', unit_price: '', gst: '0', wht: '0', description: '' });
 
 const OpeningStockPanel = () => {
+    const { toast } = useToast();
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [saving, setSaving] = useState(false);
     const [rows, setRows] = useState([emptyRow()]);
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const [bannerError, setBannerError] = useState('');
 
     const loadRecords = useCallback(async () => {
         try {
             const res = await dataEntryApi.openingStock.getAll({ page_size: 500 });
             setRecords(res?.results ?? res ?? []);
-        } catch {
-            setRecords([]);
+            setLoadError('');
+        } catch (err) {
+            setLoadError(extractErrorMessage(err, 'Failed to load opening stock entries.'));
         }
     }, []);
 
@@ -56,17 +64,17 @@ const OpeningStockPanel = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError(''); setSuccess('');
+        setBannerError('');
 
         const seen = new Set();
         const items = [];
         for (const r of rows) {
-            if (!r.product_id) return setError('Every row needs a product.');
-            if (seen.has(r.product_id)) return setError('A product is listed more than once.');
+            if (!r.product_id) return setBannerError('Every row needs a product.');
+            if (seen.has(r.product_id)) return setBannerError('A product is listed more than once.');
             seen.add(r.product_id);
-            if (!r.shelf_id) return setError('Every row needs a shelf.');
-            if (!r.quantity || parseInt(r.quantity) <= 0) return setError('Quantity must be greater than 0.');
-            if (!r.unit_price || parseFloat(r.unit_price) <= 0) return setError('Unit price must be greater than 0.');
+            if (!r.shelf_id) return setBannerError('Every row needs a shelf.');
+            if (!r.quantity || parseInt(r.quantity) <= 0) return setBannerError('Quantity must be greater than 0.');
+            if (!r.unit_price || parseFloat(r.unit_price) <= 0) return setBannerError('Unit price must be greater than 0.');
             items.push({
                 product_id: parseInt(r.product_id),
                 shelf_id: parseInt(r.shelf_id),
@@ -81,32 +89,42 @@ const OpeningStockPanel = () => {
         setSaving(true);
         try {
             await dataEntryApi.openingStock.create({ items });
-            setSuccess('Opening stock added to inventory.');
+            toast.success('Opening stock added to inventory.');
             setRows([emptyRow()]);
             await loadRecords();
         } catch (err) {
-            setError(extractApiError(err, 'Failed to add opening stock.'));
+            setBannerError(extractErrorMessage(err, 'Failed to add opening stock.'));
         } finally {
             setSaving(false);
         }
     };
 
     if (loading) {
-        return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
+        return <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>;
     }
 
     return (
         <div className="space-y-6">
             <Card hover={false}>
-                <h3 className="font-semibold text-neutral-900 mb-4">Add Opening Stock</h3>
+                <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
+                        <PackagePlus className="w-5 h-5 text-primary-600" />
+                    </div>
+                    <h3 className="font-semibold text-neutral-900">Add Opening Stock</h3>
+                </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     {rows.map((row, i) => (
-                        <div key={i} className="space-y-3 border-b border-neutral-100 pb-4">
+                        <motion.div
+                            key={i}
+                            initial={{ opacity: 0, y: 6 }}
+                            animate={{ opacity: 1, y: 0 }}
+                            className="space-y-3 border border-neutral-100 rounded-xl p-4 bg-neutral-50/50"
+                        >
                             {/* Row 1: Product, Shelf, Qty, Unit Price */}
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                                 <div className="md:col-span-3">
                                     <SearchableSelect
-                                        label={i === 0 ? 'Product' : undefined}
+                                        label="Product"
                                         value={row.product_id}
                                         selectedLabel={row.product_label}
                                         onChange={(v, option) => {
@@ -119,7 +137,7 @@ const OpeningStockPanel = () => {
                                 </div>
                                 <div className="md:col-span-3">
                                     <SearchableSelect
-                                        label={i === 0 ? 'Shelf' : undefined}
+                                        label="Shelf"
                                         value={row.shelf_id}
                                         selectedLabel={row.shelf_label}
                                         onChange={(v, option) => {
@@ -131,59 +149,71 @@ const OpeningStockPanel = () => {
                                     />
                                 </div>
                                 <div className="md:col-span-3">
-                                    <Input label={i === 0 ? 'Qty' : undefined} type="number" min="1"
+                                    <Input label="Qty" type="number" min="1"
                                         value={row.quantity} onChange={(e) => updateRow(i, 'quantity', e.target.value)} placeholder="Qty" />
                                 </div>
                                 <div className="md:col-span-3">
-                                    <Input label={i === 0 ? 'Unit Price' : undefined} type="number" step="0.01" min="0.01"
+                                    <Input label="Unit Price" type="number" step="0.01" min="0.01"
                                         value={row.unit_price} onChange={(e) => updateRow(i, 'unit_price', e.target.value)} placeholder="Price" />
                                 </div>
                             </div>
                             {/* Row 2: GST, WHT, Remove */}
                             <div className="grid grid-cols-1 md:grid-cols-12 gap-3 items-end">
                                 <div className="md:col-span-2">
-                                    <Input label={i === 0 ? 'GST%' : undefined} type="number" step="0.01" min="0"
+                                    <Input label="GST%" type="number" step="0.01" min="0"
                                         value={row.gst} onChange={(e) => updateRow(i, 'gst', e.target.value)} />
                                 </div>
                                 <div className="md:col-span-2">
-                                    <Input label={i === 0 ? 'WHT%' : undefined} type="number" step="0.01" min="0"
+                                    <Input label="WHT%" type="number" step="0.01" min="0"
                                         value={row.wht} onChange={(e) => updateRow(i, 'wht', e.target.value)} />
                                 </div>
                                 <div className="md:col-span-6" />
                                 <div className="md:col-span-2">
                                     <Button type="button" variant="secondary" size="sm" className="w-full"
+                                        icon={Trash2}
                                         onClick={() => removeRow(i)} disabled={rows.length === 1}>
                                         Remove
                                     </Button>
                                 </div>
                             </div>
-                        </div>
+                        </motion.div>
                     ))}
 
                     <div className="flex items-center gap-3">
-                        <Button type="button" variant="outline" size="sm" onClick={addRow}>+ Add Product</Button>
+                        <Button type="button" variant="outline" size="sm" icon={Plus} onClick={addRow}>
+                            Add Product
+                        </Button>
                     </div>
 
-                    <div className="p-3 bg-blue-50 rounded-lg">
-                        <p className="text-sm text-blue-700">
-                            ℹ️ Adds quantities to inventory (FIFO-ready). No cash or supplier-payable effect.
-                        </p>
-                    </div>
-                    {error && <p className="text-sm text-error-600">{error}</p>}
-                    {success && <p className="text-sm text-success-600">{success}</p>}
-                    <Button type="submit" loading={saving}>Add Opening Stock</Button>
+                    <InlineAlert
+                        variant="info"
+                        message="Adds quantities to inventory (FIFO-ready). No cash or supplier-payable effect."
+                    />
+                    {bannerError && <InlineAlert variant="error" message={bannerError} />}
+                    <Button type="submit" loading={saving} icon={PackagePlus} className="w-full sm:w-auto">
+                        Add Opening Stock
+                    </Button>
                 </form>
             </Card>
 
             <Card hover={false}>
-                <h3 className="font-semibold text-neutral-900 mb-4">Recorded Stock Entries ({records.length})</h3>
+                <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                        <ClipboardList className="w-5 h-5 text-neutral-500" />
+                    </div>
+                    <h3 className="font-semibold text-neutral-900">Recorded Stock Entries ({records.length})</h3>
+                </div>
+                {loadError && <InlineAlert variant="error" message={loadError} onRetry={loadRecords} className="mb-4" />}
                 {records.length === 0 ? (
-                    <p className="text-sm text-neutral-500 py-4 text-center">No opening stock entries yet.</p>
+                    <EmptyState
+                        title="No opening stock entries yet"
+                        description="Stock batches you add will appear here for audit."
+                    />
                 ) : (
                     <div className="space-y-4">
                         {records.map(order => (
                             <div key={order.id} className="border border-neutral-200 rounded-xl p-4">
-                                <div className="flex items-center justify-between mb-2">
+                                <div className="flex items-center justify-between mb-2 flex-wrap gap-1">
                                     <span className="font-medium text-neutral-900">{order.order_number}</span>
                                     <span className="text-xs text-neutral-500">{new Date(order.created_at).toLocaleString()}</span>
                                 </div>

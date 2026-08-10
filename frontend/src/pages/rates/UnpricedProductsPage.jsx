@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useUnpricedProducts } from '../../hooks/useRates';
 import { ratesApi } from '../../services/ratesApi';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -9,10 +10,12 @@ import SearchBar from '../../components/ui/SearchBar';
 import Select from '../../components/ui/Select';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
-import { useNavigate, Link } from 'react-router-dom';
+import BackLink from '../../components/ui/BackLink';
+import { useNavigate } from 'react-router-dom';
 
 const UnpricedProductsPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
@@ -73,9 +76,10 @@ const UnpricedProductsPage = () => {
             await refetch();
             setShowModal(false);
             setSelectedProduct(null);
+            toast.success('Price set successfully');
         } catch (error) {
             console.error('Failed to save rate:', error);
-            alert(error.response?.data?.detail || 'Failed to save rate');
+            throw error; // Re-thrown so RateFormModal can show field/generic errors and stay open
         } finally {
             setFormLoading(false);
         }
@@ -92,9 +96,7 @@ const UnpricedProductsPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/rates" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Product Rates
-                </Link>
+                <BackLink to="/rates">Back to Product Rates</BackLink>
                 <h1 className="text-3xl font-bold text-neutral-900 mt-1">
                     Unpriced Products {meta.count ? `(${meta.count})` : ''}
                 </h1>

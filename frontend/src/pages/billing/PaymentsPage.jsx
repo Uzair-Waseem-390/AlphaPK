@@ -1,17 +1,46 @@
 import { useState, useEffect } from 'react';
+import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
-import { useAuth } from '../../context/AuthContext';
+import {
+    Wallet, SlidersHorizontal, X, Banknote, Smartphone, Landmark, CreditCard,
+    ChevronRight, Hash,
+} from 'lucide-react';
 import { billingApi } from '../../services/billingApi';
 import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
-import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
-import { Link, useNavigate } from 'react-router-dom';
+
+// Payment method → icon/color mapping, reused across the payments UI.
+const METHOD_META = {
+    cash: { icon: Banknote, label: 'Cash', classes: 'bg-success-50 text-success-700' },
+    jazzcash: { icon: Smartphone, label: 'JazzCash', classes: 'bg-warning-50 text-warning-700' },
+    easypaisa: { icon: Smartphone, label: 'Easypaisa', classes: 'bg-info-50 text-info-700' },
+    bank: { icon: Landmark, label: 'Bank Transfer', classes: 'bg-primary-50 text-primary-700' },
+};
+
+const MethodBadge = ({ method, display }) => {
+    const meta = METHOD_META[method] || { icon: CreditCard, label: display || 'N/A', classes: 'bg-neutral-100 text-neutral-700' };
+    const Icon = meta.icon;
+    return (
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.classes}`}>
+            <Icon className="w-3.5 h-3.5" />
+            {display || meta.label}
+        </span>
+    );
+};
+
+const formatCurrency = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num)) return 'PKR 0.00';
+    return `PKR ${num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
 
 const PaymentsPage = () => {
     const navigate = useNavigate();
@@ -26,30 +55,32 @@ const PaymentsPage = () => {
     };
 
     const {
-        data: payments, meta, page, setPage, loading,
+        data: payments, meta, setPage, loading, error, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
 
     useEffect(() => {
-        // Fetch invoice details for each payment on the current page
+        // Fetch invoice details for each payment on the current page (backend
+        // list only returns the invoice id, not the nested bill/customer).
+        let cancelled = false;
         const fetchInvoiceDetails = async () => {
             const invoiceIds = [...new Set(payments.map(p => p.invoice).filter(id => id))];
-            if (invoiceIds.length > 0) {
-                const invoicePromises = invoiceIds.map(id =>
-                    billingApi.invoices.getById(id).catch(() => null)
-                );
-                const invoiceResults = await Promise.all(invoicePromises);
-
-                const invoiceMap = {};
-                invoiceResults.forEach((invoice, index) => {
-                    if (invoice) {
-                        invoiceMap[invoiceIds[index]] = invoice;
-                    }
-                });
-                setInvoiceDetails(invoiceMap);
+            if (invoiceIds.length === 0) {
+                setInvoiceDetails({});
+                return;
             }
+            const invoiceResults = await Promise.all(
+                invoiceIds.map(id => billingApi.invoices.getById(id).catch(() => null))
+            );
+            if (cancelled) return;
+            const invoiceMap = {};
+            invoiceResults.forEach((invoice, index) => {
+                if (invoice) invoiceMap[invoiceIds[index]] = invoice;
+            });
+            setInvoiceDetails(invoiceMap);
         };
         fetchInvoiceDetails();
+        return () => { cancelled = true; };
     }, [payments]);
 
     const handleApplyFilters = (filterValues) => {
@@ -67,7 +98,17 @@ const PaymentsPage = () => {
     };
 
     const columns = [
-        { key: 'reference_number', label: 'Reference', width: '140px' },
+        {
+            key: 'reference_number',
+            label: 'Reference',
+            width: '160px',
+            render: (value) => (
+                <span className="inline-flex items-center gap-1.5 font-medium text-neutral-800">
+                    <Hash className="w-3.5 h-3.5 text-neutral-400" />
+                    {value}
+                </span>
+            ),
+        },
         {
             key: 'invoice',
             label: 'Bill #',
@@ -90,37 +131,36 @@ const PaymentsPage = () => {
         },
         {
             key: 'amount',
-            label: 'Amount (PKR)',
-            render: (value) => {
-                const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
-            }
+            label: 'Amount',
+            render: (value) => (
+                <span className="font-semibold text-success-700">{formatCurrency(value)}</span>
+            )
         },
         {
-            key: 'method_display',
+            key: 'method',
             label: 'Method',
-            render: (value) => <Badge>{value || 'N/A'}</Badge>
+            render: (value, row) => <MethodBadge method={value} display={row.method_display} />
         },
         {
             key: 'payment_date',
             label: 'Date',
             render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A'
         },
-        { key: 'note', label: 'Note', render: (value) => value || '-' },
+        { key: 'note', label: 'Note', render: (value) => value || <span className="text-neutral-400">-</span> },
         {
             key: 'actions',
-            label: 'Actions',
-            width: '100px',
-            render: (_, row) => {
-                return (
-                    <Link
-                        to={`/billing/payments/${row.id}`}
-                        className="text-primary-600 hover:text-primary-700 text-sm font-medium"
-                    >
-                        View
-                    </Link>
-                );
-            },
+            label: '',
+            width: '80px',
+            render: (_, row) => (
+                <Link
+                    to={`/billing/payments/${row.id}`}
+                    className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium"
+                    onClick={(e) => e.stopPropagation()}
+                >
+                    View
+                    <ChevronRight className="w-3.5 h-3.5" />
+                </Link>
+            ),
         },
     ];
 
@@ -143,7 +183,7 @@ const PaymentsPage = () => {
         { name: 'date_to', label: 'Date To', type: 'date' },
     ];
 
-    if (loading) {
+    if (loading && payments.length === 0 && !error) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -152,16 +192,26 @@ const PaymentsPage = () => {
     }
 
     return (
-        <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
-                <p className="text-neutral-500 mt-1">
-                    Search and manage all payments across all invoices
-                </p>
+        <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+        >
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20">
+                    <Wallet className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                    <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        Search and manage all payments across all invoices
+                    </p>
+                </div>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -169,22 +219,20 @@ const PaymentsPage = () => {
                             className="w-full"
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -196,11 +244,29 @@ const PaymentsPage = () => {
                 )}
             </div>
 
-            <Table
-                columns={columns}
-                data={payments}
-                onRowClick={(row) => navigate(`/billing/payments/${row.id}`)}
-            />
+            {error && (
+                <InlineAlert
+                    variant="error"
+                    message={error || 'Failed to load payments.'}
+                    onRetry={refetch}
+                />
+            )}
+
+            {!error && payments.length === 0 ? (
+                <EmptyState
+                    title="No payments found"
+                    description="Try adjusting your search or filters"
+                    icon={<Wallet className="w-8 h-8 text-neutral-400" />}
+                />
+            ) : !error && (
+                <div className={loading ? 'opacity-60 pointer-events-none transition-opacity' : 'transition-opacity'}>
+                    <Table
+                        columns={columns}
+                        data={payments}
+                        onRowClick={(row) => navigate(`/billing/payments/${row.id}`)}
+                    />
+                </div>
+            )}
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -209,15 +275,7 @@ const PaymentsPage = () => {
                     onPageChange={setPage}
                 />
             )}
-
-            {payments.length === 0 && (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">💰</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Payments Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
-                </div>
-            )}
-        </div>
+        </motion.div>
     );
 };
 

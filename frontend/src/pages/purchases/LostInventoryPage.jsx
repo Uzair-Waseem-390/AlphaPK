@@ -1,5 +1,4 @@
 import { useState, useEffect, useRef } from 'react';
-import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Card from '../../components/ui/Card';
@@ -8,7 +7,9 @@ import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import InlineAlert from '../../components/ui/InlineAlert';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+import BackLink from '../../components/ui/BackLink';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -205,9 +206,7 @@ const LostInventoryPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can manage lost inventory.</p>
-                <Link to="/purchases/inventory" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Inventory
-                </Link>
+                <BackLink to="/purchases/inventory" className="mt-4">Back to Inventory</BackLink>
             </div>
         );
     }
@@ -218,12 +217,8 @@ const LostInventoryPage = () => {
                 <h1 className="text-3xl font-bold text-neutral-900">Manage Inventory</h1>
                 <p className="text-neutral-500 mt-1">Mark lost, damaged, or missing products from inventory</p>
                 <div className="mt-2 flex gap-4">
-                    <Link to="/purchases/inventory" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Inventory
-                    </Link>
-                    <Link to="/purchases/lost-inventory/records" className="text-sm text-primary-600 hover:text-primary-700">
-                        View Lost Inventory Records →
-                    </Link>
+                    <BackLink to="/purchases/inventory">Back to Inventory</BackLink>
+                    <BackLink to="/purchases/lost-inventory/records" direction="right">View Lost Inventory Records</BackLink>
                 </div>
             </div>
 
@@ -347,17 +342,9 @@ const LostInventoryPage = () => {
                     />
                 </div>
 
-                {error && (
-                    <div className="p-4 bg-error-50 border border-error-200 rounded-lg">
-                        <p className="text-sm text-error-600 whitespace-pre-wrap">{error}</p>
-                    </div>
-                )}
+                {error && <InlineAlert variant="error" message={error} />}
 
-                {successMessage && (
-                    <div className="p-4 bg-success-50 border border-success-200 rounded-lg">
-                        <p className="text-sm text-success-700">{successMessage}</p>
-                    </div>
-                )}
+                {successMessage && <InlineAlert variant="success" message={successMessage} />}
 
                 <div className="flex items-center justify-between pt-4 border-t border-neutral-200">
                     <div>

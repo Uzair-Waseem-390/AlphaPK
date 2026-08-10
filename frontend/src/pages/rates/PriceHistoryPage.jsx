@@ -2,17 +2,21 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useRateHistory } from '../../hooks/useRates';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { purchasesApi } from '../../services/purchasesApi';
 import PriceHistoryTable from '../../components/rates/PriceHistoryTable';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const PriceHistoryPage = () => {
     const { productId } = useParams();
     const navigate = useNavigate();
-    const { data, loading, refetch } = useRateHistory(productId);
+    const { toast } = useToast();
+    const { data, loading, error, refetch } = useRateHistory(productId);
     const [product, setProduct] = useState(null);
     const [productLoading, setProductLoading] = useState(true);
 
@@ -30,6 +34,7 @@ const PriceHistoryPage = () => {
             setProduct(found);
         } catch (error) {
             console.error('Failed to fetch product:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load product details'));
         } finally {
             setProductLoading(false);
         }
@@ -60,6 +65,8 @@ const PriceHistoryPage = () => {
                     </Button>
                 </Link>
             </div>
+
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             {/* Product Info */}
             {product && (

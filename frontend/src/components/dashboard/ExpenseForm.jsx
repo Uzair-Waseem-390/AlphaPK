@@ -1,11 +1,15 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { AlertTriangle, Info } from 'lucide-react';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 
-const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading }) => {
+// `serverErrors` lets a caller feed DRF field-validation errors (e.g. from a
+// failed onSubmit) back into the form's inline field errors, in addition to
+// this form's own client-side validation.
+const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading, serverErrors }) => {
     const [formData, setFormData] = useState({
         name: '',
         category: '',
@@ -26,6 +30,12 @@ const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading }) =
             });
         }
     }, [initialData]);
+
+    useEffect(() => {
+        if (serverErrors && Object.keys(serverErrors).length > 0) {
+            setErrors((prev) => ({ ...prev, ...serverErrors }));
+        }
+    }, [serverErrors]);
 
     const handleChange = (e) => {
         const { name, value } = e.target;
@@ -122,17 +132,19 @@ const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading }) =
             />
 
             {!isEdit && formData.amount && parseFloat(formData.amount) > 0 && (
-                <div className="p-3 bg-amber-50 rounded-lg">
-                    <p className="text-sm text-amber-700">
-                        ⚠️ This expense will deduct <strong>Rs. {parseFloat(formData.amount).toFixed(2)}</strong> from cash in hand
+                <div className="flex items-start gap-2.5 p-3 bg-warning-50 rounded-xl border border-warning-100">
+                    <AlertTriangle className="w-4 h-4 text-warning-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-warning-700">
+                        This expense will deduct <strong>Rs. {parseFloat(formData.amount).toFixed(2)}</strong> from cash in hand.
                     </p>
                 </div>
             )}
 
             {isEdit && formData.amount && parseFloat(formData.amount) > 0 && (
-                <div className="p-3 bg-blue-50 rounded-lg">
-                    <p className="text-sm text-blue-700">
-                        ℹ️ Updating amount will adjust cash in hand by the difference
+                <div className="flex items-start gap-2.5 p-3 bg-info-50 rounded-xl border border-info-100">
+                    <Info className="w-4 h-4 text-info-500 flex-shrink-0 mt-0.5" />
+                    <p className="text-sm text-info-700">
+                        Updating the amount will adjust cash in hand by the difference.
                     </p>
                 </div>
             )}
@@ -155,6 +167,7 @@ ExpenseForm.propTypes = {
     onSubmit: PropTypes.func.isRequired,
     onCancel: PropTypes.func.isRequired,
     loading: PropTypes.bool,
+    serverErrors: PropTypes.object,
 };
 
 export default ExpenseForm;

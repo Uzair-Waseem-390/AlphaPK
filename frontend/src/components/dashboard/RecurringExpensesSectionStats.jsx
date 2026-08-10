@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
+import { Banknote, Hourglass, Repeat } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -27,7 +28,7 @@ const RecurringExpensesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Total Paid"
                     value={stats?.total_paid_amount}
-                    icon="💵"
+                    icon={Banknote}
                     color="green"
                     subtitle="All-time"
                     onClick={goToRecurringExpenses}
@@ -35,7 +36,7 @@ const RecurringExpensesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Total Pending"
                     value={stats?.total_pending_amount}
-                    icon="⏳"
+                    icon={Hourglass}
                     color="amber"
                     subtitle="Assigned minus paid"
                     onClick={goToRecurringExpenses}
@@ -43,7 +44,7 @@ const RecurringExpensesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Active Monthly Obligation"
                     value={stats?.total_active_monthly_obligation}
-                    icon="🔁"
+                    icon={Repeat}
                     color="purple"
                     subtitle="If everything were assigned this month"
                     onClick={goToRecurringExpenses}

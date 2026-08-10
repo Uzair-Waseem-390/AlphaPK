@@ -1,6 +1,7 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import { RotateCcw, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { billingApi } from '../../services/billingApi';
 import Table from '../../components/ui/Table';
@@ -10,6 +11,8 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 const ReturnsPage = () => {
@@ -24,7 +27,7 @@ const ReturnsPage = () => {
     // separate search params, but searchTerm here can match any of those, so we
     // still filter the fetched page locally against all 3 fields.
     const {
-        data: rawReturns, meta, page, setPage, loading,
+        data: rawReturns, meta, page, setPage, loading, initialLoading, error, refetch,
         filters, setFilters,
     } = usePaginatedList((params) => billingApi.returns.getAll(params), {});
 
@@ -38,6 +41,8 @@ const ReturnsPage = () => {
             );
         })
         : rawReturns;
+
+    const hasActiveFilters = Object.keys(filters).length > 0 || !!searchTerm;
 
     const handleSearch = (value) => {
         setSearchTerm(value);
@@ -117,7 +122,7 @@ const ReturnsPage = () => {
         { name: 'date_to', label: 'Date To', type: 'date' },
     ];
 
-    if (loading) {
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -127,18 +132,30 @@ const ReturnsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Returns</h1>
-                <p className="text-neutral-500 mt-1">
-                    View all customer returns across all invoices
-                </p>
-                <p className="text-sm text-neutral-400 mt-1">
-                    {returns.length} return{returns.length !== 1 ? 's' : ''} found
-                </p>
-            </div>
+            <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex items-center gap-3"
+            >
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                    <RotateCcw className="w-5 h-5 text-white" />
+                </div>
+                <div>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Returns</h1>
+                    <p className="text-sm text-neutral-500 mt-0.5">
+                        View all customer returns across all invoices
+                        {!loading && (
+                            <span className="text-neutral-400"> &middot; {returns.length} found</span>
+                        )}
+                    </p>
+                </div>
+            </motion.div>
+
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -147,22 +164,20 @@ const ReturnsPage = () => {
                             value={searchTerm}
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-2">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {hasActiveFilters && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -175,29 +190,31 @@ const ReturnsPage = () => {
             </div>
 
             {returns.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">↩️</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Returns Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        {Object.keys(filters).length > 0 || searchTerm ? 'Try adjusting your search or filters' : 'No returns have been created yet.'}
-                    </p>
-                </div>
+                <EmptyState
+                    title="No returns found"
+                    description={hasActiveFilters ? 'Try adjusting your search or filters' : 'No returns have been created yet.'}
+                />
             ) : (
-                <>
+                <motion.div
+                    initial={{ opacity: 0, y: 10 }}
+                    animate={{ opacity: 1, y: 0 }}
+                    transition={{ duration: 0.3 }}
+                    className="bg-white rounded-2xl shadow-card border border-neutral-200 overflow-hidden"
+                >
                     <Table
                         columns={columns}
                         data={returns}
                         onRowClick={handleRowClick}
                     />
+                </motion.div>
+            )}
 
-                    {meta.totalPages > 1 && (
-                        <Pagination
-                            currentPage={meta.currentPage}
-                            totalPages={meta.totalPages}
-                            onPageChange={setPage}
-                        />
-                    )}
-                </>
+            {meta.totalPages > 1 && (
+                <Pagination
+                    currentPage={meta.currentPage}
+                    totalPages={meta.totalPages}
+                    onPageChange={setPage}
+                />
             )}
         </div>
     );

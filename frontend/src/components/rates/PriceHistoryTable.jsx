@@ -2,6 +2,7 @@ import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import PriceChangeBadge from './PriceChangeBadge';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import EmptyState from '../ui/EmptyState';
 
 const PriceHistoryTable = ({ history, loading }) => {
     if (loading) {
@@ -13,15 +14,7 @@ const PriceHistoryTable = ({ history, loading }) => {
     }
 
     if (history.length === 0) {
-        return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">📊</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Price History</h3>
-                <p className="text-sm text-neutral-500 mt-1">
-                    This product has no price change history yet.
-                </p>
-            </div>
-        );
+        return <EmptyState title="No price history" description="This product has no price change history yet." />;
     }
 
     // Calculate price changes

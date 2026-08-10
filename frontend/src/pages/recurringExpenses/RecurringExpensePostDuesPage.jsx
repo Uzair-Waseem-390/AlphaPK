@@ -1,14 +1,19 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { CalendarCheck2, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useRecurringExpensePendingDues } from '../../hooks/useRecurringExpenses';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Select from '../../components/ui/Select';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -19,7 +24,7 @@ const currentMonth = () => new Date().toISOString().slice(0, 7);
 
 const RecurringExpensePostDuesPage = () => {
     const { user } = useAuth();
-    const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [period, setPeriod] = useState(currentMonth());
@@ -59,14 +64,17 @@ const RecurringExpensePostDuesPage = () => {
         setBulkResult(null);
     };
 
-    const handleAssignOne = async (templateId) => {
+    const handleAssignOne = async (template) => {
         setActionError('');
-        setAssigningId(templateId);
+        setAssigningId(template.id);
         try {
-            await recurringExpensesApi.assignments.create({ recurring_expense: templateId, period });
+            await recurringExpensesApi.assignments.create({ recurring_expense: template.id, period });
             await refetch();
+            toast.success(`Posted "${template.name}" for ${period}`);
         } catch (error) {
-            setActionError(error.response?.data?.period?.[0] || error.response?.data?.detail || 'Failed to assign');
+            // Most common failure here is a conflict — this template already has
+            // an assignment for the period (unique constraint in the backend).
+            setActionError(extractErrorMessage(error, 'Failed to assign'));
         } finally {
             setAssigningId(null);
         }
@@ -81,8 +89,14 @@ const RecurringExpensePostDuesPage = () => {
             const result = await recurringExpensesApi.assignments.bulkCreate(payload);
             setBulkResult(result);
             await refetch();
+            const createdCount = result.created?.length ?? 0;
+            if (result.failed?.length > 0) {
+                toast.warning(`Posted ${createdCount}, ${result.failed.length} failed — see details below.`);
+            } else if (createdCount > 0) {
+                toast.success(`Posted ${createdCount} due${createdCount === 1 ? '' : 's'} for ${period}`);
+            }
         } catch (error) {
-            setActionError(error.response?.data?.detail || 'Failed to bulk-assign');
+            setActionError(extractErrorMessage(error, 'Failed to bulk-assign'));
         } finally {
             setBulkLoading(false);
         }
@@ -97,7 +111,7 @@ const RecurringExpensePostDuesPage = () => {
             label: 'Actions',
             width: '120px',
             render: (_v, row) => (
-                <Button size="sm" loading={assigningId === row.id} onClick={() => handleAssignOne(row.id)}>
+                <Button size="sm" loading={assigningId === row.id} onClick={() => handleAssignOne(row)}>
                     Post
                 </Button>
             ),
@@ -106,9 +120,12 @@ const RecurringExpensePostDuesPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can post recurring expense dues.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can post recurring expense dues.</p>
             </div>
         );
     }
@@ -116,11 +133,9 @@ const RecurringExpensePostDuesPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/recurring-expenses" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Recurring Expenses
-                </Link>
+                <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
                 <h1 className="text-3xl font-bold text-neutral-900 mt-1">Post Dues</h1>
-                <p className="text-neutral-500 mt-1">
+                <p className="text-neutral-500 mt-1 max-w-2xl">
                     Assigning a month's due never moves cash by itself — it only becomes a payable balance.
                     Record an actual payment from the Assignments page once it's paid.
                 </p>
@@ -142,24 +157,27 @@ const RecurringExpensePostDuesPage = () => {
                     placeholder="All categories"
                     className="w-56"
                 />
-                <Button loading={bulkLoading} onClick={handleBulkAssign} disabled={pending.length === 0}>
+                <Button loading={bulkLoading} onClick={handleBulkAssign} disabled={pending.length === 0} icon={CalendarCheck2}>
                     {categoryId ? `Post All in Category` : 'Post All Due'}
                 </Button>
             </div>
 
             {actionError && (
-                <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{actionError}</p>
-                </div>
+                <InlineAlert variant="error" title="Couldn't post due" message={actionError} />
             )}
 
             {bulkResult && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                    Posted {bulkResult.created?.length ?? 0} due{bulkResult.created?.length === 1 ? '' : 's'} for {period}.
-                    {bulkResult.failed?.length > 0 && (
-                        <span className="text-error-600"> {bulkResult.failed.length} failed: {bulkResult.failed.map((f) => f.name).join(', ')}.</span>
-                    )}
-                </div>
+                <InlineAlert
+                    variant={bulkResult.failed?.length > 0 ? 'warning' : 'success'}
+                    message={
+                        <>
+                            Posted {bulkResult.created?.length ?? 0} due{bulkResult.created?.length === 1 ? '' : 's'} for {period}.
+                            {bulkResult.failed?.length > 0 && (
+                                <> {bulkResult.failed.length} failed: {bulkResult.failed.map((f) => f.name).join(', ')}.</>
+                            )}
+                        </>
+                    }
+                />
             )}
 
             {loading ? (
@@ -167,13 +185,11 @@ const RecurringExpensePostDuesPage = () => {
                     <LoadingSpinner size="lg" />
                 </div>
             ) : pending.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">✅</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">Nothing Due</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Every active recurring expense{categoryId ? ' in this category' : ''} has already been assigned for {period}.
-                    </p>
-                </div>
+                <EmptyState
+                    icon={<CheckCircle2 className="w-8 h-8 text-success-500" />}
+                    title="Nothing Due"
+                    description={`Every active recurring expense${categoryId ? ' in this category' : ''} has already been assigned for ${period}.`}
+                />
             ) : (
                 <>
                     <Table columns={columns} data={pending} />

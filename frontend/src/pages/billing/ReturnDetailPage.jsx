@@ -1,110 +1,104 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import {
+    Undo2, CheckCircle2, XCircle, Pencil, FileText,
+    Package, Warehouse, Receipt, StickyNote,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { billingApi } from '../../services/billingApi';
 import { purchasesApi } from '../../services/purchasesApi';
+import { api } from '../../utils/api';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
 import InvoiceStatusBadge from '../../components/billing/InvoiceStatusBadge';
 import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 import ReturnForm from '../../components/billing/ReturnForm';
 
-// Pulls the clearest human-readable message out of a DRF error response.
-// Shelf-allocation errors come back keyed by "shelf_allocations" (a string),
-// not "detail" — so a plain `error.response?.data?.detail` lookup would miss
-// them and fall through to a generic message.
-const extractErrorMessage = (error, fallback) => {
-    const data = error?.response?.data;
-    if (!data) return fallback;
-    if (typeof data === 'string') return data;
-    if (data.detail) return Array.isArray(data.detail) ? data.detail[0] : data.detail;
-    if (data.shelf_allocations) {
-        return Array.isArray(data.shelf_allocations) ? data.shelf_allocations[0] : data.shelf_allocations;
-    }
-    const firstKey = Object.keys(data)[0];
-    if (firstKey) {
-        const val = data[firstKey];
-        return Array.isArray(val) ? val[0] : val;
-    }
-    return fallback;
-};
-
 const ReturnDetailPage = () => {
     const { returnId } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [returnItem, setReturnItem] = useState(null);
     const [invoice, setInvoice] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     // Per return-item shelf allocation UI state, keyed by return item id:
     // { allocations: [{shelf_id, quantity}], saving: bool, error: string }
     const [shelfState, setShelfState] = useState({});
     const [showEditForm, setShowEditForm] = useState(false);
     const [formLoading, setFormLoading] = useState(false);
+    const [showAcceptConfirm, setShowAcceptConfirm] = useState(false);
+    const [acceptLoading, setAcceptLoading] = useState(false);
+    const [showCancelConfirm, setShowCancelConfirm] = useState(false);
+    const [cancelLoading, setCancelLoading] = useState(false);
 
     useEffect(() => {
         fetchReturnDetails();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [returnId]);
 
     const fetchReturnDetails = async () => {
         setLoading(true);
+        setLoadError('');
         try {
-            // Get all returns to find the specific one
-            const returnsRes = await billingApi.returns.getAll({ page_size: 500 });
-            const allReturns = returnsRes?.results ?? returnsRes ?? [];
-            const foundReturn = allReturns.find(r => r.id === parseInt(returnId));
+            // Fetch the single return directly by id rather than paging
+            // through the full returns list looking for a match.
+            const foundReturn = await api.get(`/billing/returns/${returnId}/`);
+            setReturnItem(foundReturn);
 
-            if (foundReturn) {
-                setReturnItem(foundReturn);
-
-                // Fetch the full related invoice
-                try {
-                    const invoiceData = await billingApi.invoices.getById(foundReturn.invoice);
-                    setInvoice(invoiceData);
-                } catch (invoiceError) {
-                    console.error('Failed to fetch related invoice:', invoiceError);
-                    setInvoice(null);
-                }
-
-                // Pending returns need the shelf-allocation editor — put-away
-                // is valid to any active shelf, so it searches the full shelf
-                // list on demand (a large factory can have hundreds of
-                // shelves, so this is a live backend search, not a preloaded
-                // dropdown), seeded from whatever allocations are already saved.
-                if (foundReturn.status === 'pending' && foundReturn.items?.length) {
-                    setShelfState((prev) => {
-                        const next = {};
-                        foundReturn.items.forEach((item) => {
-                            next[item.id] = {
-                                allocations: (item.shelf_allocations || []).map((a) => ({
-                                    shelf_id: a.shelf_id,
-                                    quantity: a.quantity,
-                                    shelf_name: a.shelf_name,
-                                })),
-                                saving: false,
-                                error: prev[item.id]?.error || '',
-                            };
-                        });
-                        return next;
-                    });
-                } else {
-                    setShelfState({});
-                }
-            } else {
-                setReturnItem(null);
+            // Fetch the full related invoice
+            try {
+                const invoiceData = await billingApi.invoices.getById(foundReturn.invoice);
+                setInvoice(invoiceData);
+            } catch (invoiceError) {
+                console.error('Failed to fetch related invoice:', invoiceError);
                 setInvoice(null);
+            }
+
+            // Pending returns need the shelf-allocation editor — put-away
+            // is valid to any active shelf, so it searches the full shelf
+            // list on demand (a large factory can have hundreds of
+            // shelves, so this is a live backend search, not a preloaded
+            // dropdown), seeded from whatever allocations are already saved.
+            if (foundReturn.status === 'pending' && foundReturn.items?.length) {
+                setShelfState((prev) => {
+                    const next = {};
+                    foundReturn.items.forEach((item) => {
+                        next[item.id] = {
+                            allocations: (item.shelf_allocations || []).map((a) => ({
+                                shelf_id: a.shelf_id,
+                                quantity: a.quantity,
+                                shelf_name: a.shelf_name,
+                            })),
+                            saving: false,
+                            error: prev[item.id]?.error || '',
+                        };
+                    });
+                    return next;
+                });
+            } else {
+                setShelfState({});
             }
         } catch (error) {
             console.error('Failed to fetch return details:', error);
             setReturnItem(null);
             setInvoice(null);
+            if (error?.response?.status !== 404) {
+                setLoadError(extractErrorMessage(error, 'Failed to load return details.'));
+            }
         } finally {
             setLoading(false);
         }
@@ -133,6 +127,7 @@ const ReturnDetailPage = () => {
                 .filter((a) => a.shelf_id !== '' && a.quantity !== '')
                 .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
             await billingApi.returnItems.setShelfAllocations(itemId, allocations);
+            toast.success('Shelf allocations saved.');
             await fetchReturnDetails();
         } catch (error) {
             console.error('Failed to save shelf allocations:', error);
@@ -145,15 +140,17 @@ const ReturnDetailPage = () => {
     };
 
     const handleAcceptReturn = async () => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
+        setAcceptLoading(true);
         try {
             await billingApi.returns.accept(returnId);
-            // Refresh the return details
+            setShowAcceptConfirm(false);
+            toast.success('Return accepted successfully.');
             await fetchReturnDetails();
-            alert('Return accepted successfully!');
         } catch (error) {
             console.error('Failed to accept return:', error);
-            alert(extractErrorMessage(error, 'Failed to accept return.'));
+            toast.error(extractErrorMessage(error, 'Failed to accept return.'));
+        } finally {
+            setAcceptLoading(false);
         }
     };
 
@@ -162,24 +159,28 @@ const ReturnDetailPage = () => {
         try {
             await billingApi.returns.update(returnId, data);
             setShowEditForm(false);
+            toast.success('Return updated successfully.');
             await fetchReturnDetails();
         } catch (error) {
             console.error('Failed to update return:', error);
-            alert(extractErrorMessage(error, 'Failed to update return.'));
+            toast.error(extractErrorMessage(error, 'Failed to update return.'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleCancelReturn = async () => {
-        if (!window.confirm('Cancel this return? This cannot be undone.')) return;
+        setCancelLoading(true);
         try {
             await billingApi.returns.cancel(returnId);
-            alert('Return cancelled.');
+            toast.success('Return cancelled.');
             navigate('/billing/returns');
         } catch (error) {
             console.error('Failed to cancel return:', error);
-            alert(extractErrorMessage(error, 'Failed to cancel return.'));
+            toast.error(extractErrorMessage(error, 'Failed to cancel return.'));
+            setShowCancelConfirm(false);
+        } finally {
+            setCancelLoading(false);
         }
     };
 
@@ -226,54 +227,64 @@ const ReturnDetailPage = () => {
 
     if (!returnItem) {
         return (
-            <div className="text-center py-12">
-                <h2 className="text-2xl font-semibold text-neutral-900">Return Not Found</h2>
-                <p className="text-neutral-500 mt-1">The return you're looking for doesn't exist.</p>
-                <Link to="/billing/returns" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Returns
-                </Link>
+            <div className="space-y-4">
+                {loadError && <InlineAlert variant="error" message={loadError} onRetry={fetchReturnDetails} />}
+                <div className="text-center py-12">
+                    <h2 className="text-2xl font-semibold text-neutral-900">Return Not Found</h2>
+                    <p className="text-neutral-500 mt-1">The return you're looking for doesn't exist.</p>
+                    <BackLink to="/billing/returns" className="mt-4">Back to Returns</BackLink>
+                </div>
             </div>
         );
     }
 
+    const isPendingAdmin = returnItem.status === 'pending' && isAdmin;
+
     return (
         <div className="space-y-6">
-            <div className="flex items-center justify-between">
+            <motion.div
+                initial={{ opacity: 0, y: -10 }}
+                animate={{ opacity: 1, y: 0 }}
+                transition={{ duration: 0.3 }}
+                className="flex flex-col sm:flex-row sm:items-center justify-between gap-4"
+            >
                 <div>
-                    <Link to="/billing/returns" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Returns
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Return Details</h1>
-                    <div className="flex items-center gap-3 mt-1">
-                        <p className="text-neutral-500">{returnItem.reference_number}</p>
-                        {getStatusBadge(returnItem.status)}
+                    <BackLink to="/billing/returns">Back to Returns</BackLink>
+                    <div className="flex items-center gap-3 mt-2">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                            <Undo2 className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{returnItem.reference_number}</h1>
+                            <div className="flex items-center gap-2 mt-0.5">
+                                {getStatusBadge(returnItem.status)}
+                            </div>
+                        </div>
                     </div>
                 </div>
-                <div className="flex gap-2">
-                    {returnItem.status === 'pending' && isAdmin && (
-                        <>
-                            <Button variant="secondary" onClick={() => setShowEditForm(true)}>
-                                Edit
-                            </Button>
-                            <Button variant="danger" onClick={handleCancelReturn}>
-                                Cancel Return
-                            </Button>
-                            <Button variant="success" onClick={handleAcceptReturn}>
-                                Accept Return
-                            </Button>
-                        </>
-                    )}
-                    <Link to="/billing/returns">
-                        <Button variant="secondary">
-                            ← Back
+                {isPendingAdmin && (
+                    <div className="flex flex-wrap gap-2">
+                        <Button variant="secondary" onClick={() => setShowEditForm(true)} icon={Pencil}>
+                            Edit
                         </Button>
-                    </Link>
-                </div>
-            </div>
+                        <Button variant="danger" onClick={() => setShowCancelConfirm(true)} icon={XCircle}>
+                            Cancel Return
+                        </Button>
+                        <Button variant="success" onClick={() => setShowAcceptConfirm(true)} icon={CheckCircle2}>
+                            Accept Return
+                        </Button>
+                    </div>
+                )}
+            </motion.div>
+
+            {loadError && <InlineAlert variant="error" message={loadError} onRetry={fetchReturnDetails} />}
 
             {/* Return Information */}
             <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Return Information</h3>
+                <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                    <Receipt className="w-4 h-4 text-neutral-400" />
+                    Return Information
+                </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                         <p className="text-sm text-neutral-500">Return Number</p>
@@ -285,7 +296,7 @@ const ReturnDetailPage = () => {
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Total Return Amount</p>
-                        <p className="font-medium text-primary-600">
+                        <p className="font-semibold text-primary-600">
                             {displayReturnTotal().toFixed(2)}
                         </p>
                     </div>
@@ -307,7 +318,9 @@ const ReturnDetailPage = () => {
                     )}
                     {returnItem.note && (
                         <div className="col-span-full">
-                            <p className="text-sm text-neutral-500">Note</p>
+                            <p className="text-sm text-neutral-500 flex items-center gap-1.5">
+                                <StickyNote className="w-3.5 h-3.5" /> Note
+                            </p>
                             <p className="font-medium">{returnItem.note}</p>
                         </div>
                     )}
@@ -316,36 +329,39 @@ const ReturnDetailPage = () => {
 
             {/* Return Items */}
             <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Returned Items</h3>
+                <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-neutral-400" />
+                    Returned Items
+                </h3>
                 {returnItem.items && returnItem.items.length > 0 ? (
-                    <div className="overflow-x-auto">
-                        <table className="w-full">
+                    <div className="overflow-x-auto -mx-6 px-6">
+                        <table className="w-full min-w-[520px]">
                             <thead>
                                 <tr className="border-b border-neutral-200">
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Product</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Quantity</th>
-                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Unit Price</th>
-                                    <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Product</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Quantity</th>
+                                    <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Unit Price</th>
+                                    <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider">Total</th>
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-100">
                                 {returnItem.items.map((item, index) => (
                                     <tr key={item.id || index} className="hover:bg-neutral-50">
-                                        <td className="px-3 py-2 text-sm">{item.product_name}</td>
-                                        <td className="px-3 py-2 text-sm">{item.quantity}</td>
-                                        <td className="px-3 py-2 text-sm">
+                                        <td className="px-3 py-2.5 text-sm">{item.product_name}</td>
+                                        <td className="px-3 py-2.5 text-sm">{item.quantity}</td>
+                                        <td className="px-3 py-2.5 text-sm">
                                             {parseFloat(item.selling_price || 0).toFixed(2)}
                                         </td>
-                                        <td className="px-3 py-2 text-sm text-right font-medium">
+                                        <td className="px-3 py-2.5 text-sm text-right font-medium">
                                             {parseFloat(item.line_total || 0).toFixed(2)}
                                         </td>
                                     </tr>
                                 ))}
                             </tbody>
                             <tfoot className="border-t border-neutral-200">
-                                <tr className="text-lg">
-                                    <td colSpan="3" className="px-3 py-2 text-right font-bold">Total Return Amount:</td>
-                                    <td className="px-3 py-2 text-right font-bold text-primary-600">
+                                <tr className="text-base">
+                                    <td colSpan="3" className="px-3 py-3 text-right font-bold">Total Return Amount:</td>
+                                    <td className="px-3 py-3 text-right font-bold text-primary-600">
                                         {displayReturnTotal().toFixed(2)}
                                     </td>
                                 </tr>
@@ -360,13 +376,16 @@ const ReturnDetailPage = () => {
             {/* Shelf Allocation (put-away) - editable while pending, read-only afterwards */}
             {returnItem.items && returnItem.items.length > 0 && (
                 <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation (Put-Away)</h3>
+                    <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                        <Warehouse className="w-4 h-4 text-neutral-400" />
+                        Shelf Allocation (Put-Away)
+                    </h3>
                     {returnItem.status === 'pending' ? (
                         <div className="space-y-4">
                             {returnItem.items.map((item) => {
                                 const state = shelfState[item.id] || { allocations: [], saving: false, error: '' };
                                 return (
-                                    <div key={item.id} className="border border-neutral-200 rounded-lg p-4">
+                                    <div key={item.id} className="border border-neutral-200 rounded-xl p-4">
                                         <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
                                             <div>
                                                 <p className="font-medium">
@@ -374,7 +393,7 @@ const ReturnDetailPage = () => {
                                                     <span className="text-neutral-400 text-sm">({item.product_code})</span>
                                                 </p>
                                                 <p className="text-xs text-neutral-500">
-                                                    Quantity: {item.quantity} • Allocated: {item.allocated_quantity}
+                                                    Quantity: {item.quantity} &middot; Allocated: {item.allocated_quantity}
                                                 </p>
                                             </div>
                                         </div>
@@ -429,7 +448,10 @@ const ReturnDetailPage = () => {
             {/* Related Invoice */}
             {invoice && (
                 <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Related Invoice</h3>
+                    <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-neutral-400" />
+                        Related Invoice
+                    </h3>
                     <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                         <div>
                             <p className="text-sm text-neutral-500">Bill Number</p>
@@ -477,21 +499,6 @@ const ReturnDetailPage = () => {
                 </Card>
             )}
 
-            {/* Actions */}
-            {returnItem.status === 'pending' && isAdmin && (
-                <div className="flex gap-3 pt-4 border-t border-neutral-200">
-                    <Button variant="secondary" onClick={() => setShowEditForm(true)}>
-                        Edit
-                    </Button>
-                    <Button variant="danger" onClick={handleCancelReturn}>
-                        Cancel Return
-                    </Button>
-                    <Button variant="success" onClick={handleAcceptReturn}>
-                        Accept Return
-                    </Button>
-                </div>
-            )}
-
             {/* Edit Return Modal */}
             <Modal
                 isOpen={showEditForm}
@@ -509,6 +516,31 @@ const ReturnDetailPage = () => {
                     submitLabel="Save Changes"
                 />
             </Modal>
+
+            {/* Accept Return Confirm — irreversible: reverses FIFO cost, restores
+                inventory, and credits the customer's balance. */}
+            <ConfirmDialog
+                isOpen={showAcceptConfirm}
+                onClose={() => setShowAcceptConfirm(false)}
+                onConfirm={handleAcceptReturn}
+                title="Accept Return"
+                message={`Accept return ${returnItem.reference_number}? This restores inventory and credits the customer's balance. This action cannot be undone.`}
+                confirmText="Accept Return"
+                variant="primary"
+                loading={acceptLoading}
+            />
+
+            {/* Cancel Return Confirm */}
+            <ConfirmDialog
+                isOpen={showCancelConfirm}
+                onClose={() => setShowCancelConfirm(false)}
+                onConfirm={handleCancelReturn}
+                title="Cancel Return"
+                message={`Cancel return ${returnItem.reference_number}? This cannot be undone.`}
+                confirmText="Cancel Return"
+                variant="danger"
+                loading={cancelLoading}
+            />
         </div>
     );
 };

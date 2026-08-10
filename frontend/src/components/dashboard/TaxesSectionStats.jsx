@@ -1,5 +1,6 @@
 import PropTypes from 'prop-types';
 import { useNavigate } from 'react-router-dom';
+import { Calculator, Hourglass, Receipt, DollarSign, ArrowUpFromLine, ArrowDownToLine } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -28,7 +29,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Net Sales Tax Payable"
                     value={stats?.net_sales_tax_payable}
-                    icon="🧮"
+                    icon={Calculator}
                     color="amber"
                     subtitle="Output minus Input tax"
                     onClick={goToTaxes}
@@ -36,7 +37,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Sales Tax Outstanding"
                     value={stats?.sales_tax_outstanding}
-                    icon="⏳"
+                    icon={Hourglass}
                     color="red"
                     subtitle="Still to pay FBR"
                     onClick={goToTaxes}
@@ -44,7 +45,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Input Tax Paid"
                     value={stats?.total_input_tax_paid}
-                    icon="🧾"
+                    icon={Receipt}
                     color="blue"
                     subtitle="GST paid to suppliers"
                     onClick={goToTaxes}
@@ -52,7 +53,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="Output Tax Collected"
                     value={stats?.total_output_tax_collected}
-                    icon="💰"
+                    icon={DollarSign}
                     color="purple"
                     subtitle="GST charged to customers"
                     onClick={goToTaxes}
@@ -62,7 +63,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="WHT Withheld from Suppliers"
                     value={stats?.total_wht_withheld_from_suppliers}
-                    icon="📤"
+                    icon={ArrowUpFromLine}
                     color="orange"
                     subtitle="Info only — owed to FBR"
                     onClick={goToTaxes}
@@ -70,7 +71,7 @@ const TaxesSectionStats = ({ stats, loading }) => {
                 <StatCard
                     label="WHT Withheld by Customers"
                     value={stats?.total_wht_withheld_by_customers}
-                    icon="📥"
+                    icon={ArrowDownToLine}
                     color="green"
                     subtitle="Info only — your tax credit"
                     onClick={goToTaxes}

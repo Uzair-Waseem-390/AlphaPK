@@ -1,11 +1,28 @@
+import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { FileText } from 'lucide-react';
 import Button from '../ui/Button';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import EmptyState from '../ui/EmptyState';
+import ConfirmDialog from '../ui/ConfirmDialog';
 
 const SavedPDFDrawer = ({ isOpen, onClose, pdfs, onDelete, loading }) => {
-    const handleDownload = (url, fileName) => {
+    const [pendingDelete, setPendingDelete] = useState(null);
+    const [deleting, setDeleting] = useState(false);
+
+    const handleDownload = (url) => {
         window.open(url, '_blank');
+    };
+
+    const handleConfirmDelete = async () => {
+        setDeleting(true);
+        try {
+            await onDelete(pendingDelete);
+            setPendingDelete(null);
+        } finally {
+            setDeleting(false);
+        }
     };
 
     return (
@@ -46,10 +63,11 @@ const SavedPDFDrawer = ({ isOpen, onClose, pdfs, onDelete, loading }) => {
                                     <LoadingSpinner />
                                 </div>
                             ) : pdfs.length === 0 ? (
-                                <div className="text-center py-8">
-                                    <div className="text-4xl mb-2">📄</div>
-                                    <p className="text-neutral-500">No saved PDFs</p>
-                                </div>
+                                <EmptyState
+                                    icon={<FileText className="w-10 h-10 text-neutral-400" />}
+                                    title="No saved PDFs"
+                                    description="Saved PDFs for this ledger will appear here"
+                                />
                             ) : (
                                 <div className="space-y-3">
                                     {pdfs.map((pdf) => (
@@ -77,8 +95,8 @@ const SavedPDFDrawer = ({ isOpen, onClose, pdfs, onDelete, loading }) => {
                                                         Download
                                                     </button>
                                                     <button
-                                                        onClick={() => onDelete(pdf.id)}
-                                                        className="text-error-600 hover:text-error-700 text-sm"
+                                                        onClick={() => setPendingDelete(pdf.id)}
+                                                        className="text-error-600 hover:text-error-700 text-sm cursor-pointer"
                                                     >
                                                         Delete
                                                     </button>
@@ -92,6 +110,17 @@ const SavedPDFDrawer = ({ isOpen, onClose, pdfs, onDelete, loading }) => {
                     </motion.div>
                 </>
             )}
+
+            <ConfirmDialog
+                isOpen={pendingDelete !== null}
+                onClose={() => setPendingDelete(null)}
+                onConfirm={handleConfirmDelete}
+                title="Delete PDF"
+                message="Are you sure you want to delete this saved PDF? This action cannot be undone."
+                confirmText="Delete PDF"
+                variant="danger"
+                loading={deleting}
+            />
         </AnimatePresence>
     );
 };

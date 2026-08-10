@@ -1,29 +1,39 @@
 import { useState, useEffect, useCallback, useMemo } from 'react';
-import { dataEntryApi, extractApiError } from '../../services/dataEntryApi';
+import { Truck, FileText, PlusCircle } from 'lucide-react';
+import { dataEntryApi } from '../../services/dataEntryApi';
 import { purchasesApi } from '../../services/purchasesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
+import { useToast } from '../../context/ToastContext';
+import { getFieldError } from './fieldError';
 import Card from '../ui/Card';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
 import SearchableSelect from '../ui/SearchableSelect';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import InlineAlert from '../ui/InlineAlert';
+import EmptyState from '../ui/EmptyState';
+import Table from '../ui/Table';
 
 const fmt = (v) => Number(v || 0).toFixed(2);
 
 const SupplierOpeningBalancePanel = () => {
+    const { toast } = useToast();
     const [selectedSupplierLabel, setSelectedSupplierLabel] = useState('');
     const [records, setRecords] = useState([]);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [saving, setSaving] = useState(false);
     const [form, setForm] = useState({ supplier_id: '', amount: '', note: '' });
-    const [error, setError] = useState('');
-    const [success, setSuccess] = useState('');
+    const [fieldErrors, setFieldErrors] = useState({});
+    const [bannerError, setBannerError] = useState('');
 
     const loadRecords = useCallback(async () => {
         try {
             const res = await dataEntryApi.supplierOpeningBalance.getAll({ page_size: 500 });
             setRecords(res?.results ?? res ?? []);
-        } catch {
-            setRecords([]);
+            setLoadError('');
+        } catch (err) {
+            setLoadError(extractErrorMessage(err, 'Failed to load supplier opening balances.'));
         }
     }, []);
 
@@ -50,9 +60,14 @@ const SupplierOpeningBalancePanel = () => {
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setError(''); setSuccess('');
-        if (!form.supplier_id) return setError('Please select a supplier.');
-        if (!form.amount || parseFloat(form.amount) <= 0) return setError('Amount must be greater than 0.');
+        setFieldErrors({}); setBannerError('');
+        const errors = {};
+        if (!form.supplier_id) errors.supplier = 'Please select a supplier.';
+        if (!form.amount || parseFloat(form.amount) <= 0) errors.amount = 'Amount must be greater than 0.';
+        if (Object.keys(errors).length) {
+            setFieldErrors(errors);
+            return;
+        }
         setSaving(true);
         try {
             await dataEntryApi.supplierOpeningBalance.create({
@@ -60,25 +75,48 @@ const SupplierOpeningBalancePanel = () => {
                 amount: form.amount,
                 note: form.note,
             });
-            setSuccess('Supplier opening balance recorded.');
+            toast.success('Supplier opening balance recorded.');
             setForm({ supplier_id: '', amount: '', note: '' });
             setSelectedSupplierLabel('');
             await loadRecords();
         } catch (err) {
-            setError(extractApiError(err, 'Failed to record opening balance.'));
+            const supplierErr = getFieldError(err, 'supplier_id', 'supplier');
+            const amountErr = getFieldError(err, 'amount');
+            const noteErr = getFieldError(err, 'note');
+            if (supplierErr || amountErr || noteErr) {
+                setFieldErrors({ supplier: supplierErr, amount: amountErr, note: noteErr });
+            } else {
+                setBannerError(extractErrorMessage(err, 'Failed to record opening balance.'));
+            }
         } finally {
             setSaving(false);
         }
     };
 
+    const columns = [
+        {
+            key: 'supplier_name', label: 'Supplier', render: (v, row) => (
+                <span>{v} <span className="text-neutral-400">({row.supplier_code})</span></span>
+            ),
+        },
+        { key: 'amount', label: 'Amount', render: (v) => <span className="font-medium text-neutral-900">{fmt(v)}</span> },
+        { key: 'order_number', label: 'Order', render: (v) => v || '—' },
+        { key: 'created_at', label: 'Date', render: (v) => new Date(v).toLocaleDateString() },
+    ];
+
     if (loading) {
-        return <div className="flex justify-center py-12"><LoadingSpinner size="lg" /></div>;
+        return <div className="flex justify-center py-16"><LoadingSpinner size="lg" /></div>;
     }
 
     return (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
             <Card hover={false}>
-                <h3 className="font-semibold text-neutral-900 mb-4">New Supplier Opening Balance</h3>
+                <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0">
+                        <Truck className="w-5 h-5 text-primary-600" />
+                    </div>
+                    <h3 className="font-semibold text-neutral-900">New Supplier Opening Balance</h3>
+                </div>
                 <form onSubmit={handleSubmit} className="space-y-4">
                     <SearchableSelect
                         label="Supplier"
@@ -90,6 +128,7 @@ const SupplierOpeningBalancePanel = () => {
                         }}
                         onSearch={searchSuppliers}
                         placeholder="Search supplier..."
+                        error={fieldErrors.supplier}
                         required
                     />
                     <Input
@@ -98,6 +137,7 @@ const SupplierOpeningBalancePanel = () => {
                         value={form.amount}
                         onChange={(e) => setForm(f => ({ ...f, amount: e.target.value }))}
                         placeholder="Amount we owe this supplier"
+                        error={fieldErrors.amount}
                         required
                     />
                     <Input
@@ -105,39 +145,31 @@ const SupplierOpeningBalancePanel = () => {
                         value={form.note}
                         onChange={(e) => setForm(f => ({ ...f, note: e.target.value }))}
                         placeholder="Reference / remarks"
+                        error={fieldErrors.note}
                     />
-                    {error && <p className="text-sm text-error-600">{error}</p>}
-                    {success && <p className="text-sm text-success-600">{success}</p>}
-                    <Button type="submit" loading={saving}>Record Opening Balance</Button>
+                    {bannerError && <InlineAlert variant="error" message={bannerError} />}
+                    <Button type="submit" loading={saving} icon={PlusCircle} className="w-full sm:w-auto">
+                        Record Opening Balance
+                    </Button>
                 </form>
             </Card>
 
             <Card hover={false}>
-                <h3 className="font-semibold text-neutral-900 mb-4">Recorded ({records.length})</h3>
+                <div className="flex items-center gap-3 mb-5">
+                    <div className="w-10 h-10 rounded-xl bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                        <FileText className="w-5 h-5 text-neutral-500" />
+                    </div>
+                    <h3 className="font-semibold text-neutral-900">Recorded ({records.length})</h3>
+                </div>
+                {loadError && <InlineAlert variant="error" message={loadError} onRetry={loadRecords} className="mb-4" />}
                 {records.length === 0 ? (
-                    <p className="text-sm text-neutral-500 py-4 text-center">No supplier opening balances yet.</p>
+                    <EmptyState
+                        title="No supplier opening balances yet"
+                        description="Recorded balances will appear here for audit."
+                    />
                 ) : (
-                    <div className="overflow-x-auto max-h-[420px] overflow-y-auto">
-                        <table className="w-full text-sm">
-                            <thead>
-                                <tr className="border-b border-neutral-200 text-left text-xs text-neutral-500">
-                                    <th className="py-2 pr-3">Supplier</th>
-                                    <th className="py-2 pr-3 text-right">Amount</th>
-                                    <th className="py-2 pr-3">Order</th>
-                                    <th className="py-2">Date</th>
-                                </tr>
-                            </thead>
-                            <tbody className="divide-y divide-neutral-100">
-                                {records.map(r => (
-                                    <tr key={r.id}>
-                                        <td className="py-2 pr-3">{r.supplier_name} <span className="text-neutral-400">({r.supplier_code})</span></td>
-                                        <td className="py-2 pr-3 text-right font-medium">{fmt(r.amount)}</td>
-                                        <td className="py-2 pr-3 text-neutral-500">{r.order_number}</td>
-                                        <td className="py-2 text-neutral-500">{new Date(r.created_at).toLocaleDateString()}</td>
-                                    </tr>
-                                ))}
-                            </tbody>
-                        </table>
+                    <div className="max-h-[420px] overflow-y-auto">
+                        <Table columns={columns} data={records} />
                     </div>
                 )}
             </Card>

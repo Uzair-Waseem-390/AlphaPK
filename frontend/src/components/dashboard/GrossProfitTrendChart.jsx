@@ -1,9 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import PropTypes from 'prop-types';
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer } from 'recharts';
 import Card from '../ui/Card';
 import Select from '../ui/Select';
 import LoadingSpinner from '../ui/LoadingSpinner';
+import InlineAlert from '../ui/InlineAlert';
 import { cashFlowApi } from '../../services/cashFlowApi';
 
 const MONTHS_OPTIONS = [
@@ -61,26 +62,27 @@ const GrossProfitTrendChart = () => {
     const [error, setError] = useState('');
     const [months, setMonths] = useState(6);
 
-    useEffect(() => {
-        const fetchTrend = async () => {
-            setLoading(true);
-            setError('');
-            try {
-                const from = new Date();
-                from.setMonth(from.getMonth() - (months - 1));
-                from.setDate(1);
-                const date_from = from.toISOString().slice(0, 10);
-                const result = await cashFlowApi.grossProfitTrend.get({ date_from });
-                setData(result || []);
-            } catch (err) {
-                setError(err.message || 'Failed to load gross profit trend');
-                setData([]);
-            } finally {
-                setLoading(false);
-            }
-        };
-        fetchTrend();
+    const fetchTrend = useCallback(async () => {
+        setLoading(true);
+        setError('');
+        try {
+            const from = new Date();
+            from.setMonth(from.getMonth() - (months - 1));
+            from.setDate(1);
+            const date_from = from.toISOString().slice(0, 10);
+            const result = await cashFlowApi.grossProfitTrend.get({ date_from });
+            setData(result || []);
+        } catch (err) {
+            setError(err.message || 'Failed to load gross profit trend');
+            setData([]);
+        } finally {
+            setLoading(false);
+        }
     }, [months]);
+
+    useEffect(() => {
+        fetchTrend();
+    }, [fetchTrend]);
 
     return (
         <Card className="p-6">
@@ -100,9 +102,7 @@ const GrossProfitTrendChart = () => {
             </div>
 
             {error && (
-                <div className="p-4 bg-error-50 border border-error-200 rounded-lg mb-4">
-                    <p className="text-sm text-error-600">{error}</p>
-                </div>
+                <InlineAlert variant="error" message={error} onRetry={fetchTrend} className="mb-4" />
             )}
 
             {loading ? (

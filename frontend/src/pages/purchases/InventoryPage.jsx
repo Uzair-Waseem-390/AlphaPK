@@ -2,6 +2,8 @@ import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { purchasesApi } from '../../services/purchasesApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Table from '../../components/ui/Table';
@@ -13,10 +15,12 @@ import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
 
 const InventoryPage = () => {
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [searchTerm, setSearchTerm] = useState('');
@@ -70,6 +74,7 @@ const InventoryPage = () => {
             setStats(data);
         } catch (error) {
             console.error('Failed to load inventory stats:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load inventory stats'));
         }
     };
 
@@ -112,6 +117,7 @@ const InventoryPage = () => {
             setCategories(cats.filter(c => !c.is_deleted));
         } catch (error) {
             console.error('Failed to load lookups:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load categories'));
         }
     };
 
@@ -152,6 +158,7 @@ const InventoryPage = () => {
             setProductDetail(detail);
         } catch (error) {
             console.error('Failed to fetch product details:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load product details'));
             setProductDetail(null);
         } finally {
             setDetailLoading(false);
@@ -161,6 +168,7 @@ const InventoryPage = () => {
             setShelfBreakdown(shelves?.results || shelves || []);
         } catch (error) {
             console.error('Failed to fetch shelf breakdown:', error);
+            toast.error(extractErrorMessage(error, 'Failed to load shelf breakdown'));
             setShelfBreakdown([]);
         } finally {
             setShelfBreakdownLoading(false);
@@ -351,13 +359,7 @@ const InventoryPage = () => {
             )}
 
             {inventory.length === 0 && !loading && (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📦</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Inventory Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Try adjusting your search or filters
-                    </p>
-                </div>
+                <EmptyState title="No inventory found" description="Try adjusting your search or filters" />
             )}
 
             {/* Inventory Detail Modal */}

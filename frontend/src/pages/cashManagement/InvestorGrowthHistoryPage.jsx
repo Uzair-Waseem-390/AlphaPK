@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
-import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
+import { TrendingUp, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useInvestorValuationEntries } from '../../hooks/useCashManagement';
 import { cashManagementApi } from '../../services/cashManagementApi';
@@ -8,6 +9,9 @@ import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -23,16 +27,16 @@ const InvestorGrowthHistoryPage = () => {
     const initialInvestorId = location.state?.investor_id;
 
     const {
-        data: entries, meta, page, setPage, loading, filters, setFilters,
+        data: entries, meta, page, setPage, loading, error, filters, setFilters, refetch,
     } = useInvestorValuationEntries(initialInvestorId ? { investor_id: initialInvestorId } : {});
 
     const [showFilters, setShowFilters] = useState(!!initialInvestorId);
     const [investors, setInvestors] = useState([]);
 
     useEffect(() => {
-        cashManagementApi.investors.getAll({ page_size: 500 }).then((res) => {
-            setInvestors(res?.results ?? res ?? []);
-        });
+        cashManagementApi.investors.getAll({ page_size: 500 })
+            .then((res) => setInvestors(res?.results ?? res ?? []))
+            .catch(() => setInvestors([]));
     }, []);
 
     const handleApplyFilters = (values) => setFilters(values);
@@ -62,7 +66,7 @@ const InvestorGrowthHistoryPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view investor growth history.</p>
             </div>
@@ -72,39 +76,42 @@ const InvestorGrowthHistoryPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/cash-management/investors" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Investors
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Investor Growth History</h1>
+                <BackLink to="/cash-management/investors">Back to Investors</BackLink>
+                <div className="flex items-center gap-2.5 mt-2">
+                    <TrendingUp className="w-6 h-6 text-primary-600" />
+                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investor Growth History</h1>
+                </div>
                 <p className="text-neutral-500 mt-1">
                     Every monthly compounding entry ever posted, across all investors — informational only, never used for withdrawal validation.
                 </p>
             </div>
 
-            <div className="flex gap-4">
-                <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+            <div className="flex gap-3">
+                <Button variant="secondary" size="sm" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
                 {Object.keys(filters).length > 0 && (
-                    <Button variant="secondary" onClick={handleResetFilters}>Clear Filters</Button>
+                    <Button variant="secondary" size="sm" onClick={handleResetFilters}>Clear Filters</Button>
                 )}
             </div>
             {showFilters && (
                 <FilterBar filters={filterConfig} onApply={handleApplyFilters} onReset={handleResetFilters} />
             )}
 
+            {error && !loading && (
+                <InlineAlert variant="error" title="Couldn't load growth history" message={error} onRetry={refetch} />
+            )}
+
             {loading ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex items-center justify-center py-16">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : entries.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📈</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Growth Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Monthly growth entries appear automatically for investors with a growth rate set.
-                    </p>
-                </div>
+                <EmptyState
+                    icon={<TrendingUp className="w-8 h-8 text-neutral-400 mx-auto" />}
+                    title="No Growth Yet"
+                    description="Monthly growth entries appear automatically for investors with a growth rate set."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={entries} onRowClick={handleRowClick} />

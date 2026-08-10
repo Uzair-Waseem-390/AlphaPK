@@ -1,17 +1,31 @@
 export const colors = {
-    // Primary palette
+    // Primary palette — deep navy/slate, premium enterprise tone
     primary: {
-        50: '#eef2ff',
-        100: '#e0e7ff',
-        200: '#c7d2fe',
-        300: '#a5b4fc',
-        400: '#818cf8',
-        500: '#6366f1',
-        600: '#4f46e5',
-        700: '#4338ca',
-        800: '#3730a3',
-        900: '#312e81',
-        950: '#1e1b4b',
+        50: '#f0f4f8',
+        100: '#d9e2ec',
+        200: '#bcccdc',
+        300: '#9fb3c8',
+        400: '#627d98',
+        500: '#486581',
+        600: '#334e68',
+        700: '#243b53',
+        800: '#102a43',
+        900: '#0a1f33',
+        950: '#061627',
+    },
+    // Accent palette — used sparingly for CTAs, links, focus rings
+    accent: {
+        50: '#eff8ff',
+        100: '#daf0ff',
+        200: '#b6e1ff',
+        300: '#79caff',
+        400: '#35adff',
+        500: '#0b8fff',
+        600: '#0369a1',
+        700: '#065386',
+        800: '#0a4570',
+        900: '#0e395e',
+        950: '#09233d',
     },
     // Neutral palette
     neutral: {
@@ -55,8 +69,8 @@ export const colors = {
     // Gradients for premium feel
     gradients: {
         primary: 'bg-gradient-to-r from-primary-600 to-primary-800',
-        secondary: 'bg-gradient-to-r from-primary-500 to-indigo-600',
-        accent: 'bg-gradient-to-r from-indigo-500 to-purple-600',
+        secondary: 'bg-gradient-to-r from-primary-600 to-accent-600',
+        accent: 'bg-gradient-to-r from-accent-500 to-accent-700',
         success: 'bg-gradient-to-r from-emerald-500 to-teal-600',
         warning: 'bg-gradient-to-r from-amber-500 to-orange-600',
         error: 'bg-gradient-to-r from-rose-500 to-red-600',
@@ -65,9 +79,9 @@ export const colors = {
     },
     // Background colors
     background: {
-        primary: '#0f172a',
-        secondary: '#1e293b',
-        tertiary: '#334155',
+        primary: '#0a1f33',
+        secondary: '#102a43',
+        tertiary: '#243b53',
         light: '#f8fafc',
         white: '#ffffff',
     },

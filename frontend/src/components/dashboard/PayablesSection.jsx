@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { CreditCard, Tag, ShoppingCart, Package } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -25,28 +26,28 @@ const PayablesSection = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Total Paid Payables"
                     value={stats?.total_paid_payables}
-                    icon="💳"
+                    icon={CreditCard}
                     color="green"
                     onClick={() => onCardClick('paidPayables', 'Paid Payables Breakdown')}
                 />
                 <StatCard
                     label="Outstanding Payable"
                     value={stats?.total_outstanding_payable}
-                    icon="🏷️"
+                    icon={Tag}
                     color="red"
                     onClick={() => onCardClick('supplierOutstanding', 'Supplier Outstanding Breakdown')}
                 />
                 <StatCard
                     label="Total Purchases Cash"
                     value={stats?.total_purchases_cash}
-                    icon="🛒"
+                    icon={ShoppingCart}
                     color="blue"
                     onClick={() => onCardClick('purchases', 'Purchases Breakdown')}
                 />
                 <StatCard
                     label="Total Purchases"
                     value={stats?.total_number_of_purchases}
-                    icon="📦"
+                    icon={Package}
                     color="blue"
                     isCurrency={false}
                     onClick={() => onCardClick('purchases', 'Purchases Breakdown')}

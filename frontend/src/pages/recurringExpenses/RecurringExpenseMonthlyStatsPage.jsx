@@ -1,5 +1,6 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { CalendarRange, SlidersHorizontal, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRecurringExpenseMonthlyStats } from '../../hooks/useRecurringExpenses';
 import Badge from '../../components/ui/Badge';
@@ -8,6 +9,8 @@ import Table from '../../components/ui/Table';
 import Pagination from '../../components/ui/Pagination';
 import Button from '../../components/ui/Button';
 import FilterBar from '../../components/ui/FilterBar';
+import BackLink from '../../components/ui/BackLink';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -51,9 +54,12 @@ const RecurringExpenseMonthlyStatsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can view this.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can view this.</p>
             </div>
         );
     }
@@ -61,18 +67,16 @@ const RecurringExpenseMonthlyStatsPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/recurring-expenses" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Recurring Expenses
-                </Link>
+                <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
                 <h1 className="text-3xl font-bold text-neutral-900 mt-1">Monthly Breakdown</h1>
-                <p className="text-neutral-500 mt-1">
+                <p className="text-neutral-500 mt-1 max-w-2xl">
                     Assigned, paid, and pending totals per month — synced, not computed on the fly.
                     A payment always counts toward the month it was assigned for, no matter when it was actually paid.
                 </p>
             </div>
 
             <div className="flex gap-4">
-                <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+                <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
                 {Object.keys(filters).length > 0 && (
@@ -88,11 +92,11 @@ const RecurringExpenseMonthlyStatsPage = () => {
                     <LoadingSpinner size="lg" />
                 </div>
             ) : stats.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📅</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No History Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Post a month's dues to start building this breakdown.</p>
-                </div>
+                <EmptyState
+                    icon={<CalendarRange className="w-8 h-8 text-neutral-400" />}
+                    title="No History Yet"
+                    description="Post a month's dues to start building this breakdown."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={stats} onRowClick={handleRowClick} />

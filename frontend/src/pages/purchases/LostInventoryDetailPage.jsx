@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { purchasesApi } from '../../services/purchasesApi';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import InlineAlert from '../../components/ui/InlineAlert';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+import BackLink from '../../components/ui/BackLink';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -140,11 +144,7 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
                         />
                     </div>
 
-                    {error && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600 whitespace-pre-wrap">{error}</p>
-                        </div>
-                    )}
+                    {error && <InlineAlert variant="error" message={error} />}
 
                     <div className="flex gap-3 pt-2">
                         <Button
@@ -161,7 +161,7 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
                             variant="success"
                             className="flex-1"
                             loading={loading}
-                            disabled={allocationMismatch || shelvesLoading}
+                            disabled={allocationMismatch}
                         >
                             Confirm Found
                         </Button>
@@ -177,12 +177,12 @@ const MarkFoundModal = ({ item, onClose, onSuccess }) => {
 const LostInventoryDetailPage = () => {
     const { recordId } = useParams();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [record, setRecord] = useState(null);
     const [loading, setLoading] = useState(true);
     const [modalItem, setModalItem] = useState(null);   // item to mark-as-found
-    const [successMsg, setSuccessMsg] = useState('');
 
     const fetchRecord = async () => {
         setLoading(true);
@@ -191,6 +191,7 @@ const LostInventoryDetailPage = () => {
             setRecord(data);
         } catch (err) {
             console.error('Failed to fetch lost inventory record:', err);
+            toast.error(extractErrorMessage(err, 'Failed to load lost inventory record'));
             setRecord(null);
         } finally {
             setLoading(false);
@@ -205,8 +206,7 @@ const LostInventoryDetailPage = () => {
         const itemName = modalItem?.product_name;
         setModalItem(null);
         await fetchRecord();
-        setSuccessMsg(`Stock restored for "${itemName}".`);
-        setTimeout(() => setSuccessMsg(''), 4000);
+        toast.success(`Stock restored for "${itemName}"`);
     };
 
     // ── guards ────────────────────────────────────────────────────────────────
@@ -216,9 +216,7 @@ const LostInventoryDetailPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view this page.</p>
-                <Link to="/purchases/lost-inventory/records" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Records
-                </Link>
+                <BackLink to="/purchases/lost-inventory/records" className="mt-4">Back to Records</BackLink>
             </div>
         );
     }
@@ -236,9 +234,7 @@ const LostInventoryDetailPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Record Not Found</h2>
                 <p className="text-neutral-500 mt-1">The lost inventory record you&apos;re looking for doesn&apos;t exist.</p>
-                <Link to="/purchases/lost-inventory/records" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Records
-                </Link>
+                <BackLink to="/purchases/lost-inventory/records" className="mt-4">Back to Records</BackLink>
             </div>
         );
     }
@@ -263,9 +259,7 @@ const LostInventoryDetailPage = () => {
                 {/* Header */}
                 <div className="flex items-start justify-between">
                     <div>
-                        <Link to="/purchases/lost-inventory/records" className="text-sm text-primary-600 hover:text-primary-700">
-                            ← Back to Lost Inventory Records
-                        </Link>
+                        <BackLink to="/purchases/lost-inventory/records">Back to Lost Inventory Records</BackLink>
                         <h1 className="text-3xl font-bold text-neutral-900 mt-1">Lost Inventory Detail</h1>
                         <div className="flex items-center gap-3 mt-1">
                             <p className="text-neutral-500 font-mono">{record.reference_number}</p>
@@ -277,13 +271,6 @@ const LostInventoryDetailPage = () => {
                         </div>
                     </div>
                 </div>
-
-                {/* Success banner */}
-                {successMsg && (
-                    <div className="p-4 bg-success-50 border border-success-200 rounded-xl">
-                        <p className="text-sm text-success-700 font-medium">{successMsg}</p>
-                    </div>
-                )}
 
                 {/* Summary cards */}
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">

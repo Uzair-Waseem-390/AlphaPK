@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Pencil, Trash2, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useInvestors } from '../../hooks/useCashManagement';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -10,6 +13,9 @@ import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -18,11 +24,12 @@ const fmt = (value) => {
 
 const InvestorsPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
-        data: investors, meta, page, setPage, loading,
+        data: investors, meta, page, setPage, loading, error: listError,
         filters, setFilters, refetch, create, update, delete: deleteInvestor,
     } = useInvestors();
 
@@ -32,6 +39,7 @@ const InvestorsPage = () => {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
 
     const resetForm = () => {
@@ -48,14 +56,16 @@ const InvestorsPage = () => {
             const payload = { ...formData, growth_rate: (parseFloat(formData.growth_rate) || 0) / 100 };
             if (editingInvestor) {
                 await update(editingInvestor.id, payload);
+                toast.success('Investor updated successfully');
             } else {
                 await create(payload);
+                toast.success('Investor created successfully');
             }
             setShowModal(false);
             resetForm();
             refetch();
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.name?.[0] || error.response?.data?.growth_rate?.[0] || 'Failed to save investor');
+            setFormError(extractErrorMessage(error, 'Failed to save investor'));
         } finally {
             setFormLoading(false);
         }
@@ -74,13 +84,16 @@ const InvestorsPage = () => {
     };
 
     const handleDelete = async (id) => {
+        setDeleteLoading(true);
         try {
             await deleteInvestor(id);
             setDeleteConfirm(null);
             refetch();
+            toast.success('Investor deleted');
         } catch (error) {
-            setDeleteConfirm(null);
-            alert(error.response?.data?.detail || 'Failed to delete investor');
+            toast.error(extractErrorMessage(error, 'Failed to delete investor'));
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -133,20 +146,22 @@ const InvestorsPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '120px',
+            width: '100px',
             render: (_value, row) => (
-                <div className="flex gap-2">
+                <div className="flex gap-1">
                     <button
                         onClick={(e) => { e.stopPropagation(); handleEdit(row); }}
-                        className="text-primary-600 hover:text-primary-700 text-sm"
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-primary-600 hover:bg-primary-50 transition-colors"
+                        aria-label="Edit investor"
                     >
-                        Edit
+                        <Pencil className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); setDeleteConfirm(row); }}
-                        className="text-error-600 hover:text-error-700 text-sm"
+                        className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-error-600 hover:bg-error-50 transition-colors"
+                        aria-label="Delete investor"
                     >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 </div>
             ),
@@ -155,7 +170,7 @@ const InvestorsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view investors.</p>
             </div>
@@ -166,20 +181,14 @@ const InvestorsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/cash-management" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Cash Management
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Investors</h1>
+                    <BackLink to="/cash-management">Back to Cash Management</BackLink>
+                    <div className="flex items-center gap-2.5 mt-2">
+                        <Users className="w-6 h-6 text-primary-600" />
+                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investors</h1>
+                    </div>
                     <p className="text-neutral-500 mt-1">Manage investors and their capital</p>
                 </div>
-                <Button
-                    onClick={() => { resetForm(); setShowModal(true); }}
-                    icon={({ className }) => (
-                        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                    )}
-                >
+                <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>
                     Add Investor
                 </Button>
             </div>
@@ -190,16 +199,20 @@ const InvestorsPage = () => {
                 value={searchTerm}
             />
 
+            {listError && !loading && (
+                <InlineAlert variant="error" title="Couldn't load investors" message={listError} onRetry={refetch} />
+            )}
+
             {loading ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex items-center justify-center py-16">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : investors.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🤝</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Investors Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Add an investor to start recording their capital.</p>
-                </div>
+                <EmptyState
+                    icon={<Users className="w-8 h-8 text-neutral-400 mx-auto" />}
+                    title="No Investors Yet"
+                    description="Add an investor to start recording their capital."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={investors} onRowClick={handleRowClick} />
@@ -253,11 +266,7 @@ const InvestorsPage = () => {
                         placeholder="e.g. 2 for 2% annual — 0 or blank for no growth"
                     />
 
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
-                        </div>
-                    )}
+                    {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
@@ -277,6 +286,7 @@ const InvestorsPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Investor"
                 message={`Are you sure you want to delete "${deleteConfirm?.name}"? This is blocked if they have any recorded transactions.`}
+                loading={deleteLoading}
             />
         </div>
     );

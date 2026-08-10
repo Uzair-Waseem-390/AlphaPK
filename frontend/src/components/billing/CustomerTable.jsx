@@ -1,8 +1,8 @@
-import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Pencil, Trash2, Users } from 'lucide-react';
 import Table from '../ui/Table';
 import Badge from '../ui/Badge';
-import Button from '../ui/Button';
+import EmptyState from '../ui/EmptyState';
 
 const TIER_BADGE_VARIANT = {
     good: 'success',
@@ -12,7 +12,7 @@ const TIER_BADGE_VARIANT = {
 
 const CustomerTable = ({ customers, onRowClick, onEdit, onDelete, isAdmin }) => {
     const columns = [
-        { key: 'code', label: 'Code', width: '120px' },
+        { key: 'code', label: 'Code', width: '110px' },
         { key: 'name', label: 'Name' },
         { key: 'address', label: 'Address' },
         { key: 'mobile', label: 'Mobile', render: (value) => value || 'N/A' },
@@ -21,10 +21,10 @@ const CustomerTable = ({ customers, onRowClick, onEdit, onDelete, isAdmin }) => 
             label: 'Credit Score',
             width: '140px',
             render: (value, row) => value === null || value === undefined ? (
-                'N/A'
+                <span className="text-neutral-400">N/A</span>
             ) : (
                 <span className="flex items-center gap-2">
-                    <span className="font-medium">{value}</span>
+                    <span className="font-medium text-neutral-900">{value}</span>
                     <Badge variant={TIER_BADGE_VARIANT[row.credit_tier] || 'default'}>
                         {row.credit_tier}
                     </Badge>
@@ -48,20 +48,24 @@ const CustomerTable = ({ customers, onRowClick, onEdit, onDelete, isAdmin }) => 
         {
             key: 'actions',
             label: 'Actions',
-            width: '120px',
+            width: '110px',
             render: (_, row) => isAdmin && !row.is_deleted && (
-                <div className="flex gap-2">
+                <div className="flex items-center gap-1">
                     <button
                         onClick={(e) => { e.stopPropagation(); onEdit(row); }}
-                        className="text-primary-600 hover:text-primary-700 text-sm"
+                        className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-primary-600 hover:bg-primary-50 hover:text-primary-700 transition-colors"
+                        title="Edit customer"
+                        aria-label="Edit customer"
                     >
-                        Edit
+                        <Pencil className="w-4 h-4" />
                     </button>
                     <button
                         onClick={(e) => { e.stopPropagation(); onDelete(row.id); }}
-                        className="text-error-600 hover:text-error-700 text-sm"
+                        className="p-2 min-w-[36px] min-h-[36px] flex items-center justify-center rounded-lg text-error-600 hover:bg-error-50 hover:text-error-700 transition-colors"
+                        title="Delete customer"
+                        aria-label="Delete customer"
                     >
-                        Delete
+                        <Trash2 className="w-4 h-4" />
                     </button>
                 </div>
             ),
@@ -70,11 +74,11 @@ const CustomerTable = ({ customers, onRowClick, onEdit, onDelete, isAdmin }) => 
 
     if (customers.length === 0) {
         return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">👥</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Customers Found</h3>
-                <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
-            </div>
+            <EmptyState
+                icon={<Users className="w-8 h-8 text-neutral-400" />}
+                title="No Customers Found"
+                description="Try adjusting your search or filters"
+            />
         );
     }
 

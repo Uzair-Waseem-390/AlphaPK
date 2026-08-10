@@ -1,10 +1,14 @@
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Archive } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useBackupHistory } from '../../hooks/useBackups';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import Pagination from '../../components/ui/Pagination';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import BackLink from '../../components/ui/BackLink';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmtDate = (value) => value ? new Date(value).toLocaleString() : 'N/A';
 
@@ -42,7 +46,7 @@ const BackupHistoryPage = () => {
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data, meta, loading, page, setPage } = useBackupHistory();
+    const { data, meta, loading, error, page, setPage, refetch } = useBackupHistory();
 
     if (!isAdmin) {
         navigate('/dashboard');
@@ -52,10 +56,13 @@ const BackupHistoryPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/backups" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Backups
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Backup History</h1>
+                <BackLink to="/backups">Back to Backups</BackLink>
+                <div className="flex items-center gap-3 mt-2">
+                    <div className="hidden sm:flex w-10 h-10 rounded-xl bg-primary-50 items-center justify-center flex-shrink-0">
+                        <Archive className="w-5 h-5 text-primary-600" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Backup History</h1>
+                </div>
                 <p className="text-neutral-500 mt-1">Every backup run ever attempted, newest first.</p>
             </div>
 
@@ -63,14 +70,16 @@ const BackupHistoryPage = () => {
                 <div className="flex items-center justify-center py-12">
                     <LoadingSpinner size="lg" />
                 </div>
+            ) : error && data.length === 0 ? (
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
             ) : data.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🗄️</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Backups Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Run a backup from the Backups page to see it here.</p>
-                </div>
+                <EmptyState
+                    title="No Backups Yet"
+                    description="Run a backup from the Backups page to see it here."
+                />
             ) : (
                 <>
+                    {error && <InlineAlert variant="error" message={error} onRetry={refetch} className="mb-4" />}
                     <Table columns={columns} data={data} />
                     {meta.totalPages > 1 && (
                         <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />

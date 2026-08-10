@@ -5,6 +5,7 @@ import { useAuth } from '../context/AuthContext';
 import Input from '../components/common/Input';
 import Button from '../components/common/Button';
 import Card from '../components/common/Card';
+import InlineAlert from '../components/ui/InlineAlert';
 
 const Login = () => {
     const [email, setEmail] = useState('');
@@ -29,7 +30,7 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-primary-50 to-indigo-50 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center p-4">
             <motion.div
                 initial={{ opacity: 0, y: 20 }}
                 animate={{ opacity: 1, y: 0 }}
@@ -37,7 +38,7 @@ const Login = () => {
             >
                 <Card className="p-8">
                     <div className="text-center mb-8">
-                        <div className="w-16 h-16 bg-gradient-to-br from-primary-600 to-indigo-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
+                        <div className="w-16 h-16 bg-gradient-to-br from-primary-700 to-accent-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
                             <span className="text-3xl font-bold text-white">ERP</span>
                         </div>
                         <h1 className="text-2xl font-bold text-neutral-900">Welcome Back</h1>
@@ -74,13 +75,9 @@ const Login = () => {
                         />
 
                         {error && (
-                            <motion.p
-                                initial={{ opacity: 0 }}
-                                animate={{ opacity: 1 }}
-                                className="text-sm text-error-500 bg-error-50 p-3 rounded-lg"
-                            >
-                                {error}
-                            </motion.p>
+                            <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }}>
+                                <InlineAlert variant="error" message={error} />
+                            </motion.div>
                         )}
 
                         <Button

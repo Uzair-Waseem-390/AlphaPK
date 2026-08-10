@@ -1,6 +1,10 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
+import {
+    Receipt, Trash2, FileText, User, CreditCard, Calendar, UserCircle, Clock,
+    StickyNote, ArrowLeft, ExternalLink, Banknote, Smartphone, Landmark, Hash,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { billingApi } from '../../services/billingApi';
 import Button from '../../components/ui/Button';
@@ -8,37 +12,82 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
+import BackLink from '../../components/ui/BackLink';
+import InlineAlert from '../../components/ui/InlineAlert';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
+
+const METHOD_META = {
+    cash: { icon: Banknote, label: 'Cash', classes: 'bg-success-50 text-success-700' },
+    jazzcash: { icon: Smartphone, label: 'JazzCash', classes: 'bg-warning-50 text-warning-700' },
+    easypaisa: { icon: Smartphone, label: 'Easypaisa', classes: 'bg-info-50 text-info-700' },
+    bank: { icon: Landmark, label: 'Bank Transfer', classes: 'bg-primary-50 text-primary-700' },
+};
+
+const MethodBadge = ({ method, display }) => {
+    const meta = METHOD_META[method] || { icon: CreditCard, label: display || 'N/A', classes: 'bg-neutral-100 text-neutral-700' };
+    const Icon = meta.icon;
+    return (
+        <span className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium ${meta.classes}`}>
+            <Icon className="w-3.5 h-3.5" />
+            {display || meta.label}
+        </span>
+    );
+};
+
+const formatCurrency = (value) => {
+    const num = typeof value === 'string' ? parseFloat(value) : value;
+    if (isNaN(num)) return 'PKR 0.00';
+    return `PKR ${num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+};
+
+const InfoRow = ({ icon: Icon, label, children }) => (
+    <div>
+        <p className="flex items-center gap-1.5 text-xs font-medium text-neutral-500 uppercase tracking-wide mb-1">
+            {Icon && <Icon className="w-3.5 h-3.5" />}
+            {label}
+        </p>
+        <div className="font-medium text-neutral-800">{children}</div>
+    </div>
+);
 
 const PaymentDetailPage = () => {
     const { paymentId } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [payment, setPayment] = useState(null);
     const [invoice, setInvoice] = useState(null);
-    const [loading, setLoading] = useState(true);
     const [customer, setCustomer] = useState(null);
+    const [loading, setLoading] = useState(true);
+    const [error, setError] = useState(null);
+    const [notFound, setNotFound] = useState(false);
 
-    useEffect(() => {
-        fetchPaymentDetails();
-    }, [paymentId]);
+    const [confirmOpen, setConfirmOpen] = useState(false);
+    const [deleting, setDeleting] = useState(false);
 
-    const fetchPaymentDetails = async () => {
+    const fetchPaymentDetails = useCallback(async () => {
         setLoading(true);
+        setError(null);
+        setNotFound(false);
         try {
-            // First, get all payments and find the specific one
+            // No dedicated single-payment GET-by-id endpoint exists; the list
+            // endpoint is fetched and filtered client-side to locate this payment.
             const paymentsRes = await billingApi.payments.getAll({ page_size: 500 });
             const allPayments = paymentsRes?.results ?? paymentsRes ?? [];
-            const foundPayment = allPayments.find(p => p.id === parseInt(paymentId));
+            const foundPayment = allPayments.find(p => p.id === parseInt(paymentId, 10));
 
             if (!foundPayment) {
-                throw new Error('Payment not found');
+                setNotFound(true);
+                setPayment(null);
+                return;
             }
 
             setPayment(foundPayment);
 
-            // Fetch invoice details
             if (foundPayment.invoice) {
                 const invoiceData = await billingApi.invoices.getById(foundPayment.invoice);
                 setInvoice(invoiceData);
@@ -46,21 +95,28 @@ const PaymentDetailPage = () => {
                     setCustomer(invoiceData.customer);
                 }
             }
-        } catch (error) {
-            console.error('Failed to fetch payment details:', error);
+        } catch (err) {
+            setError(extractErrorMessage(err, 'Failed to load payment details.'));
             setPayment(null);
         } finally {
             setLoading(false);
         }
-    };
+    }, [paymentId]);
+
+    useEffect(() => {
+        fetchPaymentDetails();
+    }, [fetchPaymentDetails]);
 
     const handleDeletePayment = async () => {
-        if (!window.confirm('Are you sure you want to delete this payment?')) return;
+        setDeleting(true);
         try {
             await billingApi.payments.delete(paymentId);
+            toast.success('Payment deleted successfully.');
             navigate('/billing/payments');
-        } catch (error) {
-            console.error('Failed to delete payment:', error);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to delete payment.'));
+            setDeleting(false);
+            setConfirmOpen(false);
         }
     };
 
@@ -72,30 +128,55 @@ const PaymentDetailPage = () => {
         );
     }
 
-    if (!payment) {
+    if (error) {
+        return (
+            <div className="space-y-4">
+                <BackLink to="/billing/payments">Back to Payments</BackLink>
+                <InlineAlert variant="error" message={error} onRetry={fetchPaymentDetails} />
+            </div>
+        );
+    }
+
+    if (notFound || !payment) {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Payment Not Found</h2>
                 <p className="text-neutral-500 mt-1">The payment you're looking for doesn't exist.</p>
-                <Link to="/billing/payments" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Payments
-                </Link>
+                <BackLink to="/billing/payments" className="mt-4">Back to Payments</BackLink>
             </div>
         );
     }
 
     return (
-        <div className="space-y-6">
-            <div className="flex items-center justify-between">
+        <motion.div
+            initial={{ opacity: 0, y: 12 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.3 }}
+            className="space-y-6"
+        >
+            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/billing/payments" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Payments
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Payment Details</h1>
-                    <p className="text-neutral-500">{payment.reference_number}</p>
+                    <BackLink to="/billing/payments">Back to Payments</BackLink>
+                    <div className="flex items-center gap-3 mt-2">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                            <Receipt className="w-5 h-5 text-white" />
+                        </div>
+                        <div>
+                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Payment Details</h1>
+                            <p className="text-neutral-500 flex items-center gap-1 text-sm">
+                                <Hash className="w-3.5 h-3.5" />
+                                {payment.reference_number}
+                            </p>
+                        </div>
+                    </div>
                 </div>
                 {isAdmin && (
-                    <Button variant="danger" onClick={handleDeletePayment}>
+                    <Button
+                        variant="danger"
+                        onClick={() => setConfirmOpen(true)}
+                        icon={Trash2}
+                        className="min-h-[44px]"
+                    >
                         Delete Payment
                     </Button>
                 )}
@@ -103,40 +184,36 @@ const PaymentDetailPage = () => {
 
             {/* Payment Info */}
             <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Payment Information</h3>
-                <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
-                    <div>
-                        <p className="text-sm text-neutral-500">Reference Number</p>
-                        <p className="font-medium">{payment.reference_number}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Amount</p>
-                        <p className="text-xl font-bold text-success-600">
-                            {typeof payment.amount === 'string'
-                                ? parseFloat(payment.amount).toFixed(2)
-                                : '0.00'}
-                        </p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Method</p>
-                        <Badge>{payment.method_display || payment.method || 'N/A'}</Badge>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Payment Date</p>
-                        <p className="font-medium">{new Date(payment.payment_date).toLocaleDateString()}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Created By</p>
-                        <p className="font-medium">{payment.created_by || 'N/A'}</p>
-                    </div>
-                    <div>
-                        <p className="text-sm text-neutral-500">Created At</p>
-                        <p className="font-medium">{new Date(payment.created_at).toLocaleString()}</p>
-                    </div>
+                <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                    <CreditCard className="w-4 h-4 text-primary-600" />
+                    Payment Information
+                </h3>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-5">
+                    <InfoRow icon={Hash} label="Reference Number">
+                        {payment.reference_number}
+                    </InfoRow>
+                    <InfoRow label="Amount">
+                        <span className="text-xl font-bold text-success-600">
+                            {formatCurrency(payment.amount)}
+                        </span>
+                    </InfoRow>
+                    <InfoRow label="Method">
+                        <MethodBadge method={payment.method} display={payment.method_display} />
+                    </InfoRow>
+                    <InfoRow icon={Calendar} label="Payment Date">
+                        {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : 'N/A'}
+                    </InfoRow>
+                    <InfoRow icon={UserCircle} label="Created By">
+                        {payment.created_by || 'N/A'}
+                    </InfoRow>
+                    <InfoRow icon={Clock} label="Created At">
+                        {payment.created_at ? new Date(payment.created_at).toLocaleString() : 'N/A'}
+                    </InfoRow>
                     {payment.note && (
                         <div className="col-span-full">
-                            <p className="text-sm text-neutral-500">Note</p>
-                            <p className="font-medium">{payment.note}</p>
+                            <InfoRow icon={StickyNote} label="Note">
+                                {payment.note}
+                            </InfoRow>
                         </div>
                     )}
                 </div>
@@ -145,23 +222,23 @@ const PaymentDetailPage = () => {
             {/* Related Invoice */}
             {invoice && (
                 <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Related Invoice</h3>
-                    <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
-                        <div>
-                            <p className="text-sm text-neutral-500">Bill Number</p>
+                    <h3 className="font-semibold text-neutral-900 mb-4 flex items-center gap-2">
+                        <FileText className="w-4 h-4 text-primary-600" />
+                        Related Invoice
+                    </h3>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-5">
+                        <InfoRow label="Bill Number">
                             <Link
                                 to={`/billing/invoices/${invoice.id}`}
-                                className="font-medium text-primary-600 hover:text-primary-700 hover:underline"
+                                className="text-primary-600 hover:text-primary-700 hover:underline inline-flex items-center gap-1"
                             >
                                 {invoice.bill_number}
                             </Link>
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Customer</p>
-                            <p className="font-medium">{customer?.name || 'N/A'}</p>
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Invoice Status</p>
+                        </InfoRow>
+                        <InfoRow icon={User} label="Customer">
+                            {customer?.name || 'N/A'}
+                        </InfoRow>
+                        <InfoRow label="Invoice Status">
                             <Badge variant={
                                 invoice.status === 'confirmed' ? 'confirmed' :
                                     invoice.status === 'draft' ? 'draft' :
@@ -169,37 +246,25 @@ const PaymentDetailPage = () => {
                             }>
                                 {invoice.status || 'N/A'}
                             </Badge>
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Payment Status</p>
+                        </InfoRow>
+                        <InfoRow label="Payment Status">
                             <PaymentStatusBadge status={invoice.payment_status} />
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Grand Total</p>
-                            <p className="font-medium">
-                                {typeof invoice.grand_total === 'string'
-                                    ? parseFloat(invoice.grand_total).toFixed(2)
-                                    : '0.00'}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Credit Outstanding</p>
-                            <p className="font-medium text-error-600">
-                                {typeof invoice.credit_outstanding === 'string'
-                                    ? parseFloat(invoice.credit_outstanding).toFixed(2)
-                                    : '0.00'}
-                            </p>
-                        </div>
-                        <div>
-                            <p className="text-sm text-neutral-500">Confirmed At</p>
-                            <p className="font-medium">
-                                {invoice.confirmed_at ? new Date(invoice.confirmed_at).toLocaleDateString() : 'N/A'}
-                            </p>
-                        </div>
+                        </InfoRow>
+                        <InfoRow label="Grand Total">
+                            {formatCurrency(invoice.grand_total)}
+                        </InfoRow>
+                        <InfoRow label="Credit Outstanding">
+                            <span className={invoice.credit_outstanding && parseFloat(invoice.credit_outstanding) > 0 ? 'text-error-600 font-semibold' : 'text-neutral-800'}>
+                                {formatCurrency(invoice.credit_outstanding)}
+                            </span>
+                        </InfoRow>
+                        <InfoRow icon={Calendar} label="Confirmed At">
+                            {invoice.confirmed_at ? new Date(invoice.confirmed_at).toLocaleDateString() : 'N/A'}
+                        </InfoRow>
                     </div>
-                    <div className="mt-4">
+                    <div className="mt-5">
                         <Link to={`/billing/invoices/${invoice.id}`}>
-                            <Button variant="secondary" size="sm">
+                            <Button variant="secondary" size="sm" icon={ExternalLink}>
                                 View Full Invoice
                             </Button>
                         </Link>
@@ -208,21 +273,33 @@ const PaymentDetailPage = () => {
             )}
 
             {/* Actions */}
-            <div className="flex gap-3 pt-4 border-t border-neutral-200">
+            <div className="flex flex-wrap gap-3 pt-4 border-t border-neutral-200">
                 <Link to="/billing/payments">
-                    <Button variant="secondary">
-                        ← Back to Payments
+                    <Button variant="secondary" icon={ArrowLeft}>
+                        Back to Payments
                     </Button>
                 </Link>
                 {invoice && (
                     <Link to={`/billing/invoices/${invoice.id}`}>
-                        <Button variant="secondary">
+                        <Button variant="secondary" icon={ExternalLink}>
                             View Invoice
                         </Button>
                     </Link>
                 )}
             </div>
-        </div>
+
+            <ConfirmDialog
+                isOpen={confirmOpen}
+                onClose={() => setConfirmOpen(false)}
+                onConfirm={handleDeletePayment}
+                title="Delete Payment"
+                message={`Are you sure you want to delete payment ${payment.reference_number}? This action cannot be undone.`}
+                confirmText="Delete Payment"
+                cancelText="Cancel"
+                variant="danger"
+                loading={deleting}
+            />
+        </motion.div>
     );
 };
 

@@ -1,6 +1,7 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 import Table from '../ui/Table';
+import EmptyState from '../ui/EmptyState';
 
 const LedgerListTable = ({ ledgers, onRowClick, loading }) => {
     const columns = [
@@ -24,13 +25,7 @@ const LedgerListTable = ({ ledgers, onRowClick, loading }) => {
     }
 
     if (ledgers.length === 0) {
-        return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">📒</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Ledgers Found</h3>
-                <p className="text-sm text-neutral-500 mt-1">No suppliers have been created yet.</p>
-            </div>
-        );
+        return <EmptyState title="No ledgers found" description="No suppliers have been created yet." />;
     }
 
     return <Table columns={columns} data={ledgers} onRowClick={onRowClick} />;

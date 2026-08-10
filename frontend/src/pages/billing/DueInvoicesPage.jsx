@@ -1,6 +1,8 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
+import { SlidersHorizontal, X, CalendarCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { billingApi } from '../../services/billingApi';
 import InvoiceTable from '../../components/billing/InvoiceTable';
 import InvoiceFilterBar from '../../components/billing/InvoiceFilterBar';
@@ -9,10 +11,13 @@ import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 const DueInvoicesPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
 
@@ -28,7 +33,7 @@ const DueInvoicesPage = () => {
     };
 
     const {
-        data: invoices, meta, page, setPage, loading,
+        data: invoices, meta, page, setPage, loading, initialLoading, error,
         filters: filterValues, setFilters: setFilterValues, refetch: fetchInvoices,
     } = usePaginatedList(fetchDueInvoicesPage, {}, 25, [searchTerm]);
 
@@ -54,7 +59,7 @@ const DueInvoicesPage = () => {
         try {
             const token = localStorage.getItem('access_token');
             if (!token) {
-                alert('Please login again to print');
+                toast.error('Please login again to print.');
                 return;
             }
             const response = await fetch(
@@ -66,9 +71,8 @@ const DueInvoicesPage = () => {
             const url = window.URL.createObjectURL(blob);
             window.open(url, '_blank');
             setTimeout(() => window.URL.revokeObjectURL(url), 1000);
-        } catch (error) {
-            console.error('Failed to print:', error);
-            alert('Failed to print invoice. Please try again.');
+        } catch (err) {
+            toast.error('Failed to print invoice. Please try again.');
         }
     };
 
@@ -80,6 +84,7 @@ const DueInvoicesPage = () => {
         setDueDateSaving(true);
         try {
             await billingApi.invoices.updateDueDate(dueDateInvoice.id, newDueDate);
+            toast.success('Due date updated.');
             setDueDateInvoice(null);
             fetchInvoices();
         } finally {
@@ -87,7 +92,7 @@ const DueInvoicesPage = () => {
         }
     };
 
-    if (loading) {
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -118,16 +123,12 @@ const DueInvoicesPage = () => {
                     <Button
                         variant="secondary"
                         onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
+                        icon={SlidersHorizontal}
                     >
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
                     {(Object.keys(filterValues).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
+                        <Button variant="secondary" onClick={handleResetFilters} icon={X}>
                             Clear All
                         </Button>
                     )}
@@ -141,14 +142,18 @@ const DueInvoicesPage = () => {
                 )}
             </div>
 
-            {invoices.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">✅</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Due Invoices</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Nothing is past its due date right now.
-                    </p>
+            {error && <InlineAlert variant="error" message={error} onRetry={fetchInvoices} />}
+
+            {loading && !initialLoading ? (
+                <div className="flex items-center justify-center py-16">
+                    <LoadingSpinner size="md" />
                 </div>
+            ) : invoices.length === 0 ? (
+                <EmptyState
+                    title="No Due Invoices"
+                    description="Nothing is past its due date right now."
+                    icon={<CalendarCheck className="w-8 h-8 text-success-500" />}
+                />
             ) : (
                 <>
                     <InvoiceTable

@@ -6,9 +6,11 @@ import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -119,9 +121,7 @@ const LostInventoryRecordsPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view lost inventory records.</p>
-                <Link to="/purchases/inventory" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Inventory
-                </Link>
+                <BackLink to="/purchases/inventory" className="mt-4">Back to Inventory</BackLink>
             </div>
         );
     }
@@ -140,12 +140,8 @@ const LostInventoryRecordsPage = () => {
                 <h1 className="text-3xl font-bold text-neutral-900">Lost Inventory Records</h1>
                 <p className="text-neutral-500 mt-1">Full history of products marked as lost, damaged, or missing</p>
                 <div className="mt-2 flex gap-4">
-                    <Link to="/purchases/inventory" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Inventory
-                    </Link>
-                    <Link to="/purchases/lost-inventory" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Manage Inventory
-                    </Link>
+                    <BackLink to="/purchases/inventory">Back to Inventory</BackLink>
+                    <BackLink to="/purchases/lost-inventory">Back to Manage Inventory</BackLink>
                 </div>
             </div>
 
@@ -196,13 +192,7 @@ const LostInventoryRecordsPage = () => {
             )}
 
             {records.length === 0 && !loading && (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📉</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Lost Inventory Records Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Try adjusting your search or filters
-                    </p>
-                </div>
+                <EmptyState title="No lost inventory records found" description="Try adjusting your search or filters" />
             )}
         </div>
     );

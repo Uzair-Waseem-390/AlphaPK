@@ -3,6 +3,10 @@ import PropTypes from 'prop-types';
 import Modal from '../ui/Modal';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
+import InlineAlert from '../ui/InlineAlert';
+import { extractErrorMessage } from '../../utils/errorMessage';
+
+const FIELD_KEYS = ['selling_price', 'note', 'product_id'];
 
 const RateFormModal = ({
     isOpen,
@@ -17,6 +21,7 @@ const RateFormModal = ({
         note: '',
     });
     const [errors, setErrors] = useState({});
+    const [apiError, setApiError] = useState('');
 
     useEffect(() => {
         if (isOpen) {
@@ -32,6 +37,7 @@ const RateFormModal = ({
                 });
             }
             setErrors({});
+            setApiError('');
         }
     }, [isOpen, existingRate]);
 
@@ -41,6 +47,7 @@ const RateFormModal = ({
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: '' }));
         }
+        if (apiError) setApiError('');
     };
 
     const validate = () => {
@@ -52,8 +59,9 @@ const RateFormModal = ({
         return Object.keys(newErrors).length === 0;
     };
 
-    const handleSubmit = (e) => {
+    const handleSubmit = async (e) => {
         e.preventDefault();
+        setApiError('');
         if (!validate()) return;
 
         const data = {
@@ -65,7 +73,27 @@ const RateFormModal = ({
             data.product_id = product.id;
         }
 
-        onSubmit(data);
+        try {
+            await onSubmit(data);
+        } catch (error) {
+            const responseData = error?.response?.data;
+            if (responseData && typeof responseData === 'object' && !Array.isArray(responseData)) {
+                const fieldErrors = {};
+                let genericMessage = '';
+                Object.keys(responseData).forEach((key) => {
+                    const val = Array.isArray(responseData[key]) ? responseData[key][0] : responseData[key];
+                    if (FIELD_KEYS.includes(key)) {
+                        fieldErrors[key] = val;
+                    } else {
+                        genericMessage = val || genericMessage;
+                    }
+                });
+                if (Object.keys(fieldErrors).length) setErrors(prev => ({ ...prev, ...fieldErrors }));
+                if (genericMessage) setApiError(genericMessage);
+            } else {
+                setApiError(extractErrorMessage(error, 'Failed to save rate'));
+            }
+        }
     };
 
     const isEdit = !!existingRate;
@@ -113,6 +141,8 @@ const RateFormModal = ({
                     onChange={handleChange}
                     placeholder={isEdit ? "Reason for price change..." : "Reason for setting this price..."}
                 />
+
+                {apiError && <InlineAlert variant="error" message={apiError} />}
 
                 <div className="flex justify-end gap-3 pt-4 border-t border-neutral-200">
                     <Button

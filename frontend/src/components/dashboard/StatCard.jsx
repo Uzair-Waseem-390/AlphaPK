@@ -5,7 +5,7 @@ import Card from '../ui/Card';
 const StatCard = ({
     label,
     value,
-    icon,
+    icon: Icon,
     color = 'primary',
     isCurrency = true,
     onClick,
@@ -71,9 +71,9 @@ const StatCard = ({
                         </p>
                         {subtitle && <p className="text-xs text-neutral-400 mt-1 truncate">{subtitle}</p>}
                     </div>
-                    {icon && (
-                        <div className="w-10 h-10 rounded-xl bg-neutral-100 flex items-center justify-center text-xl flex-shrink-0">
-                            {icon}
+                    {Icon && (
+                        <div className="w-10 h-10 rounded-xl bg-neutral-100 flex items-center justify-center flex-shrink-0">
+                            <Icon className="w-5 h-5 text-neutral-500" />
                         </div>
                     )}
                 </div>
@@ -85,7 +85,7 @@ const StatCard = ({
 StatCard.propTypes = {
     label: PropTypes.string.isRequired,
     value: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
-    icon: PropTypes.node,
+    icon: PropTypes.elementType,
     color: PropTypes.oneOf(['primary', 'green', 'amber', 'red', 'blue', 'orange', 'purple']),
     isCurrency: PropTypes.bool,
     onClick: PropTypes.func,

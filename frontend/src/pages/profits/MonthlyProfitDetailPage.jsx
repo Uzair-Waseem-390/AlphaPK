@@ -1,15 +1,20 @@
 import { useState, Fragment } from 'react';
-import { useParams, Link } from 'react-router-dom';
+import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useMonthlyProfitDetail, useCurrentMonthProfit } from '../../hooks/useProfits';
 import { profitsApi } from '../../services/profitsApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
+import BackLink from '../../components/ui/BackLink';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
+import { TrendingUp, ShieldAlert, Undo2 } from 'lucide-react';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -52,6 +57,7 @@ const AdditionRow = ({ label, value, hint }) => (
 const MonthlyProfitDetailPage = () => {
     const { period } = useParams();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const isCurrent = period === 'current';
 
@@ -80,13 +86,15 @@ const MonthlyProfitDetailPage = () => {
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [amountError, setAmountError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleteType, setDeleteType] = useState('investor');
-    const [deleteError, setDeleteError] = useState('');
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
     const resetForm = () => {
         setFormData({ amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '' });
         setFormError('');
+        setAmountError('');
     };
 
     const openSettle = (share, type = 'investor') => {
@@ -105,6 +113,7 @@ const MonthlyProfitDetailPage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
+        setAmountError('');
         setFormLoading(true);
         try {
             const api = settleType === 'owner' ? profitsApi.ownerPayouts : profitsApi.payouts;
@@ -115,34 +124,39 @@ const MonthlyProfitDetailPage = () => {
             setSettleShare(null);
             resetForm();
             refetch();
+            toast.success(`${formData.action_type === 'reinvest' ? 'Reinvestment' : 'Payout'} recorded successfully`);
         } catch (err) {
-            setFormError(
-                err.response?.data?.amount?.[0] ||
-                err.response?.data?.detail ||
-                err.response?.data?.action_type?.[0] ||
-                'Failed to record settlement'
-            );
+            const fieldAmountError = err.response?.data?.amount?.[0];
+            if (fieldAmountError) {
+                setAmountError(fieldAmountError);
+            } else {
+                setFormError(extractErrorMessage(err, 'Failed to record settlement'));
+            }
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDeletePayout = async (payoutId) => {
-        setDeleteError('');
+        setDeleteLoading(true);
         try {
             const api = deleteType === 'owner' ? profitsApi.ownerPayouts : profitsApi.payouts;
             await api.delete(payoutId);
             setDeleteConfirm(null);
             refetch();
+            toast.success('Settlement reversed and cash in hand restored');
         } catch (err) {
             setDeleteConfirm(null);
-            setDeleteError(err.response?.data?.detail || 'Failed to reverse this settlement');
+            toast.error(extractErrorMessage(err, 'Failed to reverse this settlement'));
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view monthly profits.</p>
             </div>
@@ -157,13 +171,20 @@ const MonthlyProfitDetailPage = () => {
         );
     }
 
-    if (error || !mp) {
+    if (error) {
+        return (
+            <div className="space-y-4">
+                <BackLink to="/monthly-profits">Back to Monthly Profits</BackLink>
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
+            </div>
+        );
+    }
+
+    if (!mp) {
         return (
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Month Not Found</h2>
-                <Link to="/monthly-profits" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Monthly Profits
-                </Link>
+                <BackLink to="/monthly-profits" className="mt-4">Back to Monthly Profits</BackLink>
             </div>
         );
     }
@@ -172,26 +193,18 @@ const MonthlyProfitDetailPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
-                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
-                <div>
-                    <p className="text-sm font-semibold text-amber-800">
-                        This is an internal estimate, not a certified valuation.
-                    </p>
-                    <p className="text-sm text-amber-700 mt-0.5">
-                        Computed from cash, inventory, assets, receivables, payables, and tax figures already
-                        tracked elsewhere in this system. Review with an accountant before using it to
-                        actually distribute profit. The developer is not responsible at all for decisions
-                        made from this page.
-                    </p>
-                </div>
-            </div>
+            <InlineAlert
+                variant="warning"
+                title="This is an internal estimate, not a certified valuation."
+                message="Computed from cash, inventory, assets, receivables, payables, and tax figures already tracked elsewhere in this system. Review with an accountant before using it to actually distribute profit. The developer is not responsible at all for decisions made from this page."
+            />
 
             <div>
-                <Link to="/monthly-profits" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Monthly Profits
-                </Link>
-                <div className="flex items-center gap-3 mt-1">
+                <BackLink to="/monthly-profits">Back to Monthly Profits</BackLink>
+                <div className="flex items-center gap-3 mt-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                        <TrendingUp className="w-5 h-5 text-white" />
+                    </div>
                     <h1 className="text-3xl font-bold text-neutral-900">{formatMonthLabel(mp.period)}</h1>
                     {isCurrent && (
                         <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
@@ -208,12 +221,6 @@ const MonthlyProfitDetailPage = () => {
                     </p>
                 )}
             </div>
-
-            {deleteError && (
-                <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{deleteError}</p>
-                </div>
-            )}
 
             {/* Breakdown */}
             <Card className="p-6">
@@ -354,8 +361,9 @@ const MonthlyProfitDetailPage = () => {
                                                             </span>
                                                             <button
                                                                 onClick={() => openDeleteConfirm(p, 'investor')}
-                                                                className="text-error-600 hover:text-error-700"
+                                                                className="inline-flex items-center gap-1 text-error-600 hover:text-error-700 font-medium min-h-[44px] px-2"
                                                             >
+                                                                <Undo2 className="w-3.5 h-3.5" />
                                                                 Reverse
                                                             </button>
                                                         </div>
@@ -396,8 +404,9 @@ const MonthlyProfitDetailPage = () => {
                                                             </span>
                                                             <button
                                                                 onClick={() => openDeleteConfirm(p, 'owner')}
-                                                                className="text-error-600 hover:text-error-700"
+                                                                className="inline-flex items-center gap-1 text-error-600 hover:text-error-700 font-medium min-h-[44px] px-2"
                                                             >
+                                                                <Undo2 className="w-3.5 h-3.5" />
                                                                 Reverse
                                                             </button>
                                                         </div>
@@ -438,7 +447,8 @@ const MonthlyProfitDetailPage = () => {
                             min="0.01"
                             max={settleShare.amount_remaining}
                             value={formData.amount}
-                            onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
+                            onChange={(e) => { setFormData({ ...formData, amount: e.target.value }); setAmountError(''); }}
+                            error={amountError}
                             required
                         />
 
@@ -479,20 +489,17 @@ const MonthlyProfitDetailPage = () => {
                         />
 
                         {formData.amount && parseFloat(formData.amount) > 0 && (
-                            <div className="p-3 bg-amber-50 rounded-lg">
-                                <p className="text-sm text-amber-700">
-                                    {formData.action_type === 'reinvest'
-                                        ? `⚠️ Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new ${settleType === 'owner' ? 'contribution' : 'investment'} for ${settleLabel} — net cash effect is zero, but both are recorded.`
-                                        : `⚠️ This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${settleLabel}.`}
-                                </p>
-                            </div>
+                            <InlineAlert
+                                variant="info"
+                                message={
+                                    formData.action_type === 'reinvest'
+                                        ? `Rs. ${fmt(formData.amount)} will leave cash in hand, then immediately come back in as a new ${settleType === 'owner' ? 'contribution' : 'investment'} for ${settleLabel} — net cash effect is zero, but both are recorded.`
+                                        : `This will deduct Rs. ${fmt(formData.amount)} from cash in hand, paid to ${settleLabel}.`
+                                }
+                            />
                         )}
 
-                        {formError && (
-                            <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                                <p className="text-sm text-error-600">{formError}</p>
-                            </div>
-                        )}
+                        {formError && <InlineAlert variant="error" message={formError} />}
 
                         <div className="flex justify-end gap-3 pt-4">
                             <Button type="button" variant="secondary" onClick={() => { setSettleShare(null); resetForm(); }}>
@@ -512,6 +519,7 @@ const MonthlyProfitDetailPage = () => {
                 onConfirm={() => handleDeletePayout(deleteConfirm?.id)}
                 title="Reverse Settlement"
                 message={`Are you sure you want to reverse this Rs. ${fmt(deleteConfirm?.amount)} ${deleteConfirm?.action_type === 'reinvest' ? 'reinvestment' : 'payout'}? This restores cash in hand${deleteConfirm?.action_type === 'reinvest' ? ` and undoes the linked ${deleteType === 'owner' ? 'contribution' : 'investment'}` : ''}.`}
+                loading={deleteLoading}
             />
         </div>
     );

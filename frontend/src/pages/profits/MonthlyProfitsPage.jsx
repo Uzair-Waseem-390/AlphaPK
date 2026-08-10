@@ -8,6 +8,9 @@ import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
+import { TrendingUp, ArrowRight, ShieldAlert } from 'lucide-react';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -44,9 +47,9 @@ const MonthlyProfitsPage = () => {
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const { data: months, meta, page, setPage, loading, filters, setFilters } = useMonthlyProfits();
-    const { data: current, loading: currentLoading } = useCurrentMonthProfit();
-    const { data: stats, loading: statsLoading } = useProfitFlowStats();
+    const { data: months, meta, page, setPage, loading, error, filters, setFilters, refetch } = useMonthlyProfits();
+    const { data: current, loading: currentLoading, error: currentError, refetch: refetchCurrent } = useCurrentMonthProfit();
+    const { data: stats, loading: statsLoading, error: statsError, refetch: refetchStats } = useProfitFlowStats();
 
     // Local input state so typing doesn't refetch on every keystroke —
     // only Apply/Clear actually change `filters` (and thus the query).
@@ -55,6 +58,7 @@ const MonthlyProfitsPage = () => {
     if (!isAdmin) {
         return (
             <div className="text-center py-12">
+                <ShieldAlert className="w-10 h-10 text-neutral-300 mx-auto mb-3" />
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view monthly profits.</p>
             </div>
@@ -77,31 +81,29 @@ const MonthlyProfitsPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="p-4 bg-amber-50 border-l-4 border-amber-500 rounded-r-xl flex gap-3">
-                <div className="flex-shrink-0 mt-0.5 text-xl">⚠️</div>
+            <InlineAlert
+                variant="warning"
+                title="This is an internal estimate, not a certified valuation."
+                message="Computed live from cash, inventory, assets, receivables, payables, and tax figures already tracked elsewhere in this system. Review with an accountant before using it to actually distribute profit. The developer is not responsible at all for decisions made from this page."
+            />
+
+            <div className="flex items-center gap-3">
+                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                    <TrendingUp className="w-5 h-5 text-white" />
+                </div>
                 <div>
-                    <p className="text-sm font-semibold text-amber-800">
-                        This is an internal estimate, not a certified valuation.
-                    </p>
-                    <p className="text-sm text-amber-700 mt-0.5">
-                        Computed live from cash, inventory, assets, receivables, payables, and tax figures
-                        already tracked elsewhere in this system. Review with an accountant before using it
-                        to actually distribute profit. The developer is not responsible at all for decisions
-                        made from this page.
+                    <h1 className="text-3xl font-bold text-neutral-900">Monthly Profits</h1>
+                    <p className="text-neutral-500 mt-0.5">
+                        "Real" profit per month — gross profit minus expenses, taxes, losses, and depreciation —
+                        split between investors and the owner.
                     </p>
                 </div>
             </div>
 
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Monthly Profits</h1>
-                <p className="text-neutral-500 mt-1">
-                    "Real" profit per month — gross profit minus expenses, taxes, losses, and depreciation —
-                    split between investors and the owner.
-                </p>
-            </div>
-
             {/* Lifetime totals */}
-            {statsLoading ? (
+            {statsError ? (
+                <InlineAlert variant="error" message={statsError} onRetry={refetchStats} />
+            ) : statsLoading ? (
                 <div className="flex items-center justify-center py-8">
                     <LoadingSpinner size="lg" />
                 </div>
@@ -124,7 +126,9 @@ const MonthlyProfitsPage = () => {
                         In progress — provisional
                     </span>
                 </div>
-                {currentLoading ? (
+                {currentError ? (
+                    <InlineAlert variant="error" message={currentError} onRetry={refetchCurrent} />
+                ) : currentLoading ? (
                     <LoadingSpinner size="md" />
                 ) : (
                     <>
@@ -161,8 +165,8 @@ const MonthlyProfitsPage = () => {
                             </div>
                         </div>
                         <div className="mt-4">
-                            <Button size="sm" variant="secondary" onClick={() => navigate('/monthly-profits/current')}>
-                                View Full Breakdown →
+                            <Button size="sm" variant="secondary" icon={ArrowRight} onClick={() => navigate('/monthly-profits/current')}>
+                                View Full Breakdown
                             </Button>
                         </div>
                     </>
@@ -195,18 +199,18 @@ const MonthlyProfitsPage = () => {
                 <p className="text-xs text-neutral-400 -mt-2 mb-3">
                     Filters only the finalized months list below — the current month card above is unaffected.
                 </p>
-                {loading ? (
+                {error ? (
+                    <InlineAlert variant="error" message={error} onRetry={refetch} />
+                ) : loading ? (
                     <div className="flex items-center justify-center py-8">
                         <LoadingSpinner size="lg" />
                     </div>
                 ) : months.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="text-6xl mb-4">📈</div>
-                        <h3 className="text-lg font-semibold text-neutral-900">No Finalized Months Yet</h3>
-                        <p className="text-sm text-neutral-500 mt-1">
-                            A month finalizes automatically once it's fully over.
-                        </p>
-                    </div>
+                    <EmptyState
+                        icon={<TrendingUp className="w-8 h-8 text-neutral-400" />}
+                        title="No Finalized Months Yet"
+                        description="A month finalizes automatically once it's fully over."
+                    />
                 ) : (
                     <>
                         <Table columns={columns} data={months} onRowClick={(row) => navigate(`/monthly-profits/${row.period}`)} />

@@ -1,5 +1,7 @@
 import PropTypes from 'prop-types';
 import RateRow from './RateRow';
+import LoadingSpinner from '../ui/LoadingSpinner';
+import EmptyState from '../ui/EmptyState';
 
 const RateTable = ({
     rates,
@@ -11,21 +13,13 @@ const RateTable = ({
     if (loading) {
         return (
             <div className="flex items-center justify-center py-12">
-                <div className="w-10 h-10 border-4 border-primary-200 border-t-primary-600 rounded-full animate-spin" />
+                <LoadingSpinner size="lg" />
             </div>
         );
     }
 
     if (rates.length === 0) {
-        return (
-            <div className="text-center py-12">
-                <div className="text-6xl mb-4">💰</div>
-                <h3 className="text-lg font-semibold text-neutral-900">No Rates Found</h3>
-                <p className="text-sm text-neutral-500 mt-1">
-                    Try adjusting your search or filters
-                </p>
-            </div>
-        );
+        return <EmptyState title="No rates found" description="Try adjusting your search or filters" />;
     }
 
     return (

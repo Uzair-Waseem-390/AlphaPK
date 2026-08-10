@@ -1,8 +1,11 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Plus, Trash2, TrendingUp, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { useInvestorTransactions } from '../../hooks/useCashManagement';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -13,6 +16,9 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -23,13 +29,16 @@ const InvestorDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [investor, setInvestor] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+    const [notFound, setNotFound] = useState(false);
 
     const {
-        data: transactions, meta, page, setPage, loading: txnLoading,
+        data: transactions, meta, page, setPage, loading: txnLoading, error: txnError,
         refetch: refetchTxns, create, delete: deleteTxn,
     } = useInvestorTransactions({ investor_id: id });
 
@@ -43,23 +52,30 @@ const InvestorDetailPage = () => {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
 
-    useEffect(() => {
-        fetchInvestor();
-    }, [id]);
-
-    const fetchInvestor = async () => {
+    const fetchInvestor = useCallback(async () => {
         setLoading(true);
+        setLoadError(null);
+        setNotFound(false);
         try {
             const data = await cashManagementApi.investors.getById(id);
             setInvestor(data);
         } catch (error) {
-            console.error('Failed to fetch investor:', error);
+            if (error?.response?.status === 404) {
+                setNotFound(true);
+            } else {
+                setLoadError(extractErrorMessage(error, 'Failed to load investor'));
+            }
             setInvestor(null);
         } finally {
             setLoading(false);
         }
-    };
+    }, [id]);
+
+    useEffect(() => {
+        fetchInvestor();
+    }, [fetchInvestor]);
 
     const resetForm = () => {
         setFormData({
@@ -78,21 +94,25 @@ const InvestorDetailPage = () => {
             setShowModal(false);
             resetForm();
             await Promise.all([refetchTxns(), fetchInvestor()]);
+            toast.success('Transaction recorded successfully');
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.amount?.[0] || 'Failed to record transaction');
+            setFormError(extractErrorMessage(error, 'Failed to record transaction'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (txnId) => {
+        setDeleteLoading(true);
         try {
             await deleteTxn(txnId);
             setDeleteConfirm(null);
             await Promise.all([refetchTxns(), fetchInvestor()]);
+            toast.success('Transaction deleted and balances restored');
         } catch (error) {
-            setDeleteConfirm(null);
-            alert(error.response?.data?.detail || 'Failed to delete transaction');
+            toast.error(extractErrorMessage(error, 'Failed to delete transaction'));
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
@@ -118,13 +138,14 @@ const InvestorDetailPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '100px',
+            width: '90px',
             render: (_v, row) => (
                 <button
                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(row); }}
-                    className="text-error-600 hover:text-error-700 text-sm"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-error-600 hover:bg-error-50 transition-colors"
+                    aria-label="Delete transaction"
                 >
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                 </button>
             ),
         },
@@ -132,7 +153,7 @@ const InvestorDetailPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view investors.</p>
             </div>
@@ -147,13 +168,25 @@ const InvestorDetailPage = () => {
         );
     }
 
-    if (!investor) {
+    if (notFound) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold text-neutral-900">Investor Not Found</h2>
-                <Link to="/cash-management/investors" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Investors
-                </Link>
+                <BackLink to="/cash-management/investors" className="mt-4 inline-flex">Back to Investors</BackLink>
+            </div>
+        );
+    }
+
+    if (loadError || !investor) {
+        return (
+            <div className="space-y-4">
+                <BackLink to="/cash-management/investors">Back to Investors</BackLink>
+                <InlineAlert
+                    variant="error"
+                    title="Couldn't load this investor"
+                    message={loadError || 'Something went wrong'}
+                    onRetry={fetchInvestor}
+                />
             </div>
         );
     }
@@ -164,10 +197,8 @@ const InvestorDetailPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/cash-management/investors" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Investors
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">{investor.name}</h1>
+                    <BackLink to="/cash-management/investors">Back to Investors</BackLink>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mt-2">{investor.name}</h1>
                     <p className="text-neutral-500">
                         {investor.contact_number || 'No contact number'}{investor.email ? ` · ${investor.email}` : ''}
                     </p>
@@ -175,43 +206,37 @@ const InvestorDetailPage = () => {
                 <div className="flex gap-2">
                     <Button
                         variant="secondary"
+                        icon={TrendingUp}
                         onClick={() => navigate('/cash-management/growth-history', { state: { investor_id: id } })}
                     >
-                        View Growth History →
+                        Growth History
                     </Button>
-                    <Button
-                        onClick={() => { resetForm(); setShowModal(true); }}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
-                    >
-                        Record Investment / Withdrawal
+                    <Button icon={Plus} onClick={() => { resetForm(); setShowModal(true); }}>
+                        Record Transaction
                     </Button>
                 </div>
             </div>
 
             <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
-                <Card className="p-4">
+                <Card className="p-4" hover={false}>
                     <p className="text-xs text-neutral-500 mb-1">Total Invested</p>
                     <p className="text-xl font-bold text-info-600">Rs. {fmt(investor.total_invested)}</p>
                 </Card>
-                <Card className="p-4">
+                <Card className="p-4" hover={false}>
                     <p className="text-xs text-neutral-500 mb-1">Total Withdrawn</p>
                     <p className="text-xl font-bold text-warning-700">Rs. {fmt(investor.total_withdrawn)}</p>
                 </Card>
-                <Card className="p-4">
+                <Card className="p-4" hover={false}>
                     <p className="text-xs text-neutral-500 mb-1">Net Stake</p>
                     <p className="text-xl font-bold text-purple-600">Rs. {fmt(investor.net_stake)}</p>
                 </Card>
-                <Card className="p-4">
+                <Card className="p-4" hover={false}>
                     <p className="text-xs text-neutral-500 mb-1">Growth Rate</p>
                     <p className="text-xl font-bold text-neutral-900">
                         {parseFloat(investor.growth_rate) > 0 ? `${(parseFloat(investor.growth_rate) * 100).toFixed(2)}% / yr` : '—'}
                     </p>
                 </Card>
-                <Card className="p-4">
+                <Card className="p-4" hover={false}>
                     <p className="text-xs text-neutral-500 mb-1">Current Worth</p>
                     <p className="text-xl font-bold text-teal-600">Rs. {fmt(investor.current_worth)}</p>
                     {growthIncrease > 0 && (
@@ -221,31 +246,37 @@ const InvestorDetailPage = () => {
             </div>
 
             {parseFloat(investor.growth_rate) > 0 && (
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                    Current Worth is a theoretical value grown monthly at this investor's rate — it's informational
-                    only. Withdrawals are always capped by Net Stake (the actual amount invested), never by Current Worth.
-                </div>
+                <InlineAlert
+                    variant="info"
+                    message="Current Worth is a theoretical value grown monthly at this investor's rate — it's informational only. Withdrawals are always capped by Net Stake (the actual amount invested), never by Current Worth."
+                />
             )}
 
             {investor.note && (
-                <Card className="p-4">
-                    <p className="text-sm text-neutral-500">Note</p>
-                    <p className="font-medium">{investor.note}</p>
+                <Card className="p-4" hover={false}>
+                    <p className="text-xs font-medium text-neutral-500 flex items-center gap-1.5 mb-1">
+                        <FileText className="w-3.5 h-3.5" /> Note
+                    </p>
+                    <p className="font-medium text-neutral-900">{investor.note}</p>
                 </Card>
             )}
 
             <div className="space-y-4">
                 <h2 className="text-lg font-semibold text-neutral-900">Transaction History</h2>
+
+                {txnError && !txnLoading && (
+                    <InlineAlert variant="error" title="Couldn't load transactions" message={txnError} onRetry={refetchTxns} />
+                )}
+
                 {txnLoading ? (
-                    <div className="flex items-center justify-center py-8">
+                    <div className="flex items-center justify-center py-12">
                         <LoadingSpinner size="lg" />
                     </div>
                 ) : transactions.length === 0 ? (
-                    <div className="text-center py-12">
-                        <div className="text-6xl mb-4">📜</div>
-                        <h3 className="text-lg font-semibold text-neutral-900">No Transactions Yet</h3>
-                        <p className="text-sm text-neutral-500 mt-1">Record an investment or withdrawal to get started.</p>
-                    </div>
+                    <EmptyState
+                        title="No Transactions Yet"
+                        description="Record an investment or withdrawal to get started."
+                    />
                 ) : (
                     <>
                         <Table columns={columns} data={transactions} />
@@ -304,11 +335,7 @@ const InvestorDetailPage = () => {
                         </p>
                     )}
 
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
-                        </div>
-                    )}
+                    {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
@@ -328,6 +355,7 @@ const InvestorDetailPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Transaction"
                 message={`Are you sure you want to delete this Rs. ${fmt(deleteConfirm?.amount)} ${deleteConfirm?.transaction_type}? This will reverse its effect on cash in hand and this investor's balance.`}
+                loading={deleteLoading}
             />
         </div>
     );

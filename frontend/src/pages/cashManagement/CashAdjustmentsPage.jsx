@@ -1,7 +1,11 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Plus, Trash2, Scale, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useCashManagementStats, useCashAdjustments } from '../../hooks/useCashManagement';
+import { extractErrorMessage } from '../../utils/errorMessage';
+import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -12,6 +16,8 @@ import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -20,11 +26,12 @@ const fmt = (value) => {
 
 const CashAdjustmentsPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const navigate = useNavigate();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
-        data: adjustments, meta, page, setPage, loading,
+        data: adjustments, meta, page, setPage, loading, error: listError,
         filters, setFilters, refetch, create, delete: deleteAdjustment,
     } = useCashAdjustments();
     const { refetch: refetchStats } = useCashManagementStats();
@@ -39,6 +46,7 @@ const CashAdjustmentsPage = () => {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
 
     const resetForm = () => {
@@ -59,18 +67,27 @@ const CashAdjustmentsPage = () => {
             resetForm();
             refetch();
             refetchStats();
+            toast.success('Cash adjustment recorded successfully');
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.amount?.[0] || 'Failed to record cash adjustment');
+            setFormError(extractErrorMessage(error, 'Failed to record cash adjustment'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (id) => {
-        await deleteAdjustment(id);
-        setDeleteConfirm(null);
-        refetch();
-        refetchStats();
+        setDeleteLoading(true);
+        try {
+            await deleteAdjustment(id);
+            setDeleteConfirm(null);
+            refetch();
+            refetchStats();
+            toast.success('Cash adjustment deleted and cash in hand restored');
+        } catch (error) {
+            toast.error(extractErrorMessage(error, 'Failed to delete cash adjustment'));
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const handleApplyFilters = (values) => setFilters(values);
@@ -116,13 +133,14 @@ const CashAdjustmentsPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '100px',
+            width: '90px',
             render: (_value, row) => (
                 <button
                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(row); }}
-                    className="text-error-600 hover:text-error-700 text-sm"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-error-600 hover:bg-error-50 transition-colors"
+                    aria-label="Delete adjustment"
                 >
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                 </button>
             ),
         },
@@ -130,7 +148,7 @@ const CashAdjustmentsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-16">
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
                 <p className="text-neutral-500 mt-2">Only admins or superusers can view cash adjustments.</p>
             </div>
@@ -141,31 +159,25 @@ const CashAdjustmentsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/cash-management" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Cash Management
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Cash Adjustments</h1>
+                    <BackLink to="/cash-management">Back to Cash Management</BackLink>
+                    <div className="flex items-center gap-2.5 mt-2">
+                        <Scale className="w-6 h-6 text-primary-600" />
+                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Cash Adjustments</h1>
+                    </div>
                     <p className="text-neutral-500 mt-1">Lost and found/recovered cash entries</p>
                 </div>
-                <Button
-                    onClick={() => { resetForm(); setShowModal(true); }}
-                    icon={({ className }) => (
-                        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                    )}
-                >
+                <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>
                     Record Adjustment
                 </Button>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
-                    <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+                <div className="flex gap-3">
+                    <Button variant="secondary" size="sm" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
                     {Object.keys(filters).length > 0 && (
-                        <Button variant="secondary" onClick={handleResetFilters}>Clear Filters</Button>
+                        <Button variant="secondary" size="sm" onClick={handleResetFilters}>Clear Filters</Button>
                     )}
                 </div>
                 {showFilters && (
@@ -173,18 +185,20 @@ const CashAdjustmentsPage = () => {
                 )}
             </div>
 
+            {listError && !loading && (
+                <InlineAlert variant="error" title="Couldn't load cash adjustments" message={listError} onRetry={refetch} />
+            )}
+
             {loading ? (
-                <div className="flex items-center justify-center py-8">
+                <div className="flex items-center justify-center py-16">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : adjustments.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">💵</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Cash Adjustments Recorded Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Record one when physical cash doesn't match what the system expects.
-                    </p>
-                </div>
+                <EmptyState
+                    icon={<Scale className="w-8 h-8 text-neutral-400 mx-auto" />}
+                    title="No Cash Adjustments Recorded Yet"
+                    description="Record one when physical cash doesn't match what the system expects."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={adjustments} onRowClick={handleRowClick} />
@@ -237,19 +251,18 @@ const CashAdjustmentsPage = () => {
                     />
 
                     {formData.amount && parseFloat(formData.amount) > 0 && (
-                        <div className={`p-3 rounded-lg ${formData.adjustment_type === 'lost' ? 'bg-amber-50' : 'bg-green-50'}`}>
-                            <p className={`text-sm ${formData.adjustment_type === 'lost' ? 'text-amber-700' : 'text-green-700'}`}>
-                                {formData.adjustment_type === 'lost' ? '⚠️' : 'ℹ️'} This will {formData.adjustment_type === 'lost' ? 'deduct' : 'add'}{' '}
-                                <strong>Rs. {fmt(formData.amount)}</strong> {formData.adjustment_type === 'lost' ? 'from' : 'to'} cash in hand
-                            </p>
-                        </div>
+                        <InlineAlert
+                            variant={formData.adjustment_type === 'lost' ? 'warning' : 'info'}
+                            message={(
+                                <>
+                                    This will {formData.adjustment_type === 'lost' ? 'deduct' : 'add'}{' '}
+                                    <strong>Rs. {fmt(formData.amount)}</strong> {formData.adjustment_type === 'lost' ? 'from' : 'to'} cash in hand
+                                </>
+                            )}
+                        />
                     )}
 
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
-                        </div>
-                    )}
+                    {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
@@ -269,6 +282,7 @@ const CashAdjustmentsPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete Cash Adjustment"
                 message={`Are you sure you want to delete this Rs. ${fmt(deleteConfirm?.amount)} ${deleteConfirm?.adjustment_type} entry? This will reverse its effect on cash in hand.`}
+                loading={deleteLoading}
             />
         </div>
     );

@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { RotateCcw, Undo2 } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -24,28 +25,28 @@ const ReturnsSectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Supplier Returns Value"
                     value={stats?.total_purchase_returns_value}
-                    icon="🔄"
+                    icon={RotateCcw}
                     color="orange"
                     onClick={() => onCardClick('purchaseReturns', 'Supplier Returns Breakdown')}
                 />
                 <StatCard
                     label="Supplier Returns COGS"
                     value={stats?.total_purchase_returns_cogs}
-                    icon="🔄"
+                    icon={RotateCcw}
                     color="orange"
                     onClick={() => onCardClick('purchaseReturns', 'Supplier Returns Breakdown')}
                 />
                 <StatCard
                     label="Customer Returns Value"
                     value={stats?.total_customer_returns_value}
-                    icon="↩️"
+                    icon={Undo2}
                     color="orange"
                     onClick={() => onCardClick('customerReturns', 'Customer Returns Breakdown')}
                 />
                 <StatCard
                     label="Customer Returns COGS"
                     value={stats?.total_customer_returns_cogs}
-                    icon="↩️"
+                    icon={Undo2}
                     color="orange"
                     onClick={() => onCardClick('customerReturns', 'Customer Returns Breakdown')}
                 />

@@ -1,9 +1,12 @@
 import { useState, useEffect } from 'react';
-import { Link } from 'react-router-dom';
+import { Plus, Pencil, Trash2, ShieldAlert, Repeat, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useRecurringExpenseTemplates } from '../../hooks/useRecurringExpenses';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -13,6 +16,8 @@ import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -23,6 +28,7 @@ const emptyForm = { name: '', category: '', amount: '', start_date: new Date().t
 
 const RecurringExpenseTemplatesPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
@@ -38,6 +44,8 @@ const RecurringExpenseTemplatesPage = () => {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
+    const [togglingId, setTogglingId] = useState(null);
 
     useEffect(() => {
         recurringExpensesApi.categories.getAll({ page_size: 500 }).then((res) => {
@@ -80,8 +88,9 @@ const RecurringExpenseTemplatesPage = () => {
             setShowModal(false);
             resetForm();
             refetch();
+            toast.success(editingTemplate ? 'Recurring expense updated successfully' : 'Recurring expense created successfully');
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.name?.[0] || error.response?.data?.amount?.[0] || 'Failed to save recurring expense');
+            setFormError(extractErrorMessage(error, 'Failed to save recurring expense'));
         } finally {
             setFormLoading(false);
         }
@@ -100,27 +109,35 @@ const RecurringExpenseTemplatesPage = () => {
     };
 
     const handleToggleActive = async (template) => {
+        setTogglingId(template.id);
         try {
             await update(template.id, { is_active: !template.is_active });
             refetch();
+            toast.success(template.is_active ? 'Marked as inactive' : 'Marked as active');
         } catch (error) {
-            alert(error.response?.data?.detail || 'Failed to update status');
+            toast.error(extractErrorMessage(error, 'Failed to update status'));
+        } finally {
+            setTogglingId(null);
         }
     };
 
     const handleDelete = async (id) => {
+        setDeleteLoading(true);
         try {
             await deleteTemplate(id);
             setDeleteConfirm(null);
             refetch();
+            toast.success('Recurring expense deleted');
         } catch (error) {
             setDeleteConfirm(null);
-            alert(error.response?.data?.detail || 'Failed to delete recurring expense');
+            toast.error(extractErrorMessage(error, 'Failed to delete recurring expense'));
+        } finally {
+            setDeleteLoading(false);
         }
     };
 
     const columns = [
-        { key: 'name', label: 'Name' },
+        { key: 'name', label: 'Name', render: (v) => <span className="font-medium text-neutral-900">{v}</span> },
         { key: 'category_name', label: 'Category' },
         { key: 'amount', label: 'Monthly Amount (PKR)', render: (v) => <span className="font-semibold text-info-600">Rs. {fmt(v)}</span> },
         { key: 'start_date', label: 'Start Date', render: (v) => new Date(v).toLocaleDateString() },
@@ -128,7 +145,7 @@ const RecurringExpenseTemplatesPage = () => {
             key: 'is_active',
             label: 'Status',
             render: (v, row) => (
-                <button onClick={() => handleToggleActive(row)}>
+                <button onClick={() => handleToggleActive(row)} disabled={togglingId === row.id} className="disabled:opacity-50">
                     {v ? <Badge variant="success" size="sm">Active</Badge> : <Badge size="sm">Inactive</Badge>}
                 </button>
             ),
@@ -138,12 +155,12 @@ const RecurringExpenseTemplatesPage = () => {
             label: 'Actions',
             width: '150px',
             render: (_v, row) => (
-                <div className="flex gap-2">
-                    <button onClick={() => handleEdit(row)} className="text-primary-600 hover:text-primary-700 text-sm">
-                        Edit
+                <div className="flex items-center gap-3">
+                    <button onClick={() => handleEdit(row)} className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium min-h-[44px] sm:min-h-0">
+                        <Pencil className="w-3.5 h-3.5" /> Edit
                     </button>
-                    <button onClick={() => setDeleteConfirm(row)} className="text-error-600 hover:text-error-700 text-sm">
-                        Delete
+                    <button onClick={() => setDeleteConfirm(row)} className="inline-flex items-center gap-1 text-error-600 hover:text-error-700 text-sm font-medium min-h-[44px] sm:min-h-0">
+                        <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                 </div>
             ),
@@ -152,9 +169,12 @@ const RecurringExpenseTemplatesPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can view recurring expenses.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can view recurring expenses.</p>
             </div>
         );
     }
@@ -163,20 +183,18 @@ const RecurringExpenseTemplatesPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/recurring-expenses" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Recurring Expenses
-                    </Link>
+                    <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
                     <h1 className="text-3xl font-bold text-neutral-900 mt-1">Recurring Expense Templates</h1>
-                    <p className="text-neutral-500 mt-1">
+                    <p className="text-neutral-500 mt-1 max-w-2xl">
                         Salaries, rent, and anything else that recurs monthly. Creating one here never moves cash by itself —
                         use Post Dues to assign a month, then record a payment against it.
                     </p>
                 </div>
-                <Button onClick={() => { resetForm(); setShowModal(true); }}>Add Recurring Expense</Button>
+                <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>Add Recurring Expense</Button>
             </div>
 
             <div className="flex gap-4">
-                <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+                <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
                 {Object.keys(filters).length > 0 && (
@@ -192,11 +210,11 @@ const RecurringExpenseTemplatesPage = () => {
                     <LoadingSpinner size="lg" />
                 </div>
             ) : templates.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🔁</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Recurring Expenses Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Add a salary, rent, or subscription to get started.</p>
-                </div>
+                <EmptyState
+                    icon={<Repeat className="w-8 h-8 text-neutral-400" />}
+                    title="No Recurring Expenses Yet"
+                    description="Add a salary, rent, or subscription to get started."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={templates} />
@@ -252,11 +270,7 @@ const RecurringExpenseTemplatesPage = () => {
                         placeholder="Optional"
                     />
 
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
-                        </div>
-                    )}
+                    {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
@@ -273,6 +287,7 @@ const RecurringExpenseTemplatesPage = () => {
                 isOpen={!!deleteConfirm}
                 onClose={() => setDeleteConfirm(null)}
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
+                loading={deleteLoading}
                 title="Delete Recurring Expense"
                 message={`Are you sure you want to delete "${deleteConfirm?.name}"? Past assignments and payments are unaffected — it just can't be assigned for future months anymore.`}
             />

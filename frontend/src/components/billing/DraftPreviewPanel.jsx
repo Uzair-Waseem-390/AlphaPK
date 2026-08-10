@@ -1,5 +1,6 @@
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { AlertTriangle, Receipt, TrendingUp } from 'lucide-react';
 import Card from '../ui/Card';
 import Badge from '../ui/Badge';
 
@@ -31,17 +32,25 @@ const DraftPreviewPanel = ({ preview }) => {
 
     return (
         <Card className="p-6">
-            <h3 className="font-semibold text-neutral-900 mb-4">Draft Preview (Estimated)</h3>
+            <div className="flex items-center gap-2 mb-4">
+                <div className="w-8 h-8 rounded-lg bg-primary-50 flex items-center justify-center">
+                    <Receipt className="w-4 h-4 text-primary-600" />
+                </div>
+                <h3 className="font-semibold text-neutral-900">Draft Preview (Estimated)</h3>
+            </div>
 
             {preview.warnings && (preview.warnings.missing_rate || preview.warnings.missing_stock) && (
-                <div className="mb-4 p-3 bg-amber-50 border border-amber-200 rounded-lg">
-                    <p className="text-sm text-amber-700">
-                        {preview.warnings.missing_rate && '⚠️ Some products are missing selling prices. '}
-                        {preview.warnings.missing_stock && '⚠️ Some products have insufficient stock.'}
-                    </p>
-                    <p className="text-xs text-amber-600 mt-1">
-                        Preview only — no stock reserved, no prices committed. Confirm to finalise.
-                    </p>
+                <div className="mb-4 flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-lg">
+                    <AlertTriangle className="w-4 h-4 text-amber-500 shrink-0 mt-0.5" />
+                    <div>
+                        <p className="text-sm text-amber-700">
+                            {preview.warnings.missing_rate && 'Some products are missing selling prices. '}
+                            {preview.warnings.missing_stock && 'Some products have insufficient stock.'}
+                        </p>
+                        <p className="text-xs text-amber-600 mt-1">
+                            Preview only — no stock reserved, no prices committed. Confirm to finalise.
+                        </p>
+                    </div>
                 </div>
             )}
 
@@ -100,7 +109,9 @@ const DraftPreviewPanel = ({ preview }) => {
                     <span className="font-medium">{totalCogs.toFixed(2)}</span>
                 </div>
                 <div className="flex justify-between text-sm">
-                    <span className="text-neutral-500">Gross Profit</span>
+                    <span className="text-neutral-500 inline-flex items-center gap-1">
+                        <TrendingUp className="w-3.5 h-3.5" /> Gross Profit
+                    </span>
                     <span className="font-medium text-success-600">{grossProfit.toFixed(2)}</span>
                 </div>
             </div>

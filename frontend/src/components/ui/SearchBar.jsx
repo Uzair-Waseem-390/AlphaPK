@@ -1,9 +1,18 @@
-import { useState } from 'react';
+import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
 
-const SearchBar = ({ onSearch, placeholder = 'Search...', className = '' }) => {
-    const [value, setValue] = useState('');
+const SearchBar = ({ onSearch, placeholder = 'Search...', className = '', value: externalValue }) => {
+    const [value, setValue] = useState(externalValue ?? '');
+
+    // Optional controlled mode: when a parent passes `value` (e.g. to reset
+    // the field on a "Clear Filters" action), sync it in. Parents that never
+    // pass `value` keep the original fully-uncontrolled behavior.
+    useEffect(() => {
+        if (externalValue !== undefined) {
+            setValue(externalValue);
+        }
+    }, [externalValue]);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -35,6 +44,7 @@ SearchBar.propTypes = {
     onSearch: PropTypes.func.isRequired,
     placeholder: PropTypes.string,
     className: PropTypes.string,
+    value: PropTypes.string,
 };
 
 export default SearchBar;

@@ -1,12 +1,16 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
+import { Printer, FileDown, CreditCard, Undo2, Pencil, CheckCircle2, Trash2, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import OrderSummaryCard from '../../components/purchases/OrderSummaryCard';
@@ -17,16 +21,20 @@ import ReturnForm from '../../components/purchases/ReturnForm';
 import SavePDFModal from '../../components/purchases/SavePDFModal';
 import PurchaseOrderFormModal from '../../components/purchases/PurchaseOrderFormModal';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 const PurchaseOrderDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
+    const { toast } = useToast();
 
     const [order, setOrder] = useState(null);
     const [paymentSummary, setPaymentSummary] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState('');
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [showReturnForm, setShowReturnForm] = useState(false);
     const [showSavePDFModal, setShowSavePDFModal] = useState(false);
@@ -35,11 +43,20 @@ const PurchaseOrderDetailPage = () => {
     const [returns, setReturns] = useState([]);
     const [payments, setPayments] = useState([]);
     const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+    const [deletingOrder, setDeletingOrder] = useState(false);
     const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showEditModal, setShowEditModal] = useState(false);
     const [allocationDrafts, setAllocationDrafts] = useState({});
     const [savingAllocationFor, setSavingAllocationFor] = useState(null);
     const [confirmError, setConfirmError] = useState('');
+    const [confirmOrderOpen, setConfirmOrderOpen] = useState(false);
+    const [confirmingOrder, setConfirmingOrder] = useState(false);
+    const [pdfToDelete, setPdfToDelete] = useState(null);
+    const [deletingPdf, setDeletingPdf] = useState(false);
+    const [paymentToDelete, setPaymentToDelete] = useState(null);
+    const [deletingPayment, setDeletingPayment] = useState(false);
+    const [returnToAccept, setReturnToAccept] = useState(null);
+    const [acceptingReturn, setAcceptingReturn] = useState(false);
 
     useEffect(() => {
         fetchData();
@@ -73,6 +90,7 @@ const PurchaseOrderDetailPage = () => {
 
     const fetchData = async () => {
         setLoading(true);
+        setLoadError('');
         try {
             const [orderData, summaryData] = await Promise.all([
                 purchasesApi.orders.getById(id),
@@ -100,6 +118,7 @@ const PurchaseOrderDetailPage = () => {
             setHasPendingReturn(hasPending);
         } catch (error) {
             console.error('Failed to fetch order details:', error);
+            setLoadError(extractErrorMessage(error, 'Failed to load order details'));
         } finally {
             setLoading(false);
         }
@@ -117,7 +136,7 @@ const PurchaseOrderDetailPage = () => {
             }, 1000);
         } catch (error) {
             console.error('Failed to print order:', error);
-            alert('Failed to print order. Please try again.');
+            toast.error(extractErrorMessage(error, 'Failed to print order. Please try again.'));
         }
     };
 
@@ -126,22 +145,29 @@ const PurchaseOrderDetailPage = () => {
         try {
             await purchasesApi.orders.savePDF(id, { file_name: fileName });
             setShowSavePDFModal(false);
+            toast.success('PDF saved successfully');
             await fetchData();
         } catch (error) {
             console.error('Failed to save PDF:', error);
-            alert(error.response?.data?.detail || 'Failed to save PDF');
+            toast.error(extractErrorMessage(error, 'Failed to save PDF'));
         } finally {
             setFormLoading(false);
         }
     };
 
-    const handleDeletePDF = async (pdfId) => {
-        if (!window.confirm('Are you sure you want to delete this PDF?')) return;
+    const confirmDeletePDF = async () => {
+        if (!pdfToDelete) return;
+        setDeletingPdf(true);
         try {
-            await purchasesApi.orders.deletePDF(pdfId);
+            await purchasesApi.orders.deletePDF(pdfToDelete.id);
+            toast.success('PDF deleted');
             await fetchData();
         } catch (error) {
             console.error('Failed to delete PDF:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete PDF'));
+        } finally {
+            setDeletingPdf(false);
+            setPdfToDelete(null);
         }
     };
 
@@ -150,23 +176,29 @@ const PurchaseOrderDetailPage = () => {
         try {
             await purchasesApi.payments.create(id, data);
             setShowPaymentForm(false);
+            toast.success('Payment recorded successfully');
             await fetchData();
-            alert('Payment recorded successfully!');
         } catch (error) {
             console.error('Failed to record payment:', error);
-            alert(error.response?.data?.detail || 'Failed to record payment');
+            toast.error(extractErrorMessage(error, 'Failed to record payment'));
         } finally {
             setFormLoading(false);
         }
     };
 
-    const handleDeletePayment = async (paymentId) => {
-        if (!window.confirm('Are you sure you want to delete this payment?')) return;
+    const confirmDeletePayment = async () => {
+        if (!paymentToDelete) return;
+        setDeletingPayment(true);
         try {
-            await purchasesApi.payments.delete(paymentId);
+            await purchasesApi.payments.delete(paymentToDelete);
+            toast.success('Payment deleted');
             await fetchData();
         } catch (error) {
             console.error('Failed to delete payment:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete payment'));
+        } finally {
+            setDeletingPayment(false);
+            setPaymentToDelete(null);
         }
     };
 
@@ -175,37 +207,48 @@ const PurchaseOrderDetailPage = () => {
         try {
             await purchasesApi.returns.create(id, data);
             setShowReturnForm(false);
+            toast.success('Return created successfully');
             await fetchData();
-            alert('Return created successfully!');
         } catch (error) {
             console.error('Failed to create return:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to create return';
-            alert(errorMsg);
+            toast.error(extractErrorMessage(error, 'Failed to create return'));
         } finally {
             setFormLoading(false);
         }
     };
 
-    const handleAcceptReturn = async (returnId) => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
+    const confirmAcceptReturn = async () => {
+        if (!returnToAccept) return;
+        setAcceptingReturn(true);
         try {
-            await purchasesApi.returns.accept(returnId);
+            await purchasesApi.returns.accept(returnToAccept);
+            toast.success('Return accepted');
             await fetchData();
         } catch (error) {
             console.error('Failed to accept return:', error);
+            toast.error(extractErrorMessage(error, 'Failed to accept return'));
+        } finally {
+            setAcceptingReturn(false);
+            setReturnToAccept(null);
         }
     };
 
-    const handleConfirmOrder = async () => {
-        if (!window.confirm('Are you sure you want to confirm this order?')) return;
+    const confirmOrderAction = async () => {
         setConfirmError('');
+        setConfirmingOrder(true);
         try {
             await purchasesApi.orders.confirm(id);
+            toast.success('Order confirmed');
             await fetchData();
+            setConfirmOrderOpen(false);
         } catch (error) {
             console.error('Failed to confirm order:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to confirm order';
+            const errorMsg = extractErrorMessage(error, 'Failed to confirm order');
             setConfirmError(errorMsg);
+            toast.error(errorMsg);
+            setConfirmOrderOpen(false);
+        } finally {
+            setConfirmingOrder(false);
         }
     };
 
@@ -216,12 +259,11 @@ const PurchaseOrderDetailPage = () => {
         setSavingAllocationFor(itemId);
         try {
             await purchasesApi.purchaseItems.setShelfAllocations(itemId, allocations);
+            toast.success('Shelf allocations saved');
             await fetchData();
         } catch (error) {
             console.error('Failed to save shelf allocations:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message
-                || error.response?.data?.allocations || 'Failed to save shelf allocations';
-            alert(typeof errorMsg === 'string' ? errorMsg : JSON.stringify(errorMsg));
+            toast.error(extractErrorMessage(error, 'Failed to save shelf allocations'));
         } finally {
             setSavingAllocationFor(null);
         }
@@ -252,11 +294,16 @@ const PurchaseOrderDetailPage = () => {
     };
 
     const handleDeleteOrder = async () => {
+        setDeletingOrder(true);
         try {
             await purchasesApi.orders.delete(id);
+            toast.success('Purchase order deleted');
             navigate('/purchases/orders');
         } catch (error) {
             console.error('Failed to delete order:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete order'));
+            setDeletingOrder(false);
+            setShowDeleteConfirm(false);
         }
     };
 
@@ -271,10 +318,14 @@ const PurchaseOrderDetailPage = () => {
     if (!order) {
         return (
             <div className="text-center py-12">
-                <h2 className="text-2xl font-semibold text-neutral-900">Order Not Found</h2>
-                <Link to="/purchases/orders" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Orders
-                </Link>
+                {loadError ? (
+                    <div className="max-w-md mx-auto text-left">
+                        <InlineAlert variant="error" message={loadError} onRetry={fetchData} />
+                    </div>
+                ) : (
+                    <h2 className="text-2xl font-semibold text-neutral-900">Order Not Found</h2>
+                )}
+                <BackLink to="/purchases/orders" className="mt-4">Back to Orders</BackLink>
             </div>
         );
     }
@@ -284,9 +335,7 @@ const PurchaseOrderDetailPage = () => {
             {/* Header */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/purchases/orders" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Orders
-                    </Link>
+                    <BackLink to="/purchases/orders">Back to Orders</BackLink>
                     <h1 className="text-3xl font-bold text-neutral-900 mt-1">{order.order_number}</h1>
                     <div className="flex gap-2 mt-1 flex-wrap">
                         <OrderStatusBadge status={order.status} />
@@ -296,7 +345,7 @@ const PurchaseOrderDetailPage = () => {
                 <div className="flex gap-2 flex-wrap items-center">
                     {/* Print button hidden while order is draft */}
                     {order.status !== 'draft' && (
-                        <Button variant="secondary" onClick={handlePrint}>
+                        <Button variant="secondary" onClick={handlePrint} icon={Printer}>
                             Print
                         </Button>
                     )}
@@ -304,15 +353,15 @@ const PurchaseOrderDetailPage = () => {
                     {order.status === 'confirmed' && (
                         <>
                             {isAdmin && (
-                                <Button variant="secondary" onClick={() => setShowSavePDFModal(true)}>
+                                <Button variant="secondary" onClick={() => setShowSavePDFModal(true)} icon={FileDown}>
                                     Save PDF
                                 </Button>
                             )}
-                            <Button variant="secondary" onClick={() => setShowPaymentForm(true)}>
+                            <Button variant="secondary" onClick={() => setShowPaymentForm(true)} icon={CreditCard}>
                                 Record Payment
                             </Button>
                             {!hasPendingReturn && (
-                                <Button variant="secondary" onClick={() => setShowReturnForm(true)}>
+                                <Button variant="secondary" onClick={() => setShowReturnForm(true)} icon={Undo2}>
                                     Create Return
                                 </Button>
                             )}
@@ -326,13 +375,13 @@ const PurchaseOrderDetailPage = () => {
 
                     {order.status === 'draft' && isAdmin && (
                         <>
-                            <Button variant="secondary" onClick={handleOpenEdit}>
+                            <Button variant="secondary" onClick={handleOpenEdit} icon={Pencil}>
                                 Edit
                             </Button>
-                            <Button variant="success" onClick={handleConfirmOrder}>
+                            <Button variant="success" onClick={() => setConfirmOrderOpen(true)} icon={CheckCircle2}>
                                 Confirm
                             </Button>
-                            <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+                            <Button variant="danger" onClick={() => setShowDeleteConfirm(true)} icon={Trash2}>
                                 Delete
                             </Button>
                         </>
@@ -341,9 +390,7 @@ const PurchaseOrderDetailPage = () => {
             </div>
 
             {confirmError && (
-                <div className="p-4 rounded-lg bg-error-50 border border-error-200 text-sm text-error-700">
-                    {confirmError}
-                </div>
+                <InlineAlert variant="error" message={confirmError} />
             )}
 
             {/* Supplier Info */}
@@ -506,7 +553,7 @@ const PurchaseOrderDetailPage = () => {
                     <h3 className="font-semibold text-neutral-900 mb-3">Payment History</h3>
                     <PaymentHistoryList
                         payments={payments}
-                        onDelete={handleDeletePayment}
+                        onDelete={(paymentId) => setPaymentToDelete(paymentId)}
                         isAdmin={isAdmin}
                     />
                 </Card>
@@ -518,7 +565,7 @@ const PurchaseOrderDetailPage = () => {
                     <h3 className="font-semibold text-neutral-900 mb-3">Returns</h3>
                     <ReturnList
                         returns={returns}
-                        onAccept={handleAcceptReturn}
+                        onAccept={(returnId) => setReturnToAccept(returnId)}
                         isAdmin={isAdmin}
                         orderItems={order.items || []}
                     />
@@ -531,24 +578,29 @@ const PurchaseOrderDetailPage = () => {
                     <h3 className="font-semibold text-neutral-900 mb-3">Saved PDFs</h3>
                     <div className="space-y-2">
                         {pdfs.map((pdf) => (
-                            <div key={pdf.id} className="flex justify-between items-center p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
-                                <div>
-                                    <a
-                                        href={pdf.file_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="font-medium text-primary-600 hover:text-primary-700 hover:underline"
-                                    >
-                                        {pdf.file_name}
-                                    </a>
-                                    <p className="text-xs text-neutral-500">
-                                        Saved: {new Date(pdf.created_at).toLocaleString()}
-                                    </p>
+                            <div key={pdf.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
+                                <div className="flex items-start gap-3 min-w-0">
+                                    <FileText className="w-5 h-5 text-neutral-400 flex-shrink-0 mt-0.5" />
+                                    <div className="min-w-0">
+                                        <a
+                                            href={pdf.file_url}
+                                            target="_blank"
+                                            rel="noopener noreferrer"
+                                            className="font-medium text-primary-600 hover:text-primary-700 hover:underline break-all"
+                                        >
+                                            {pdf.file_name}
+                                        </a>
+                                        <p className="text-xs text-neutral-500">
+                                            Saved: {new Date(pdf.created_at).toLocaleString()}
+                                        </p>
+                                    </div>
                                 </div>
                                 <Button
                                     size="sm"
                                     variant="danger"
-                                    onClick={() => handleDeletePDF(pdf.id)}
+                                    icon={Trash2}
+                                    onClick={() => setPdfToDelete(pdf)}
+                                    className="self-start sm:self-auto"
                                 >
                                     Delete
                                 </Button>
@@ -625,32 +677,62 @@ const PurchaseOrderDetailPage = () => {
                 defaultFileName={order.order_number}
             />
 
-            {/* Delete Confirmation Modal */}
-            <Modal
+            {/* Delete Order Confirmation */}
+            <ConfirmDialog
                 isOpen={showDeleteConfirm}
                 onClose={() => setShowDeleteConfirm(false)}
+                onConfirm={handleDeleteOrder}
                 title="Delete Order"
-            >
-                <div className="space-y-4">
-                    <p className="text-neutral-600">
-                        Are you sure you want to delete this draft order? This action cannot be undone.
-                    </p>
-                    <div className="flex justify-end gap-3 pt-4">
-                        <Button
-                            variant="secondary"
-                            onClick={() => setShowDeleteConfirm(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="danger"
-                            onClick={handleDeleteOrder}
-                        >
-                            Delete Order
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
+                message="Are you sure you want to delete this draft order? This action cannot be undone."
+                confirmText="Delete Order"
+                loading={deletingOrder}
+            />
+
+            {/* Confirm Order Confirmation */}
+            <ConfirmDialog
+                isOpen={confirmOrderOpen}
+                onClose={() => setConfirmOrderOpen(false)}
+                onConfirm={confirmOrderAction}
+                title="Confirm Order"
+                message="Are you sure you want to confirm this order? Stock will be reserved and it can no longer be edited."
+                confirmText="Confirm Order"
+                variant="primary"
+                loading={confirmingOrder}
+            />
+
+            {/* Delete PDF Confirmation */}
+            <ConfirmDialog
+                isOpen={!!pdfToDelete}
+                onClose={() => setPdfToDelete(null)}
+                onConfirm={confirmDeletePDF}
+                title="Delete PDF"
+                message={`Are you sure you want to delete "${pdfToDelete?.file_name}"?`}
+                confirmText="Delete"
+                loading={deletingPdf}
+            />
+
+            {/* Delete Payment Confirmation */}
+            <ConfirmDialog
+                isOpen={!!paymentToDelete}
+                onClose={() => setPaymentToDelete(null)}
+                onConfirm={confirmDeletePayment}
+                title="Delete Payment"
+                message="Are you sure you want to delete this payment? This action cannot be undone."
+                confirmText="Delete"
+                loading={deletingPayment}
+            />
+
+            {/* Accept Return Confirmation */}
+            <ConfirmDialog
+                isOpen={!!returnToAccept}
+                onClose={() => setReturnToAccept(null)}
+                onConfirm={confirmAcceptReturn}
+                title="Accept Return"
+                message="Are you sure you want to accept this return? This will adjust stock and payable amounts."
+                confirmText="Accept"
+                variant="primary"
+                loading={acceptingReturn}
+            />
         </div>
     );
 };

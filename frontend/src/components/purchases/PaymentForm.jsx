@@ -1,9 +1,10 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Wallet } from 'lucide-react';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import InlineAlert from '../ui/InlineAlert';
 
 const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
     const [formData, setFormData] = useState({
@@ -90,21 +91,13 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 placeholder="Payment note (optional)"
             />
 
-            {error && (
-                <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-sm text-error-500 bg-error-50 p-3 rounded-lg"
-                >
-                    {error}
-                </motion.p>
-            )}
+            {error && <InlineAlert variant="error" message={error} />}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button type="button" variant="secondary" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button type="submit" loading={loading}>
+                <Button type="submit" loading={loading} icon={Wallet}>
                     Record Payment
                 </Button>
             </div>

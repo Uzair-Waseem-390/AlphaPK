@@ -1,14 +1,17 @@
 import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
+import { CalendarPlus, ClipboardList, SlidersHorizontal, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRecurringExpenseAssignments } from '../../hooks/useRecurringExpenses';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import Button from '../../components/ui/Button';
+import BackLink from '../../components/ui/BackLink';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -72,9 +75,12 @@ const RecurringExpenseAssignmentsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <ShieldAlert className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can view recurring expense assignments.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can view recurring expense assignments.</p>
             </div>
         );
     }
@@ -83,19 +89,17 @@ const RecurringExpenseAssignmentsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/recurring-expenses" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Recurring Expenses
-                    </Link>
+                    <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
                     <h1 className="text-3xl font-bold text-neutral-900 mt-1">Assignments</h1>
                     <p className="text-neutral-500 mt-1">Every month due ever assigned — click one to record a payment.</p>
                 </div>
                 <Link to="/recurring-expenses/post-dues">
-                    <Button>Post Dues →</Button>
+                    <Button icon={CalendarPlus}>Post Dues</Button>
                 </Link>
             </div>
 
             <div className="flex gap-4">
-                <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+                <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                     {showFilters ? 'Hide Filters' : 'Show Filters'}
                 </Button>
                 {Object.keys(filters).length > 0 && (
@@ -111,11 +115,11 @@ const RecurringExpenseAssignmentsPage = () => {
                     <LoadingSpinner size="lg" />
                 </div>
             ) : assignments.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📋</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Assignments Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Post a month's dues to get started.</p>
-                </div>
+                <EmptyState
+                    icon={<ClipboardList className="w-8 h-8 text-neutral-400" />}
+                    title="No Assignments Yet"
+                    description="Post a month's dues to get started."
+                />
             ) : (
                 <>
                     <Table columns={columns} data={assignments} onRowClick={handleRowClick} />

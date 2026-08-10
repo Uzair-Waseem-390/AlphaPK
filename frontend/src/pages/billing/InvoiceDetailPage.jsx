@@ -1,12 +1,23 @@
-import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
-import { motion } from 'framer-motion';
+import { useState, useEffect, useCallback } from 'react';
+import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
+import {
+    Printer, Save, CreditCard, RotateCcw, CalendarClock, Pencil,
+    CheckCircle2, Trash2, FileText, Package, ExternalLink,
+} from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { billingApi } from '../../services/billingApi';
+import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
+import Tabs from '../../components/ui/Tabs';
+import InlineAlert from '../../components/ui/InlineAlert';
+import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import EmptyState from '../../components/ui/EmptyState';
 import InvoiceStatusBadge from '../../components/billing/InvoiceStatusBadge';
 import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
 import PaymentSummaryCard from '../../components/billing/PaymentSummaryCard';
@@ -20,122 +31,192 @@ import ExtendDueDateModal from '../../components/billing/ExtendDueDateModal';
 import Modal from '../../components/ui/Modal';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 
-// Pulls the clearest human-readable message out of a DRF error response.
-// Shelf-allocation errors come back keyed by "shelf_allocations" (a string),
-// not "detail" — so a plain `error.response?.data?.detail` lookup would miss
-// them and fall through to a generic message.
-const extractErrorMessage = (error, fallback) => {
-    const data = error?.response?.data;
-    if (!data) return fallback;
-    if (typeof data === 'string') return data;
-    if (data.detail) return Array.isArray(data.detail) ? data.detail[0] : data.detail;
-    if (data.shelf_allocations) {
-        return Array.isArray(data.shelf_allocations) ? data.shelf_allocations[0] : data.shelf_allocations;
-    }
-    const firstKey = Object.keys(data)[0];
-    if (firstKey) {
-        const val = data[firstKey];
-        return Array.isArray(val) ? val[0] : val;
-    }
-    return fallback;
+// Configuration for every action that needs a serious "are you sure?" step.
+// Keeping this as a lookup keyed by a single `confirmAction.type` state means
+// one ConfirmDialog instance can serve every destructive/high-stakes action
+// on this page instead of a scattered pile of booleans + native confirm().
+const CONFIRM_CONFIG = {
+    deleteInvoice: {
+        title: 'Delete Draft Invoice',
+        confirmText: 'Delete Invoice',
+        variant: 'danger',
+    },
+    confirmInvoice: {
+        title: 'Confirm Invoice',
+        confirmText: 'Confirm Invoice',
+        variant: 'primary',
+    },
+    deletePayment: {
+        title: 'Delete Payment',
+        message: "Are you sure you want to delete this payment? This will adjust the invoice's outstanding balance.",
+        confirmText: 'Delete Payment',
+        variant: 'danger',
+    },
+    deletePDF: {
+        title: 'Delete Saved PDF',
+        message: 'Are you sure you want to delete this saved PDF? This cannot be undone.',
+        confirmText: 'Delete PDF',
+        variant: 'danger',
+    },
+    acceptReturn: {
+        title: 'Accept Return',
+        message: "Accepting this return will restore stock and reduce the customer's outstanding credit accordingly.",
+        confirmText: 'Accept Return',
+        variant: 'primary',
+    },
+};
+
+const amount = (value) => {
+    const n = typeof value === 'string' ? parseFloat(value) : Number(value);
+    return Number.isFinite(n) ? n : 0;
 };
 
 const InvoiceDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [invoice, setInvoice] = useState(null);
     const [paymentSummary, setPaymentSummary] = useState(null);
     const [loading, setLoading] = useState(true);
+    const [loadError, setLoadError] = useState(null);
+
+    // Payments/returns/PDFs are fetched right after the invoice core so the
+    // header, totals and items table can paint immediately instead of
+    // waiting on every side list.
+    const [secondaryLoading, setSecondaryLoading] = useState(true);
+    const [payments, setPayments] = useState([]);
+    const [returns, setReturns] = useState([]);
+    const [pdfs, setPdfs] = useState([]);
+    const [hasPendingReturn, setHasPendingReturn] = useState(false);
+
+    const [activeTab, setActiveTab] = useState('items');
+
     const [showPaymentForm, setShowPaymentForm] = useState(false);
     const [showReturnForm, setShowReturnForm] = useState(false);
     const [showSavePDFModal, setShowSavePDFModal] = useState(false);
-    const [formLoading, setFormLoading] = useState(false);
-    const [pdfs, setPdfs] = useState([]);
-    const [returns, setReturns] = useState([]);
-    const [payments, setPayments] = useState([]);
-    const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
-    const [hasPendingReturn, setHasPendingReturn] = useState(false);
     const [showExtendDueDate, setShowExtendDueDate] = useState(false);
+    const [formLoading, setFormLoading] = useState(false);
     const [dueDateSaving, setDueDateSaving] = useState(false);
+
+    const [paymentApiError, setPaymentApiError] = useState(null);
+    const [paymentFieldErrors, setPaymentFieldErrors] = useState({});
+    const [pdfApiError, setPdfApiError] = useState(null);
+
+    // Single confirm-dialog state, tagged with which action triggered it
+    // (plus the target id for row-scoped actions like delete payment/PDF or
+    // accept return) so one dialog instance can drive every confirmation.
+    const [confirmAction, setConfirmAction] = useState(null);
+    const [actionLoading, setActionLoading] = useState(false);
+
     // Per invoice-item shelf allocation UI state, keyed by invoice item id:
     // { candidates: [{id, name, available_quantity}], allocations: [{shelf_id, quantity}], saving: bool, error: string }
     const [shelfState, setShelfState] = useState({});
 
-    useEffect(() => {
-        fetchData();
+    const fetchInvoiceCore = useCallback(async () => {
+        const [invoiceData, summaryData] = await Promise.all([
+            billingApi.invoices.getById(id),
+            billingApi.invoices.getPaymentSummary(id),
+        ]);
+        setInvoice(invoiceData);
+        setPaymentSummary(summaryData);
+
+        if (invoiceData?.status === 'draft' && invoiceData.items?.length) {
+            const entries = await Promise.all(invoiceData.items.map(async (item) => {
+                try {
+                    const candidates = await billingApi.shelves.getCandidates(item.product);
+                    return [item.id, candidates?.results ?? candidates ?? []];
+                } catch (err) {
+                    console.error(`Failed to fetch candidate shelves for item ${item.id}:`, err);
+                    return [item.id, []];
+                }
+            }));
+            const candidatesByItemId = Object.fromEntries(entries);
+            setShelfState((prev) => {
+                const next = {};
+                invoiceData.items.forEach((item) => {
+                    next[item.id] = {
+                        candidates: candidatesByItemId[item.id] || [],
+                        allocations: (item.shelf_allocations || []).map((a) => ({
+                            shelf_id: a.shelf_id,
+                            quantity: a.quantity,
+                        })),
+                        saving: false,
+                        error: prev[item.id]?.error || '',
+                    };
+                });
+                return next;
+            });
+        } else {
+            setShelfState({});
+        }
+        return invoiceData;
     }, [id]);
 
-    const fetchData = async () => {
-        setLoading(true);
+    const refetchPayments = useCallback(async () => {
         try {
-            const [invoiceData, summaryData] = await Promise.all([
-                billingApi.invoices.getById(id),
-                billingApi.invoices.getPaymentSummary(id),
+            const data = await billingApi.payments.getByInvoice(id, { page_size: 500 });
+            setPayments(data?.results ?? data ?? []);
+        } catch (err) {
+            console.error('Failed to refresh payments:', err);
+        }
+    }, [id]);
+
+    const refetchReturns = useCallback(async () => {
+        try {
+            const data = await billingApi.returns.getByInvoice(id, { page_size: 500 });
+            const list = data?.results ?? data ?? [];
+            setReturns(list);
+            setHasPendingReturn(list.some((r) => r.status === 'pending'));
+        } catch (err) {
+            console.error('Failed to refresh returns:', err);
+        }
+    }, [id]);
+
+    const refetchPDFs = useCallback(async (statusHint) => {
+        const status = statusHint ?? invoice?.status;
+        if (status === 'draft') return;
+        try {
+            const data = await billingApi.invoices.getPDFs(id);
+            setPdfs(data?.results ?? data ?? []);
+        } catch (err) {
+            console.error('Failed to refresh saved PDFs:', err);
+        }
+    }, [id, invoice?.status]);
+
+    const fetchSecondary = useCallback(async (invoiceData) => {
+        setSecondaryLoading(true);
+        try {
+            await Promise.all([
+                refetchPayments(),
+                refetchReturns(),
+                refetchPDFs(invoiceData?.status),
             ]);
-            setInvoice(invoiceData);
-            setPaymentSummary(summaryData);
+        } finally {
+            setSecondaryLoading(false);
+        }
+    }, [refetchPayments, refetchReturns, refetchPDFs]);
 
-            // Fetch additional data with error catching for each request
-            const [paymentsData, returnsData, pdfsData] = await Promise.all([
-                billingApi.payments.getByInvoice(id, { page_size: 500 }).catch(() => []),
-                billingApi.returns.getByInvoice(id, { page_size: 500 }).catch(() => []),
-                invoiceData?.status !== 'draft'
-                    ? billingApi.invoices.getPDFs(id).catch(() => [])
-                    : Promise.resolve([]),
-            ]);
-            const paymentsList = paymentsData?.results ?? paymentsData ?? [];
-            const returnsList = returnsData?.results ?? returnsData ?? [];
-            setPayments(paymentsList);
-            setReturns(returnsList);
-            setPdfs(pdfsData?.results ?? pdfsData ?? []);
-
-            // Check if there's a pending return
-            const hasPending = returnsList.some(r => r.status === 'pending');
-            setHasPendingReturn(hasPending);
-
-            // Draft invoices need shelf allocation candidates per item so the
-            // allocator can be populated (confirmed invoices only show the
-            // saved allocations read-only, no candidates fetch needed).
-            // Candidates are already a small, bounded set (only shelves
-            // currently holding stock of that product), so a plain dropdown.
-            if (invoiceData?.status === 'draft' && invoiceData.items?.length) {
-                const entries = await Promise.all(invoiceData.items.map(async (item) => {
-                    try {
-                        const candidates = await billingApi.shelves.getCandidates(item.product);
-                        return [item.id, candidates?.results ?? candidates ?? []];
-                    } catch (err) {
-                        console.error(`Failed to fetch candidate shelves for item ${item.id}:`, err);
-                        return [item.id, []];
-                    }
-                }));
-                const candidatesByItemId = Object.fromEntries(entries);
-                setShelfState((prev) => {
-                    const next = {};
-                    invoiceData.items.forEach((item) => {
-                        next[item.id] = {
-                            candidates: candidatesByItemId[item.id] || [],
-                            allocations: (item.shelf_allocations || []).map((a) => ({
-                                shelf_id: a.shelf_id,
-                                quantity: a.quantity,
-                            })),
-                            saving: false,
-                            error: prev[item.id]?.error || '',
-                        };
-                    });
-                    return next;
-                });
-            } else {
-                setShelfState({});
-            }
+    const loadAll = useCallback(async () => {
+        setLoading(true);
+        setLoadError(null);
+        try {
+            const invoiceData = await fetchInvoiceCore();
+            setLoading(false);
+            await fetchSecondary(invoiceData);
         } catch (error) {
             console.error('Failed to fetch invoice details:', error);
-        } finally {
+            setLoadError(extractErrorMessage(error, 'Failed to load this invoice.'));
             setLoading(false);
         }
-    };
+    }, [fetchInvoiceCore, fetchSecondary]);
+
+    useEffect(() => {
+        loadAll();
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [id]);
 
     const handleAllocationChange = (itemId, nextAllocations) => {
         setShelfState((prev) => ({
@@ -154,7 +235,8 @@ const InvoiceDetailPage = () => {
                 .filter((a) => a.shelf_id !== '' && a.quantity !== '')
                 .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
             await billingApi.invoiceItems.setShelfAllocations(itemId, allocations);
-            await fetchData();
+            toast.success('Shelf allocations saved.');
+            await fetchInvoiceCore();
         } catch (error) {
             console.error('Failed to save shelf allocations:', error);
             const message = extractErrorMessage(error, 'Failed to save shelf allocations.');
@@ -166,86 +248,84 @@ const InvoiceDetailPage = () => {
     };
 
     const handlePrint = async () => {
-        const isDraft = invoice?.status === 'draft';
         try {
-            const token = localStorage.getItem('access_token');
-            if (!token) {
-                alert('Please login again to print');
-                return;
-            }
-
-            const response = await fetch(
-                `${import.meta.env.VITE_BACKEND_URL || 'http://localhost:8000'}/api/billing/invoices/${id}/print/?is_draft=${isDraft}`,
-                {
-                    headers: {
-                        'Authorization': `Bearer ${token}`,
-                    },
-                }
-            );
-
-            if (!response.ok) {
-                throw new Error('Failed to print invoice');
-            }
-
-            const blob = await response.blob();
-            const url = window.URL.createObjectURL(blob);
+            const isDraft = invoice?.status === 'draft';
+            const blob = await billingApi.invoices.print(id, isDraft);
+            const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
             window.open(url, '_blank');
-
-            setTimeout(() => {
-                window.URL.revokeObjectURL(url);
-            }, 1000);
+            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
         } catch (error) {
             console.error('Failed to print:', error);
-            alert('Failed to print invoice. Please try again.');
+            toast.error(extractErrorMessage(error, 'Failed to print invoice. Please try again.'));
         }
     };
 
     const handleSavePDF = async (fileName) => {
         setFormLoading(true);
+        setPdfApiError(null);
         try {
             await billingApi.invoices.savePDF(id, { file_name: fileName });
             setShowSavePDFModal(false);
-            await fetchData();
+            toast.success('PDF saved successfully.');
+            await refetchPDFs();
         } catch (error) {
             console.error('Failed to save PDF:', error);
-            alert(error.response?.data?.detail || 'Failed to save PDF');
+            setPdfApiError(extractErrorMessage(error, 'Failed to save PDF.'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDeletePDF = async (pdfId) => {
-        if (!window.confirm('Are you sure you want to delete this PDF?')) return;
+        setActionLoading(true);
         try {
             await billingApi.invoices.deletePDF(pdfId);
-            await fetchData();
+            setConfirmAction(null);
+            toast.success('PDF deleted.');
+            await refetchPDFs();
         } catch (error) {
             console.error('Failed to delete PDF:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete PDF.'));
+        } finally {
+            setActionLoading(false);
         }
     };
 
     const handleRecordPayment = async (data) => {
         setFormLoading(true);
+        setPaymentApiError(null);
+        setPaymentFieldErrors({});
         try {
             await billingApi.payments.create(id, data);
             setShowPaymentForm(false);
-            await fetchData();
-            alert('Payment recorded successfully!');
+            toast.success('Payment recorded successfully.');
+            await Promise.all([fetchInvoiceCore(), refetchPayments()]);
         } catch (error) {
             console.error('Failed to record payment:', error);
-            alert(error.response?.data?.detail || 'Failed to record payment');
+            const errData = error?.response?.data;
+            const asMsg = (v) => (Array.isArray(v) ? v[0] : v);
+            if (errData && typeof errData === 'object' && (errData.amount || errData.method)) {
+                setPaymentFieldErrors({ amount: asMsg(errData.amount), method: asMsg(errData.method) });
+            } else {
+                setPaymentApiError(extractErrorMessage(error, 'Failed to record payment.'));
+            }
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDeletePayment = async (paymentId) => {
-        if (!window.confirm('Are you sure you want to delete this payment?')) return;
+        setActionLoading(true);
         try {
             await billingApi.payments.delete(paymentId);
-            await fetchData();
+            setConfirmAction(null);
+            toast.success('Payment deleted.');
+            await Promise.all([fetchInvoiceCore(), refetchPayments()]);
         } catch (error) {
             console.error('Failed to delete payment:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete payment.'));
+        } finally {
+            setActionLoading(false);
         }
     };
 
@@ -254,54 +334,62 @@ const InvoiceDetailPage = () => {
         try {
             await billingApi.returns.create(id, data);
             setShowReturnForm(false);
-            await fetchData();
-            alert('Return created successfully!');
+            toast.success('Return created successfully.');
+            await Promise.all([fetchInvoiceCore(), refetchReturns()]);
         } catch (error) {
             console.error('Failed to create return:', error);
-            const errorMsg = error.response?.data?.detail || error.response?.data?.message || 'Failed to create return';
-            alert(errorMsg);
+            toast.error(extractErrorMessage(error, 'Failed to create return.'));
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleAcceptReturn = async (returnId) => {
-        if (!window.confirm('Are you sure you want to accept this return?')) return;
+        setActionLoading(true);
         try {
             await billingApi.returns.accept(returnId);
-            await fetchData();
+            setConfirmAction(null);
+            toast.success('Return accepted.');
+            await Promise.all([fetchInvoiceCore(), refetchReturns()]);
         } catch (error) {
             console.error('Failed to accept return:', error);
-            // Shelf allocation can only be edited on the return's own detail
-            // page (components/billing/ReturnList.jsx here is a compact
-            // summary widget with no room for the allocator UI), so point
-            // the user there when acceptance is blocked on incomplete
-            // allocations.
-            alert(
-                `${extractErrorMessage(error, 'Failed to accept return.')} `
-                + 'Open the return\'s detail page to allocate shelves.'
+            // Shelf put-away can only be edited on the return's own detail
+            // page (ReturnList here is a compact summary widget with no
+            // room for the allocator UI), so point the user there when
+            // acceptance is blocked on incomplete allocations.
+            toast.error(
+                `${extractErrorMessage(error, 'Failed to accept return.')} Open the return's detail page to allocate shelves.`
             );
+        } finally {
+            setActionLoading(false);
         }
     };
 
     const handleConfirmInvoice = async () => {
-        if (!window.confirm('Are you sure you want to confirm this invoice?')) return;
+        setActionLoading(true);
         try {
             await billingApi.invoices.confirm(id);
-            await fetchData();
+            setConfirmAction(null);
+            toast.success('Invoice confirmed successfully.');
+            await fetchInvoiceCore();
         } catch (error) {
             console.error('Failed to confirm invoice:', error);
-            alert(extractErrorMessage(error, 'Failed to confirm invoice.'));
+            toast.error(extractErrorMessage(error, 'Failed to confirm invoice.'));
+        } finally {
+            setActionLoading(false);
         }
     };
 
     const handleDeleteInvoice = async () => {
-        if (!window.confirm('Are you sure you want to delete this draft invoice?')) return;
+        setActionLoading(true);
         try {
             await billingApi.invoices.delete(id);
+            toast.success('Draft invoice deleted.');
             navigate('/billing/invoices');
         } catch (error) {
             console.error('Failed to delete invoice:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete invoice.'));
+            setActionLoading(false);
         }
     };
 
@@ -310,11 +398,37 @@ const InvoiceDetailPage = () => {
         try {
             await billingApi.invoices.updateDueDate(id, newDueDate);
             setShowExtendDueDate(false);
-            await fetchData();
+            toast.success('Due date updated.');
+            await fetchInvoiceCore();
         } finally {
             setDueDateSaving(false);
         }
     };
+
+    const runConfirmedAction = () => {
+        if (!confirmAction) return;
+        switch (confirmAction.type) {
+            case 'deleteInvoice': return handleDeleteInvoice();
+            case 'confirmInvoice': return handleConfirmInvoice();
+            case 'deletePayment': return handleDeletePayment(confirmAction.id);
+            case 'deletePDF': return handleDeletePDF(confirmAction.id);
+            case 'acceptReturn': return handleAcceptReturn(confirmAction.id);
+            default: return undefined;
+        }
+    };
+
+    const deleteInvoiceMessage = invoice?.payment_type === 'advance' && amount(invoice?.advance_amount) > 0
+        ? `Delete draft invoice ${invoice.bill_number}? This invoice has an advance payment of PKR ${amount(invoice.advance_amount).toFixed(2)} — deleting it will refund this amount by removing it from cash-in-hand. This action cannot be undone.`
+        : `Delete draft invoice ${invoice?.bill_number}? This action cannot be undone.`;
+
+    const confirmDialogProps = confirmAction ? {
+        ...CONFIRM_CONFIG[confirmAction.type],
+        message: confirmAction.type === 'deleteInvoice'
+            ? deleteInvoiceMessage
+            : confirmAction.type === 'confirmInvoice'
+                ? `Confirm invoice ${invoice?.bill_number}? This finalises pricing, reserves stock, and cannot be undone.`
+                : CONFIRM_CONFIG[confirmAction.type].message,
+    } : {};
 
     if (loading) {
         return (
@@ -326,75 +440,143 @@ const InvoiceDetailPage = () => {
 
     if (!invoice) {
         return (
-            <div className="text-center py-12">
+            <div className="text-center py-12 space-y-4">
                 <h2 className="text-2xl font-semibold text-neutral-900">Invoice Not Found</h2>
-                <Link to="/billing/invoices" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Invoices
-                </Link>
+                {loadError && (
+                    <div className="max-w-md mx-auto">
+                        <InlineAlert variant="error" message={loadError} onRetry={loadAll} />
+                    </div>
+                )}
+                <BackLink to="/billing/invoices" className="mt-4">Back to Invoices</BackLink>
             </div>
         );
     }
 
+    const isDraft = invoice.status === 'draft';
+    const canManage = !isDraft && isAdmin;
+
+    const tabs = [
+        { value: 'items', label: 'Items', count: invoice.items?.length ?? 0 },
+        ...(isAdmin ? [{ value: 'payments', label: 'Payments', count: payments.length }] : []),
+        { value: 'returns', label: 'Returns', count: returns.length },
+        ...(isAdmin ? [{ value: 'pdfs', label: 'Saved PDFs', count: pdfs.length }] : []),
+    ];
+
+    const itemsTable = (
+        <div className="overflow-x-auto -mx-4 sm:mx-0">
+            <table className="w-full min-w-[640px]">
+                <thead>
+                    <tr className="border-b border-neutral-200">
+                        <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Product</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Qty</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Discount</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">GST%</th>
+                        <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">WHT%</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Effective Price</th>
+                        <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
+                    </tr>
+                </thead>
+                <tbody className="divide-y divide-neutral-100">
+                    {invoice.items?.map((item, index) => (
+                        <tr key={item.id || index} className="hover:bg-neutral-50">
+                            <td className="px-3 py-2 text-sm">{item.product_name || 'N/A'}</td>
+                            <td className="px-3 py-2 text-sm">{item.quantity}</td>
+                            <td className="px-3 py-2 text-sm">{item.discount || 0}</td>
+                            <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
+                            <td className="px-3 py-2 text-sm">{item.wht || 0}%</td>
+                            <td className="px-3 py-2 text-sm text-right tabular-nums">
+                                {item.effective_price ? parseFloat(item.effective_price).toFixed(2) : '0.00'}
+                            </td>
+                            <td className="px-3 py-2 text-sm text-right font-medium tabular-nums">
+                                {item.line_total ? parseFloat(item.line_total).toFixed(2) : '0.00'}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+                <tfoot className="border-t border-neutral-200">
+                    <tr>
+                        <td colSpan="6" className="px-3 py-2 text-right font-medium">Subtotal:</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">
+                            {invoice.subtotal ? parseFloat(invoice.subtotal).toFixed(2) : '0.00'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="6" className="px-3 py-2 text-right font-medium">GST Total:</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">
+                            {invoice.gst_total ? parseFloat(invoice.gst_total).toFixed(2) : '0.00'}
+                        </td>
+                    </tr>
+                    <tr>
+                        <td colSpan="6" className="px-3 py-2 text-right font-medium">WHT Total:</td>
+                        <td className="px-3 py-2 text-right font-medium tabular-nums">
+                            {invoice.wht_total ? parseFloat(invoice.wht_total).toFixed(2) : '0.00'}
+                        </td>
+                    </tr>
+                    <tr className="text-lg">
+                        <td colSpan="6" className="px-3 py-2 text-right font-bold">Grand Total:</td>
+                        <td className="px-3 py-2 text-right font-bold text-primary-600 tabular-nums">
+                            {invoice.grand_total ? parseFloat(invoice.grand_total).toFixed(2) : '0.00'}
+                        </td>
+                    </tr>
+                </tfoot>
+            </table>
+        </div>
+    );
+
     return (
         <div className="space-y-6">
             {/* Header */}
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div>
-                    <Link to="/billing/invoices" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Invoices
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">{invoice.bill_number}</h1>
-                    <div className="flex gap-2 mt-1 flex-wrap">
+                    <BackLink to="/billing/invoices">Back to Invoices</BackLink>
+                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mt-2">{invoice.bill_number}</h1>
+                    <p className="text-sm text-neutral-500 mt-0.5">{invoice.customer?.name || 'N/A'}</p>
+                    <div className="flex gap-2 mt-2 flex-wrap">
                         <InvoiceStatusBadge status={invoice.status} />
                         <PaymentStatusBadge status={invoice.payment_status} />
+                        {hasPendingReturn && <Badge variant="warning">Return Pending</Badge>}
                     </div>
                 </div>
-                <div className="flex gap-2 flex-wrap items-center">
-                    {/* Print button hidden while invoice is draft */}
-                    {invoice.status !== 'draft' && (
-                        <Button variant="secondary" onClick={handlePrint}>
+                <div className="flex gap-2 flex-wrap sm:justify-end">
+                    {!isDraft && (
+                        <Button variant="secondary" icon={Printer} onClick={handlePrint}>
                             Print
                         </Button>
                     )}
 
-                    {invoice.status !== 'draft' && isAdmin && (
+                    {canManage && (
                         <>
-                            <Button variant="secondary" onClick={() => setShowSavePDFModal(true)}>
+                            <Button variant="secondary" icon={Save} onClick={() => { setPdfApiError(null); setShowSavePDFModal(true); }}>
                                 Save PDF
                             </Button>
-                            <Button variant="secondary" onClick={() => setShowPaymentForm(true)}>
+                            <Button variant="secondary" icon={CreditCard} onClick={() => { setPaymentApiError(null); setPaymentFieldErrors({}); setShowPaymentForm(true); }}>
                                 Record Payment
                             </Button>
                             {!hasPendingReturn && invoice.status !== 'returned' && (
-                                <Button variant="secondary" onClick={() => setShowReturnForm(true)}>
+                                <Button variant="secondary" icon={RotateCcw} onClick={() => setShowReturnForm(true)}>
                                     Create Return
                                 </Button>
-                            )}
-                            {hasPendingReturn && (
-                                <Badge variant="warning" className="ml-2">
-                                    Return Pending
-                                </Badge>
                             )}
                         </>
                     )}
 
-                    {invoice.status !== 'draft' && invoice.payment_status !== 'paid' && isAdmin && (
-                        <Button variant="secondary" onClick={() => setShowExtendDueDate(true)}>
+                    {!isDraft && invoice.payment_status !== 'paid' && isAdmin && (
+                        <Button variant="secondary" icon={CalendarClock} onClick={() => setShowExtendDueDate(true)}>
                             Extend Due Date
                         </Button>
                     )}
 
-                    {invoice.status === 'draft' && (
+                    {isDraft && (
                         <>
-                            <Button variant="secondary" onClick={() => navigate(`/billing/invoices/${id}/edit`)}>
+                            <Button variant="secondary" icon={Pencil} onClick={() => navigate(`/billing/invoices/${id}/edit`)}>
                                 Edit
                             </Button>
                             {isAdmin && (
-                                <Button variant="success" onClick={handleConfirmInvoice}>
+                                <Button variant="success" icon={CheckCircle2} onClick={() => setConfirmAction({ type: 'confirmInvoice' })}>
                                     Confirm
                                 </Button>
                             )}
-                            <Button variant="danger" onClick={() => setShowDeleteConfirm(true)}>
+                            <Button variant="danger" icon={Trash2} onClick={() => setConfirmAction({ type: 'deleteInvoice' })}>
                                 Delete
                             </Button>
                         </>
@@ -402,9 +584,12 @@ const InvoiceDetailPage = () => {
                 </div>
             </div>
 
-            {/* Customer Info */}
+            {/* Key details */}
             <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Customer Information</h3>
+                <h3 className="font-semibold text-neutral-900 mb-3 flex items-center gap-2">
+                    <Package className="w-4 h-4 text-neutral-400" />
+                    Customer Information
+                </h3>
                 <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
                     <div>
                         <p className="text-sm text-neutral-500">Name</p>
@@ -422,10 +607,10 @@ const InvoiceDetailPage = () => {
                         <p className="text-sm text-neutral-500">Mobile</p>
                         <p className="font-medium">{invoice.customer?.mobile || 'N/A'}</p>
                     </div>
-                    {invoice.payment_type === 'advance' && parseFloat(invoice.advance_amount) > 0 && (
+                    {invoice.payment_type === 'advance' && amount(invoice.advance_amount) > 0 && (
                         <div>
                             <p className="text-sm text-neutral-500">Advance Amount (PKR)</p>
-                            <p className="font-medium">{parseFloat(invoice.advance_amount).toFixed(2)}</p>
+                            <p className="font-medium">{amount(invoice.advance_amount).toFixed(2)}</p>
                         </div>
                     )}
                     {invoice.payment_due_date && (
@@ -438,203 +623,150 @@ const InvoiceDetailPage = () => {
             </Card>
 
             {/* Payment Summary */}
-            {paymentSummary && invoice.status !== 'draft' && (
+            {paymentSummary && !isDraft && (
                 <PaymentSummaryCard summary={paymentSummary} />
             )}
 
-            {/* Invoice Items */}
-            <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Items</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="border-b border-neutral-200">
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Product</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Qty</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Discount</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">GST%</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">WHT%</th>
-                                <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Effective Price</th>
-                                <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-100">
-                            {invoice.items?.map((item, index) => (
-                                <tr key={item.id || index} className="hover:bg-neutral-50">
-                                    <td className="px-3 py-2 text-sm">{item.product_name || 'N/A'}</td>
-                                    <td className="px-3 py-2 text-sm">{item.quantity}</td>
-                                    <td className="px-3 py-2 text-sm">{item.discount || 0}</td>
-                                    <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
-                                    <td className="px-3 py-2 text-sm">{item.wht || 0}%</td>
-                                    <td className="px-3 py-2 text-sm text-right">
-                                        {item.effective_price ? parseFloat(item.effective_price).toFixed(2) : '0.00'}
-                                    </td>
-                                    <td className="px-3 py-2 text-sm text-right font-medium">
-                                        {item.line_total ? parseFloat(item.line_total).toFixed(2) : '0.00'}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                        <tfoot className="border-t border-neutral-200">
-                            <tr>
-                                <td colSpan="6" className="px-3 py-2 text-right font-medium">Subtotal:</td>
-                                <td className="px-3 py-2 text-right font-medium">
-                                    {invoice.subtotal ? parseFloat(invoice.subtotal).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td colSpan="6" className="px-3 py-2 text-right font-medium">GST Total:</td>
-                                <td className="px-3 py-2 text-right font-medium">
-                                    {invoice.gst_total ? parseFloat(invoice.gst_total).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                            <tr>
-                                <td colSpan="6" className="px-3 py-2 text-right font-medium">WHT Total:</td>
-                                <td className="px-3 py-2 text-right font-medium">
-                                    {invoice.wht_total ? parseFloat(invoice.wht_total).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                            <tr className="text-lg">
-                                <td colSpan="6" className="px-3 py-2 text-right font-bold">Grand Total:</td>
-                                <td className="px-3 py-2 text-right font-bold text-primary-600">
-                                    {invoice.grand_total ? parseFloat(invoice.grand_total).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
-            </Card>
+            {isDraft ? (
+                <>
+                    {/* Items */}
+                    <Card className="p-6">
+                        <h3 className="font-semibold text-neutral-900 mb-3">Items</h3>
+                        {itemsTable}
+                    </Card>
 
-            {/* Shelf Allocation - editable while draft, read-only afterwards */}
-            <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
-                {invoice.status === 'draft' ? (
-                    <div className="space-y-4">
-                        {invoice.items?.map((item) => {
-                            const state = shelfState[item.id] || {
-                                candidates: [], allocations: [], saving: false, error: '',
-                            };
-                            return (
-                                <div key={item.id} className="border border-neutral-200 rounded-lg p-4">
-                                    <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
-                                        <div>
-                                            <p className="font-medium">
-                                                {item.product_name}{' '}
-                                                <span className="text-neutral-400 text-sm">({item.product_code})</span>
-                                            </p>
-                                            <p className="text-xs text-neutral-500">
-                                                Quantity: {item.quantity} • Allocated: {item.allocated_quantity}
-                                            </p>
+                    {/* Shelf Allocation - editable while draft */}
+                    <Card className="p-6">
+                        <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
+                        <div className="space-y-4">
+                            {invoice.items?.map((item) => {
+                                const state = shelfState[item.id] || {
+                                    candidates: [], allocations: [], saving: false, error: '',
+                                };
+                                return (
+                                    <div key={item.id} className="border border-neutral-200 rounded-xl p-4">
+                                        <div className="flex items-center justify-between mb-2 flex-wrap gap-2">
+                                            <div>
+                                                <p className="font-medium">
+                                                    {item.product_name}{' '}
+                                                    <span className="text-neutral-400 text-sm">({item.product_code})</span>
+                                                </p>
+                                                <p className="text-xs text-neutral-500">
+                                                    Quantity: {item.quantity} • Allocated: {item.allocated_quantity}
+                                                </p>
+                                            </div>
+                                        </div>
+                                        <ShelfAllocationEditor
+                                            value={state.allocations}
+                                            onChange={(next) => handleAllocationChange(item.id, next)}
+                                            shelves={state.candidates}
+                                            requiredQuantity={item.quantity}
+                                            mode="consumption"
+                                            disabled={state.saving}
+                                        />
+                                        {state.error && (
+                                            <p className="text-sm text-error-600 mt-2">{state.error}</p>
+                                        )}
+                                        <div className="flex justify-end mt-3">
+                                            <Button
+                                                size="sm"
+                                                onClick={() => handleSaveAllocations(item.id)}
+                                                loading={state.saving}
+                                            >
+                                                Save Allocations
+                                            </Button>
                                         </div>
                                     </div>
-                                    <ShelfAllocationEditor
-                                        value={state.allocations}
-                                        onChange={(next) => handleAllocationChange(item.id, next)}
-                                        shelves={state.candidates}
-                                        requiredQuantity={item.quantity}
-                                        mode="consumption"
-                                        disabled={state.saving}
-                                    />
-                                    {state.error && (
-                                        <p className="text-sm text-red-600 mt-2">{state.error}</p>
-                                    )}
-                                    <div className="flex justify-end mt-3">
-                                        <Button
-                                            size="sm"
-                                            onClick={() => handleSaveAllocations(item.id)}
-                                            loading={state.saving}
-                                        >
-                                            Save Allocations
-                                        </Button>
-                                    </div>
-                                </div>
-                            );
-                        })}
+                                );
+                            })}
+                        </div>
+                    </Card>
+
+                    {/* Draft Preview */}
+                    {invoice.draft_preview && <DraftPreviewPanel preview={invoice.draft_preview} />}
+                </>
+            ) : (
+                <Card className="p-0 overflow-hidden" hover={false}>
+                    <div className="px-4 sm:px-6 pt-4">
+                        <Tabs tabs={tabs} activeTab={activeTab} onChange={setActiveTab} />
                     </div>
-                ) : (
-                    <div className="space-y-3">
-                        {invoice.items?.map((item) => (
-                            <div key={item.id} className="text-sm">
-                                <p className="font-medium">
-                                    {item.product_name}{' '}
-                                    <span className="text-neutral-400">({item.product_code})</span>
-                                </p>
-                                {item.shelf_allocations?.length > 0 ? (
-                                    <ul className="list-disc list-inside text-neutral-600">
-                                        {item.shelf_allocations.map((a) => (
-                                            <li key={a.id}>{a.shelf_name}: {a.quantity}</li>
-                                        ))}
-                                    </ul>
-                                ) : (
-                                    <p className="text-neutral-400">No shelf allocations recorded</p>
+                    <div className="p-4 sm:p-6">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeTab}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -8 }}
+                                transition={{ duration: 0.18 }}
+                            >
+                                {activeTab === 'items' && itemsTable}
+
+                                {activeTab === 'payments' && isAdmin && (
+                                    secondaryLoading
+                                        ? <LoadingSpinner />
+                                        : (
+                                            <PaymentHistoryList
+                                                payments={payments}
+                                                onDelete={(paymentId) => setConfirmAction({ type: 'deletePayment', id: paymentId })}
+                                                isAdmin={isAdmin}
+                                            />
+                                        )
                                 )}
-                            </div>
-                        ))}
-                    </div>
-                )}
-            </Card>
 
-            {/* Draft Preview - Only for draft invoices */}
-            {invoice.status === 'draft' && invoice.draft_preview && (
-                <div>
-                    <h3 className="font-semibold text-neutral-900 mb-3">Draft Preview (Estimated)</h3>
-                    <DraftPreviewPanel preview={invoice.draft_preview} />
-                </div>
-            )}
+                                {activeTab === 'returns' && (
+                                    secondaryLoading
+                                        ? <LoadingSpinner />
+                                        : (
+                                            <ReturnList
+                                                returns={returns}
+                                                onAccept={(returnId) => setConfirmAction({ type: 'acceptReturn', id: returnId })}
+                                                isAdmin={isAdmin}
+                                            />
+                                        )
+                                )}
 
-            {/* Payments Section - Only for confirmed invoices, hidden from normal users */}
-            {invoice.status !== 'draft' && isAdmin && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Payment History</h3>
-                    <PaymentHistoryList
-                        payments={payments}
-                        onDelete={handleDeletePayment}
-                        isAdmin={isAdmin}
-                    />
-                </Card>
-            )}
-
-            {/* Returns Section - Only for confirmed invoices */}
-            {invoice.status !== 'draft' && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Returns</h3>
-                    <ReturnList
-                        returns={returns}
-                        onAccept={handleAcceptReturn}
-                        isAdmin={isAdmin}
-                    />
-                </Card>
-            )}
-
-            {/* Saved PDFs - Only for confirmed invoices */}
-            {invoice.status !== 'draft' && pdfs.length > 0 && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Saved PDFs</h3>
-                    <div className="space-y-2">
-                        {pdfs.map((pdf) => (
-                            <div key={pdf.id} className="flex justify-between items-center p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
-                                <div>
-                                    <a
-                                        href={pdf.file_url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="font-medium text-primary-600 hover:text-primary-700 hover:underline"
-                                    >
-                                        {pdf.file_name}
-                                    </a>
-                                    <p className="text-xs text-neutral-500">
-                                        Saved: {new Date(pdf.created_at).toLocaleString()}
-                                    </p>
-                                </div>
-                                <Button
-                                    size="sm"
-                                    variant="danger"
-                                    onClick={() => handleDeletePDF(pdf.id)}
-                                >
-                                    Delete
-                                </Button>
-                            </div>
-                        ))}
+                                {activeTab === 'pdfs' && isAdmin && (
+                                    secondaryLoading ? (
+                                        <LoadingSpinner />
+                                    ) : pdfs.length === 0 ? (
+                                        <EmptyState
+                                            icon={<FileText className="w-10 h-10 text-neutral-300" />}
+                                            title="No saved PDFs yet"
+                                            description="PDFs you save for this invoice will appear here."
+                                        />
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {pdfs.map((pdf) => (
+                                                <div key={pdf.id} className="flex justify-between items-center gap-3 p-3 bg-neutral-50 rounded-xl hover:bg-neutral-100 transition-colors">
+                                                    <div className="min-w-0">
+                                                        <a
+                                                            href={pdf.file_url}
+                                                            target="_blank"
+                                                            rel="noopener noreferrer"
+                                                            className="font-medium text-primary-600 hover:text-primary-700 hover:underline inline-flex items-center gap-1.5 break-all"
+                                                        >
+                                                            {pdf.file_name}
+                                                            <ExternalLink className="w-3.5 h-3.5 flex-shrink-0" />
+                                                        </a>
+                                                        <p className="text-xs text-neutral-500">
+                                                            Saved: {new Date(pdf.created_at).toLocaleString()}
+                                                        </p>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="danger"
+                                                        icon={Trash2}
+                                                        onClick={() => setConfirmAction({ type: 'deletePDF', id: pdf.id })}
+                                                    >
+                                                        <span className="hidden sm:inline">Delete</span>
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </Card>
             )}
@@ -650,6 +782,9 @@ const InvoiceDetailPage = () => {
                     onCancel={() => setShowPaymentForm(false)}
                     loading={formLoading}
                     maxAmount={paymentSummary?.credit_outstanding ? parseFloat(paymentSummary.credit_outstanding) : undefined}
+                    apiError={paymentApiError}
+                    apiErrors={paymentFieldErrors}
+                    onDismissApiError={() => { setPaymentApiError(null); setPaymentFieldErrors({}); }}
                 />
             </Modal>
 
@@ -675,40 +810,8 @@ const InvoiceDetailPage = () => {
                 onSubmit={handleSavePDF}
                 loading={formLoading}
                 defaultFileName={invoice.bill_number}
+                error={pdfApiError}
             />
-
-            {/* Delete Confirmation Modal */}
-            <Modal
-                isOpen={showDeleteConfirm}
-                onClose={() => setShowDeleteConfirm(false)}
-                title="Delete Invoice"
-            >
-                <div className="space-y-4">
-                    <p className="text-neutral-600">
-                        Are you sure you want to delete this draft invoice? This action cannot be undone.
-                    </p>
-                    {invoice.payment_type === 'advance' && parseFloat(invoice.advance_amount) > 0 && (
-                        <p className="text-sm text-warning-600 bg-warning-50 border border-warning-200 rounded-lg p-3">
-                            This invoice has an advance payment of PKR {parseFloat(invoice.advance_amount).toFixed(2)} —
-                            deleting it will refund this amount by removing it from cash-in-hand.
-                        </p>
-                    )}
-                    <div className="flex justify-end gap-3 pt-4">
-                        <Button
-                            variant="secondary"
-                            onClick={() => setShowDeleteConfirm(false)}
-                        >
-                            Cancel
-                        </Button>
-                        <Button
-                            variant="danger"
-                            onClick={handleDeleteInvoice}
-                        >
-                            Delete Invoice
-                        </Button>
-                    </div>
-                </div>
-            </Modal>
 
             {/* Extend Due Date Modal */}
             <ExtendDueDateModal
@@ -717,6 +820,15 @@ const InvoiceDetailPage = () => {
                 onSubmit={handleSaveDueDate}
                 currentDueDate={invoice.payment_due_date}
                 loading={dueDateSaving}
+            />
+
+            {/* Shared confirmation dialog for every destructive/high-stakes action */}
+            <ConfirmDialog
+                isOpen={!!confirmAction}
+                onClose={() => { if (!actionLoading) setConfirmAction(null); }}
+                onConfirm={runConfirmedAction}
+                loading={actionLoading}
+                {...confirmDialogProps}
             />
         </div>
     );

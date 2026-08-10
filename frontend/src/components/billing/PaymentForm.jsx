@@ -1,11 +1,18 @@
 import { useState } from 'react';
-import { motion } from 'framer-motion';
 import PropTypes from 'prop-types';
+import { Banknote, Calendar, StickyNote } from 'lucide-react';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import InlineAlert from '../ui/InlineAlert';
 
-const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
+// `apiErrors` carries field-specific backend validation errors (e.g. the
+// over-payment check keys its message under "amount"), while `apiError`
+// carries non-field errors (e.g. "Cannot record payment on a draft
+// invoice."). Both are optional and set by the parent page after a failed
+// submit; `onDismissApiError` lets this form clear stale server errors the
+// moment the user edits a field again.
+const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount, apiErrors, apiError, onDismissApiError }) => {
     const [formData, setFormData] = useState({
         amount: '',
         method: 'cash',
@@ -18,6 +25,7 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
         const { name, value } = e.target;
         setFormData(prev => ({ ...prev, [name]: value }));
         setError('');
+        onDismissApiError?.();
     };
 
     const handleSubmit = (e) => {
@@ -42,6 +50,8 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
 
     return (
         <form onSubmit={handleSubmit} className="space-y-4">
+            {apiError && <InlineAlert variant="error" message={apiError} />}
+
             <Input
                 label="Amount"
                 type="number"
@@ -51,6 +61,8 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 value={formData.amount}
                 onChange={handleChange}
                 placeholder="Enter amount"
+                icon={Banknote}
+                error={error || apiErrors?.amount}
                 required
             />
             {maxAmount !== undefined && (
@@ -64,6 +76,7 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 name="method"
                 value={formData.method}
                 onChange={handleChange}
+                error={apiErrors?.method}
                 options={[
                     { value: 'cash', label: 'Cash' },
                     { value: 'jazzcash', label: 'JazzCash' },
@@ -79,6 +92,7 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 name="payment_date"
                 value={formData.payment_date}
                 onChange={handleChange}
+                icon={Calendar}
                 required
             />
 
@@ -88,17 +102,8 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 value={formData.note}
                 onChange={handleChange}
                 placeholder="Payment note (optional)"
+                icon={StickyNote}
             />
-
-            {error && (
-                <motion.p
-                    initial={{ opacity: 0 }}
-                    animate={{ opacity: 1 }}
-                    className="text-sm text-error-500 bg-error-50 p-3 rounded-lg"
-                >
-                    {error}
-                </motion.p>
-            )}
 
             <div className="flex justify-end gap-3 pt-4">
                 <Button type="button" variant="secondary" onClick={onCancel}>
@@ -117,6 +122,12 @@ PaymentForm.propTypes = {
     onCancel: PropTypes.func.isRequired,
     loading: PropTypes.bool,
     maxAmount: PropTypes.number,
+    apiErrors: PropTypes.shape({
+        amount: PropTypes.string,
+        method: PropTypes.string,
+    }),
+    apiError: PropTypes.string,
+    onDismissApiError: PropTypes.func,
 };
 
 export default PaymentForm;

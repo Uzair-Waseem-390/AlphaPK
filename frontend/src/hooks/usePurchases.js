@@ -14,6 +14,7 @@ export const useCRUD = (service, initialFilters = {}) => {
 
     const create = async (payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await service.create(payload);
             await refetch();
@@ -28,6 +29,7 @@ export const useCRUD = (service, initialFilters = {}) => {
 
     const update = async (id, payload) => {
         setMutating(true);
+        setMutationError(null);
         try {
             const result = await service.update(id, payload);
             await refetch();
@@ -42,6 +44,7 @@ export const useCRUD = (service, initialFilters = {}) => {
 
     const deleteItem = async (id) => {
         setMutating(true);
+        setMutationError(null);
         try {
             await service.delete(id);
             // Deleted the last item on a page beyond page 1 — step back a page.
@@ -63,7 +66,12 @@ export const useCRUD = (service, initialFilters = {}) => {
         meta,
         page,
         setPage,
-        loading: listLoading || mutating,
+        // Only the list fetch gates a full-page spinner — a create/update/
+        // delete in flight (`mutating`) must not blank the whole page out
+        // from under the user, since callers already show their own
+        // form/button-level loading state for that.
+        loading: listLoading,
+        mutating,
         error: listError || mutationError,
         filters,
         setFilters,

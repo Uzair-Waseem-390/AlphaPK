@@ -1,4 +1,5 @@
 import { useState } from 'react';
+import { Plus, SlidersHorizontal, X, PackageSearch, Loader2 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -11,6 +12,10 @@ import PurchaseOrderFormModal from '../../components/purchases/PurchaseOrderForm
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import Pagination from '../../components/ui/Pagination';
+import EmptyState from '../../components/ui/EmptyState';
+import InlineAlert from '../../components/ui/InlineAlert';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { useNavigate } from 'react-router-dom';
 
@@ -18,6 +23,7 @@ const PurchaseOrdersPage = () => {
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
     const navigate = useNavigate();
+    const { toast } = useToast();
 
     const [activeTab, setActiveTab] = useState('all');
     const [showCreateModal, setShowCreateModal] = useState(false);
@@ -36,7 +42,7 @@ const PurchaseOrdersPage = () => {
     };
 
     const {
-        data: orders, meta, page, setPage, loading,
+        data: orders, meta, page, setPage, loading, initialLoading, error,
         filters, setFilters, refetch: fetchOrders,
     } = usePaginatedList(fetchOrdersPage, {}, 25, [activeTab, searchTerm]);
 
@@ -95,7 +101,7 @@ const PurchaseOrdersPage = () => {
             label: 'Total (PKR)',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return <span className="tabular-nums font-medium text-neutral-900">{isNaN(num) ? '0.00' : num.toFixed(2)}</span>;
             }
         },
         {
@@ -108,7 +114,7 @@ const PurchaseOrdersPage = () => {
             label: 'Outstanding (PKR)',
             render: (value) => {
                 const num = typeof value === 'string' ? parseFloat(value) : value;
-                return isNaN(num) ? '0.00' : num.toFixed(2);
+                return <span className="tabular-nums">{isNaN(num) ? '0.00' : num.toFixed(2)}</span>;
             }
         },
         {
@@ -125,6 +131,7 @@ const PurchaseOrdersPage = () => {
     const handleCreateOrder = async (payload) => {
         await purchasesApi.orders.create(payload);
         setShowCreateModal(false);
+        toast.success('Purchase order draft created');
         fetchOrders();
     };
 
@@ -157,7 +164,7 @@ const PurchaseOrdersPage = () => {
         { name: 'max_amount', label: 'Max Amount', type: 'number' },
     ];
 
-    if (loading) {
+    if (initialLoading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
                 <LoadingSpinner size="lg" />
@@ -175,19 +182,19 @@ const PurchaseOrdersPage = () => {
                 {isAdmin && (
                     <Button
                         onClick={() => setShowCreateModal(true)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                            </svg>
-                        )}
+                        icon={Plus}
                     >
                         Create Order
                     </Button>
                 )}
             </div>
 
+            {error && (
+                <InlineAlert variant="error" message={error} onRetry={fetchOrders} />
+            )}
+
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <div className="flex-1">
                         <SearchBar
                             onSearch={handleSearch}
@@ -195,22 +202,21 @@ const PurchaseOrdersPage = () => {
                             className="w-full"
                         />
                     </div>
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filters).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                            className="flex-1 sm:flex-none"
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filters).length > 0 || searchTerm) && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X} className="flex-1 sm:flex-none">
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -228,11 +234,29 @@ const PurchaseOrdersPage = () => {
                 />
             </div>
 
-            <Table
-                columns={columns}
-                data={orders}
-                onRowClick={handleViewOrder}
-            />
+            <div className="relative">
+                {loading && (
+                    <div className="absolute right-2 top-2 z-10 flex items-center gap-1.5 text-xs text-neutral-400">
+                        <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        Refreshing…
+                    </div>
+                )}
+                {orders.length === 0 ? (
+                    <EmptyState
+                        title="No orders found"
+                        description="Try adjusting your search or filters."
+                        icon={<PackageSearch className="w-8 h-8 text-neutral-400" />}
+                    />
+                ) : (
+                    <div className={loading ? 'opacity-60 transition-opacity' : 'transition-opacity'}>
+                        <Table
+                            columns={columns}
+                            data={orders}
+                            onRowClick={handleViewOrder}
+                        />
+                    </div>
+                )}
+            </div>
 
             {meta.totalPages > 1 && (
                 <Pagination
@@ -240,14 +264,6 @@ const PurchaseOrdersPage = () => {
                     totalPages={meta.totalPages}
                     onPageChange={setPage}
                 />
-            )}
-
-            {orders.length === 0 && (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">📦</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No Orders Found</h3>
-                    <p className="text-sm text-neutral-500 mt-1">Try adjusting your search or filters</p>
-                </div>
             )}
 
             <PurchaseOrderFormModal

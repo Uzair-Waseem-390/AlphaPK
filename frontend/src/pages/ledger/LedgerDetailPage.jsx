@@ -1,7 +1,9 @@
 import { useState, useEffect } from 'react';
-import { useParams, useNavigate, Link } from 'react-router-dom';
+import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { useLedgerDetail, useSavedPDFs } from '../../hooks/useLedger';
 import { ledgerApi } from '../../services/ledgerApi';
 import LedgerHeader from '../../components/ledger/LedgerHeader';
@@ -10,15 +12,18 @@ import LedgerTable from '../../components/ledger/LedgerTable';
 import ClosingBalanceSummary from '../../components/ledger/ClosingBalanceSummary';
 import SavePDFModal from '../../components/ledger/SavePDFModal';
 import SavedPDFDrawer from '../../components/ledger/SavedPDFDrawer';
+import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import InlineAlert from '../../components/ui/InlineAlert';
 
 const LedgerDetailPage = () => {
     const { id } = useParams();
     const navigate = useNavigate();
     const { user } = useAuth();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
@@ -26,6 +31,7 @@ const LedgerDetailPage = () => {
         entries,
         closingBalance,
         loading,
+        error,
         filters,
         setFilters,
         refetch,
@@ -82,7 +88,7 @@ const LedgerDetailPage = () => {
             setTimeout(() => window.URL.revokeObjectURL(url), 1000);
         } catch (error) {
             console.error('Failed to print ledger:', error);
-            alert('Failed to print ledger. Please try again.');
+            toast.error(extractErrorMessage(error, 'Failed to print ledger'));
         }
     };
 
@@ -97,21 +103,24 @@ const LedgerDetailPage = () => {
             await ledgerApi.savePDF(id, payload);
             setShowSavePDFModal(false);
             refetchPDFs();
-            alert('PDF saved successfully!');
+            toast.success('PDF saved successfully');
         } catch (error) {
             console.error('Failed to save PDF:', error);
-            alert('Failed to save PDF. Please try again.');
+            toast.error(extractErrorMessage(error, 'Failed to save PDF'));
         } finally {
             setPdfLoading(false);
         }
     };
 
+    // Confirmation now lives in SavedPDFDrawer's own ConfirmDialog — no
+    // second native window.confirm() prompt.
     const handleDeletePDF = async (pdfId) => {
-        if (!window.confirm('Are you sure you want to delete this PDF?')) return;
         try {
             await deleteSavedPDF(pdfId);
+            toast.success('PDF deleted successfully');
         } catch (error) {
             console.error('Failed to delete PDF:', error);
+            toast.error(extractErrorMessage(error, 'Failed to delete PDF'));
         }
     };
 
@@ -123,9 +132,7 @@ const LedgerDetailPage = () => {
             navigate('/ledger');
         } catch (error) {
             console.error('Failed to delete ledger:', error);
-            setDeleteError(
-                error.response?.data?.detail || 'Failed to delete ledger. Please try again.'
-            );
+            setDeleteError(extractErrorMessage(error, 'Failed to delete ledger. Please try again.'));
             setShowDeleteConfirm(false);
         } finally {
             setDeleteLoading(false);
@@ -145,9 +152,7 @@ const LedgerDetailPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Ledger Not Found</h2>
                 <p className="text-neutral-500 mt-1">The ledger you're looking for doesn't exist.</p>
-                <Link to="/ledger" className="text-primary-600 hover:text-primary-700 mt-4 inline-block">
-                    ← Back to Ledgers
-                </Link>
+                <BackLink to="/ledger" className="mt-4">Back to Ledgers</BackLink>
             </div>
         );
     }
@@ -156,9 +161,7 @@ const LedgerDetailPage = () => {
         <div className="space-y-6">
             {/* Header with Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <Link to="/ledger" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Ledgers
-                </Link>
+                <BackLink to="/ledger">Back to Ledgers</BackLink>
                 <div className="flex gap-2 flex-wrap">
                     <Button variant="secondary" onClick={handlePrint}>
                         Print
@@ -193,11 +196,8 @@ const LedgerDetailPage = () => {
                 </p>
             )}
 
-            {deleteError && (
-                <div className="bg-error-50 border border-error-200 text-error-700 text-sm rounded-lg px-4 py-3">
-                    {deleteError}
-                </div>
-            )}
+            {deleteError && <InlineAlert variant="error" message={deleteError} />}
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             {/* Ledger Header */}
             <LedgerHeader ledger={ledger} closingBalance={closingBalance} />

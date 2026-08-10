@@ -1,16 +1,22 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { TrendingDown, Printer, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { reportsApi } from '../../services/reportsApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
+import BackLink from '../../components/ui/BackLink';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 
 const filterConfig = [
     { name: 'date', label: 'Exact Date (within month)', type: 'date' },
@@ -48,6 +54,7 @@ const columns = [
 const AssetDepreciationReportPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [showFilters, setShowFilters] = useState(false);
@@ -55,7 +62,7 @@ const AssetDepreciationReportPage = () => {
 
     const {
         data: results, meta, extra, page, setPage, loading, error,
-        filters, setFilters,
+        filters, setFilters, refetch,
     } = usePaginatedList(reportsApi.assetDepreciation.get, {});
 
     const stats = extra?.stats;
@@ -73,7 +80,7 @@ const AssetDepreciationReportPage = () => {
         try {
             await printReport('/reports/asset-depreciation/print/', filters);
         } catch (err) {
-            alert(err.message || 'Failed to print report');
+            toast.error(extractErrorMessage(err, 'Failed to print report'));
         } finally {
             setPrinting(false);
         }
@@ -82,10 +89,13 @@ const AssetDepreciationReportPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <Link to="/reports" className="text-sm text-primary-600 hover:text-primary-700">
-                    ← Back to Reports
-                </Link>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Asset Depreciation Report</h1>
+                <BackLink to="/reports">Back to Reports</BackLink>
+                <div className="flex items-center gap-3 mt-2">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
+                        <TrendingDown className="w-5 h-5 text-white" />
+                    </div>
+                    <h1 className="text-3xl font-bold text-neutral-900">Asset Depreciation Report</h1>
+                </div>
                 <p className="text-neutral-500 mt-1">
                     Every depreciation posting across all assets, for a selected date or date range — the
                     figure that silently feeds into Monthly Profit each month.
@@ -93,16 +103,16 @@ const AssetDepreciationReportPage = () => {
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
-                    <Button variant="secondary" onClick={() => setShowFilters(!showFilters)}>
+                <div className="flex flex-wrap gap-3">
+                    <Button variant="secondary" icon={SlidersHorizontal} onClick={() => setShowFilters(!showFilters)}>
                         {showFilters ? 'Hide Filters' : 'Show Filters'}
                     </Button>
                     {Object.keys(filters).length > 0 && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
+                        <Button variant="secondary" icon={X} onClick={handleResetFilters}>
                             Clear All
                         </Button>
                     )}
-                    <Button variant="secondary" onClick={handlePrint} loading={printing}>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
                         Print
                     </Button>
                 </div>
@@ -116,11 +126,7 @@ const AssetDepreciationReportPage = () => {
                 )}
             </div>
 
-            {error && (
-                <div className="p-4 bg-error-50 border border-error-200 rounded-lg">
-                    <p className="text-sm text-error-600">{error}</p>
-                </div>
-            )}
+            {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 
             {loading ? (
                 <div className="flex items-center justify-center min-h-[40vh]">
@@ -142,14 +148,15 @@ const AssetDepreciationReportPage = () => {
                     )}
 
                     {results.length === 0 ? (
-                        <div className="text-center py-12">
-                            <div className="text-6xl mb-4">📉</div>
-                            <h3 className="text-lg font-semibold text-neutral-900">No Depreciation Postings Found</h3>
-                            <p className="text-sm text-neutral-500 mt-1">Try adjusting your date filters</p>
-                        </div>
+                        <EmptyState
+                            title="No Depreciation Postings Found"
+                            description="Try adjusting your date filters"
+                        />
                     ) : (
                         <>
-                            <Table columns={columns} data={results} />
+                            <Card className="p-0 overflow-hidden">
+                                <Table columns={columns} data={results} />
+                            </Card>
                             {meta.totalPages > 1 && (
                                 <Pagination
                                     currentPage={meta.currentPage}

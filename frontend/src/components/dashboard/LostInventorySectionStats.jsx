@@ -1,4 +1,5 @@
 import PropTypes from 'prop-types';
+import { TrendingDown, Search, AlertTriangle } from 'lucide-react';
 import StatCard from './StatCard';
 import StatCardSkeleton from './StatCardSkeleton';
 
@@ -23,21 +24,21 @@ const LostInventorySectionStats = ({ stats, loading, onCardClick }) => {
                 <StatCard
                     label="Total Lost (Gross)"
                     value={stats?.total_lost_inventory_worth}
-                    icon="📉"
+                    icon={TrendingDown}
                     color="red"
                     onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
                 />
                 <StatCard
                     label="Recovered (Found)"
                     value={stats?.total_lost_inventory_recovered}
-                    icon="🔍"
+                    icon={Search}
                     color="green"
                     onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
                 />
                 <StatCard
                     label="Net Lost Worth"
                     value={stats?.net_lost_inventory_worth}
-                    icon="⚠️"
+                    icon={AlertTriangle}
                     color="orange"
                     onClick={() => onCardClick('lostInventory', 'Lost Inventory Breakdown')}
                 />

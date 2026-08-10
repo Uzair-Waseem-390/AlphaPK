@@ -1,7 +1,10 @@
 import { useState } from 'react';
-import { Link, useNavigate } from 'react-router-dom';
+import { useNavigate } from 'react-router-dom';
+import { Plus, SlidersHorizontal, X, AlertTriangle, Trash2, Receipt, Info } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useTaxesStats, useWHTPayments } from '../../hooks/useTaxes';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -11,6 +14,9 @@ import SearchBar from '../../components/ui/SearchBar';
 import FilterBar from '../../components/ui/FilterBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
+import BackLink from '../../components/ui/BackLink';
+import InlineAlert from '../../components/ui/InlineAlert';
+import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
@@ -20,10 +26,11 @@ const fmt = (value) => {
 const WHTPaymentsPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
-        data: payments, meta, page, setPage, loading,
+        data: payments, meta, page, setPage, loading, error: listError,
         filters, setFilters, refetch, create, delete: deletePayment,
     } = useWHTPayments();
     const { refetch: refetchStats } = useTaxesStats();
@@ -35,39 +42,56 @@ const WHTPaymentsPage = () => {
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
-    const [formError, setFormError] = useState('');
+    const [formErrors, setFormErrors] = useState({});
     const [deleteConfirm, setDeleteConfirm] = useState(null);
+    const [deleteLoading, setDeleteLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
     const [filterValues, setFilterValues] = useState({});
 
     const resetForm = () => {
         setFormData({ amount: '', payment_date: new Date().toISOString().split('T')[0], note: '' });
-        setFormError('');
+        setFormErrors({});
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
-        setFormError('');
+        setFormErrors({});
         setFormLoading(true);
         try {
             await create({ ...formData, amount: parseFloat(formData.amount) });
             setShowModal(false);
             resetForm();
-            refetch();
             refetchStats();
+            toast.success('WHT payment recorded successfully');
         } catch (error) {
-            setFormError(error.response?.data?.detail || error.response?.data?.amount?.[0] || 'Failed to record WHT payment');
+            const data = error?.response?.data;
+            if (data && typeof data === 'object' && !Array.isArray(data) && (data.amount || data.payment_date || data.note)) {
+                setFormErrors({
+                    amount: Array.isArray(data.amount) ? data.amount[0] : data.amount,
+                    payment_date: Array.isArray(data.payment_date) ? data.payment_date[0] : data.payment_date,
+                    note: Array.isArray(data.note) ? data.note[0] : data.note,
+                });
+            } else {
+                toast.error(extractErrorMessage(error, 'Failed to record WHT payment'));
+            }
         } finally {
             setFormLoading(false);
         }
     };
 
     const handleDelete = async (id) => {
-        await deletePayment(id);
-        setDeleteConfirm(null);
-        refetch();
-        refetchStats();
+        setDeleteLoading(true);
+        try {
+            await deletePayment(id);
+            setDeleteConfirm(null);
+            refetchStats();
+            toast.success('WHT payment deleted and cash in hand restored');
+        } catch (error) {
+            toast.error(extractErrorMessage(error, 'Failed to delete WHT payment'));
+        } finally {
+            setDeleteLoading(false);
+        }
     };
 
     const handleApplyFilters = (values) => {
@@ -113,13 +137,14 @@ const WHTPaymentsPage = () => {
         {
             key: 'actions',
             label: 'Actions',
-            width: '100px',
+            width: '90px',
             render: (_value, row) => (
                 <button
                     onClick={(e) => { e.stopPropagation(); setDeleteConfirm(row); }}
-                    className="text-error-600 hover:text-error-700 text-sm"
+                    className="inline-flex items-center justify-center w-9 h-9 rounded-lg text-error-600 hover:bg-error-50 transition-colors"
+                    aria-label="Delete WHT payment"
                 >
-                    Delete
+                    <Trash2 className="w-4 h-4" />
                 </button>
             ),
         },
@@ -127,9 +152,12 @@ const WHTPaymentsPage = () => {
 
     if (!isAdmin) {
         return (
-            <div className="text-center py-12">
+            <div className="flex flex-col items-center justify-center text-center py-20">
+                <div className="w-14 h-14 rounded-full bg-error-50 flex items-center justify-center mb-4">
+                    <AlertTriangle className="w-7 h-7 text-error-500" />
+                </div>
                 <h2 className="text-2xl font-semibold text-neutral-900">Access Denied</h2>
-                <p className="text-neutral-500 mt-2">Only admins or superusers can view WHT payments.</p>
+                <p className="text-neutral-500 mt-2 max-w-sm">Only admins or superusers can view WHT payments.</p>
             </div>
         );
     }
@@ -138,55 +166,47 @@ const WHTPaymentsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <Link to="/taxes" className="text-sm text-primary-600 hover:text-primary-700">
-                        ← Back to Taxes
-                    </Link>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">WHT Payments</h1>
+                    <BackLink to="/taxes">Back to Taxes</BackLink>
+                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">WHT Payments</h1>
                     <p className="text-neutral-500 mt-1">
                         Every withholding tax deposit made to FBR, against tax withheld from suppliers.
                     </p>
                 </div>
-                <Button
-                    onClick={() => { resetForm(); setShowModal(true); }}
-                    icon={({ className }) => (
-                        <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 4v16m8-8H4" />
-                        </svg>
-                    )}
-                >
+                <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>
                     Record WHT Payment
                 </Button>
             </div>
 
-            <div className="p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-700">
-                Only tax withheld from suppliers is paid here — WHT withheld by customers is deposited by
-                them directly with FBR on your behalf, so it's never something you pay.
+            <div className="p-3 bg-info-50 border border-info-200 rounded-lg text-sm text-info-700 flex items-start gap-2">
+                <Info className="w-4 h-4 flex-shrink-0 mt-0.5" />
+                <span>
+                    Only tax withheld from suppliers is paid here — WHT withheld by customers is deposited by
+                    them directly with FBR on your behalf, so it's never something you pay.
+                </span>
             </div>
 
             <div className="space-y-4">
-                <div className="flex gap-4">
+                <div className="flex flex-col sm:flex-row gap-3">
                     <SearchBar
                         onSearch={handleSearch}
                         placeholder="Search by note..."
                         className="flex-1"
                         value={searchTerm}
                     />
-                    <Button
-                        variant="secondary"
-                        onClick={() => setShowFilters(!showFilters)}
-                        icon={({ className }) => (
-                            <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 4a1 1 0 011-1h16a1 1 0 011 1v2.586a1 1 0 01-.293.707l-6.414 6.414a1 1 0 00-.293.707V17l-4 4v-6.586a1 1 0 00-.293-.707L3.293 7.293A1 1 0 013 6.586V4z" />
-                            </svg>
-                        )}
-                    >
-                        {showFilters ? 'Hide Filters' : 'Show Filters'}
-                    </Button>
-                    {(Object.keys(filterValues).length > 0 || searchTerm) && (
-                        <Button variant="secondary" onClick={handleResetFilters}>
-                            Clear All
+                    <div className="flex gap-3">
+                        <Button
+                            variant="secondary"
+                            onClick={() => setShowFilters(!showFilters)}
+                            icon={SlidersHorizontal}
+                        >
+                            {showFilters ? 'Hide Filters' : 'Filters'}
                         </Button>
-                    )}
+                        {(Object.keys(filterValues).length > 0 || searchTerm) && (
+                            <Button variant="secondary" onClick={handleResetFilters} icon={X}>
+                                Clear
+                            </Button>
+                        )}
+                    </div>
                 </div>
 
                 {showFilters && (
@@ -198,18 +218,18 @@ const WHTPaymentsPage = () => {
                 )}
             </div>
 
-            {loading ? (
-                <div className="flex items-center justify-center py-8">
+            {listError ? (
+                <InlineAlert variant="error" message={listError} onRetry={refetch} />
+            ) : loading ? (
+                <div className="flex items-center justify-center py-12">
                     <LoadingSpinner size="lg" />
                 </div>
             ) : payments.length === 0 ? (
-                <div className="text-center py-12">
-                    <div className="text-6xl mb-4">🧾</div>
-                    <h3 className="text-lg font-semibold text-neutral-900">No WHT Payments Recorded Yet</h3>
-                    <p className="text-sm text-neutral-500 mt-1">
-                        Record a payment when you actually deposit WHT to FBR.
-                    </p>
-                </div>
+                <EmptyState
+                    title="No WHT Payments Recorded Yet"
+                    description="Record a payment when you actually deposit WHT to FBR."
+                    icon={<Receipt className="w-8 h-8 text-neutral-400 mx-auto" />}
+                />
             ) : (
                 <>
                     <Table columns={columns} data={payments} onRowClick={handleRowClick} />
@@ -235,6 +255,7 @@ const WHTPaymentsPage = () => {
                         value={formData.amount}
                         onChange={(e) => setFormData({ ...formData, amount: e.target.value })}
                         placeholder="Enter amount deposited to FBR"
+                        error={formErrors.amount}
                         required
                     />
                     <Input
@@ -242,6 +263,7 @@ const WHTPaymentsPage = () => {
                         type="date"
                         value={formData.payment_date}
                         onChange={(e) => setFormData({ ...formData, payment_date: e.target.value })}
+                        error={formErrors.payment_date}
                         required
                     />
                     <Input
@@ -249,19 +271,15 @@ const WHTPaymentsPage = () => {
                         value={formData.note}
                         onChange={(e) => setFormData({ ...formData, note: e.target.value })}
                         placeholder="Optional note (e.g. filing period, supplier)"
+                        error={formErrors.note}
                     />
 
                     {formData.amount && parseFloat(formData.amount) > 0 && (
-                        <div className="p-3 bg-amber-50 rounded-lg">
+                        <div className="p-3 bg-amber-50 rounded-lg flex items-start gap-2">
+                            <AlertTriangle className="w-4 h-4 text-amber-600 flex-shrink-0 mt-0.5" />
                             <p className="text-sm text-amber-700">
-                                ⚠️ This will deduct <strong>Rs. {fmt(formData.amount)}</strong> from cash in hand
+                                This will deduct <strong>Rs. {fmt(formData.amount)}</strong> from cash in hand
                             </p>
-                        </div>
-                    )}
-
-                    {formError && (
-                        <div className="p-3 bg-error-50 border border-error-200 rounded-lg">
-                            <p className="text-sm text-error-600">{formError}</p>
                         </div>
                     )}
 
@@ -283,6 +301,7 @@ const WHTPaymentsPage = () => {
                 onConfirm={() => handleDelete(deleteConfirm?.id)}
                 title="Delete WHT Payment"
                 message={`Are you sure you want to delete this Rs. ${fmt(deleteConfirm?.amount)} WHT payment? This will restore the amount to cash in hand.`}
+                loading={deleteLoading}
             />
         </div>
     );
