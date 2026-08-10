@@ -62,8 +62,8 @@ const Sidebar = ({ desktopOpen, mobileOpen, onCloseMobile }) => {
                     {/* Logo */}
                     <div className="flex items-center h-16 px-4 border-b border-neutral-200">
                         <div className="flex items-center gap-3">
-                            <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center text-white font-bold text-sm">
-                                ERP
+                            <div className="w-10 h-10 rounded-xl flex items-center justify-center overflow-hidden bg-white border border-neutral-200 flex-shrink-0">
+                                <img src="/logo.svg" alt={import.meta.env.VITE_APP_NAME} className="w-full h-full object-contain p-1" />
                             </div>
                             {(desktopOpen || mobileOpen) && (
                                 <motion.span

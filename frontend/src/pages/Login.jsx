@@ -38,8 +38,8 @@ const Login = () => {
             >
                 <Card className="p-8">
                     <div className="text-center mb-8">
-                        <div className="w-16 h-16 bg-gradient-to-br from-primary-700 to-accent-600 rounded-2xl flex items-center justify-center mx-auto mb-4">
-                            <span className="text-3xl font-bold text-white">ERP</span>
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden bg-white border border-neutral-200">
+                            <img src="/logo.svg" alt={import.meta.env.VITE_APP_NAME} className="w-full h-full object-contain p-1.5" />
                         </div>
                         <h1 className="text-2xl font-bold text-neutral-900">Welcome Back</h1>
                         <p className="text-neutral-500 mt-1">Sign in to your account</p>
