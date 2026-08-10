@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
+import { motion, AnimatePresence } from 'framer-motion';
 import { Printer, FileDown, CreditCard, Undo2, Pencil, CheckCircle2, Trash2, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -11,6 +12,8 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InlineAlert from '../../components/ui/InlineAlert';
+import Tabs from '../../components/ui/Tabs';
+import EmptyState from '../../components/ui/EmptyState';
 import OrderStatusBadge from '../../components/purchases/OrderStatusBadge';
 import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStatusBadge';
 import OrderSummaryCard from '../../components/purchases/OrderSummaryCard';
@@ -57,6 +60,7 @@ const PurchaseOrderDetailPage = () => {
     const [deletingPayment, setDeletingPayment] = useState(false);
     const [returnToAccept, setReturnToAccept] = useState(null);
     const [acceptingReturn, setAcceptingReturn] = useState(false);
+    const [activeTab, setActiveTab] = useState('items');
 
     useEffect(() => {
         fetchData();
@@ -307,6 +311,87 @@ const PurchaseOrderDetailPage = () => {
         }
     };
 
+    const itemsTable = order && (
+        <>
+            <div className="overflow-x-auto">
+                <table className="w-full">
+                    <thead>
+                        <tr className="border-b border-neutral-200">
+                            <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Product</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Qty</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Unit Price</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">GST%</th>
+                            <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">WHT%</th>
+                            <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
+                        </tr>
+                    </thead>
+                    <tbody className="divide-y divide-neutral-100">
+                        {order.items?.map((item, index) => (
+                            <tr key={item.id || index} className="hover:bg-neutral-50">
+                                <td className="px-3 py-2 text-sm">
+                                    {item.product_name || 'N/A'}
+                                    {order.status !== 'draft' && item.shelf_allocations?.length > 0 && (
+                                        <ul className="mt-1 text-xs text-neutral-500 space-y-0.5">
+                                            {item.shelf_allocations.map((a) => (
+                                                <li key={a.id}>{a.shelf.name}: {a.quantity}</li>
+                                            ))}
+                                        </ul>
+                                    )}
+                                </td>
+                                <td className="px-3 py-2 text-sm">{item.quantity}</td>
+                                <td className="px-3 py-2 text-sm">
+                                    {typeof item.unit_price === 'string' ? parseFloat(item.unit_price).toFixed(2) : '0.00'}
+                                </td>
+                                <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
+                                <td className="px-3 py-2 text-sm">{item.wht || 0}%</td>
+                                <td className="px-3 py-2 text-sm text-right font-medium">
+                                    {item.total_price ? parseFloat(item.total_price).toFixed(2) : '0.00'}
+                                </td>
+                            </tr>
+                        ))}
+                    </tbody>
+                    <tfoot className="border-t border-neutral-200">
+                        <tr>
+                            <td colSpan="5" className="px-3 py-2 text-right font-medium">Gross Amount:</td>
+                            <td className="px-3 py-2 text-right font-medium">
+                                {order.gross_amount ? parseFloat(order.gross_amount).toFixed(2) : '0.00'}
+                            </td>
+                        </tr>
+                        {order.gst_total && parseFloat(order.gst_total) > 0 && (
+                            <tr>
+                                <td colSpan="5" className="px-3 py-2 text-right font-medium">GST Total:</td>
+                                <td className="px-3 py-2 text-right font-medium">
+                                    {parseFloat(order.gst_total).toFixed(2)}
+                                </td>
+                            </tr>
+                        )}
+                        {order.wht_total && parseFloat(order.wht_total) > 0 && (
+                            <tr>
+                                <td colSpan="5" className="px-3 py-2 text-right font-medium">WHT Total:</td>
+                                <td className="px-3 py-2 text-right font-medium">
+                                    {parseFloat(order.wht_total).toFixed(2)}
+                                </td>
+                            </tr>
+                        )}
+                        <tr className="text-lg">
+                            <td colSpan="5" className="px-3 py-2 text-right font-bold">Net Payable:</td>
+                            <td className="px-3 py-2 text-right font-bold text-primary-600">
+                                {order.net_payable ? parseFloat(order.net_payable).toFixed(2) : '0.00'}
+                            </td>
+                        </tr>
+                    </tfoot>
+                </table>
+            </div>
+
+            {order.description && (
+                <div className="mt-4 pt-4 border-t border-neutral-200">
+                    <p className="text-sm text-neutral-500">Description</p>
+                    <p className="font-medium">{order.description}</p>
+                </div>
+            )}
+        </>
+    );
+
     if (loading) {
         return (
             <div className="flex items-center justify-center min-h-[60vh]">
@@ -427,185 +512,136 @@ const PurchaseOrderDetailPage = () => {
                 <OrderSummaryCard summary={paymentSummary} />
             )}
 
-            {/* Order Items */}
-            <Card className="p-6">
-                <h3 className="font-semibold text-neutral-900 mb-3">Items</h3>
-                <div className="overflow-x-auto">
-                    <table className="w-full">
-                        <thead>
-                            <tr className="border-b border-neutral-200">
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Product</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Qty</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">Unit Price</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">GST%</th>
-                                <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">WHT%</th>
-                                <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
-                            </tr>
-                        </thead>
-                        <tbody className="divide-y divide-neutral-100">
-                            {order.items?.map((item, index) => (
-                                <tr key={item.id || index} className="hover:bg-neutral-50">
-                                    <td className="px-3 py-2 text-sm">
-                                        {item.product_name || 'N/A'}
-                                        {order.status !== 'draft' && item.shelf_allocations?.length > 0 && (
-                                            <ul className="mt-1 text-xs text-neutral-500 space-y-0.5">
-                                                {item.shelf_allocations.map((a) => (
-                                                    <li key={a.id}>{a.shelf.name}: {a.quantity}</li>
-                                                ))}
-                                            </ul>
-                                        )}
-                                    </td>
-                                    <td className="px-3 py-2 text-sm">{item.quantity}</td>
-                                    <td className="px-3 py-2 text-sm">
-                                        {typeof item.unit_price === 'string' ? parseFloat(item.unit_price).toFixed(2) : '0.00'}
-                                    </td>
-                                    <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
-                                    <td className="px-3 py-2 text-sm">{item.wht || 0}%</td>
-                                    <td className="px-3 py-2 text-sm text-right font-medium">
-                                        {item.total_price ? parseFloat(item.total_price).toFixed(2) : '0.00'}
-                                    </td>
-                                </tr>
-                            ))}
-                        </tbody>
-                        <tfoot className="border-t border-neutral-200">
-                            <tr>
-                                <td colSpan="5" className="px-3 py-2 text-right font-medium">Gross Amount:</td>
-                                <td className="px-3 py-2 text-right font-medium">
-                                    {order.gross_amount ? parseFloat(order.gross_amount).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                            {order.gst_total && parseFloat(order.gst_total) > 0 && (
-                                <tr>
-                                    <td colSpan="5" className="px-3 py-2 text-right font-medium">GST Total:</td>
-                                    <td className="px-3 py-2 text-right font-medium">
-                                        {parseFloat(order.gst_total).toFixed(2)}
-                                    </td>
-                                </tr>
-                            )}
-                            {order.wht_total && parseFloat(order.wht_total) > 0 && (
-                                <tr>
-                                    <td colSpan="5" className="px-3 py-2 text-right font-medium">WHT Total:</td>
-                                    <td className="px-3 py-2 text-right font-medium">
-                                        {parseFloat(order.wht_total).toFixed(2)}
-                                    </td>
-                                </tr>
-                            )}
-                            <tr className="text-lg">
-                                <td colSpan="5" className="px-3 py-2 text-right font-bold">Net Payable:</td>
-                                <td className="px-3 py-2 text-right font-bold text-primary-600">
-                                    {order.net_payable ? parseFloat(order.net_payable).toFixed(2) : '0.00'}
-                                </td>
-                            </tr>
-                        </tfoot>
-                    </table>
-                </div>
+            {order.status === 'draft' ? (
+                <>
+                    {/* Order Items */}
+                    <Card className="p-6">
+                        <h3 className="font-semibold text-neutral-900 mb-3">Items</h3>
+                        {itemsTable}
+                    </Card>
 
-                {order.description && (
-                    <div className="mt-4 pt-4 border-t border-neutral-200">
-                        <p className="text-sm text-neutral-500">Description</p>
-                        <p className="font-medium">{order.description}</p>
-                    </div>
-                )}
-            </Card>
-
-            {/* Put-Away — shelf allocation for draft orders, required before confirm */}
-            {order.status === 'draft' && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Put-Away (Shelf Allocation)</h3>
-                    <p className="text-sm text-neutral-500 mb-4">
-                        Allocate each item's full quantity to shelves before confirming this order.
-                    </p>
-                    <div className="space-y-6">
-                        {order.items?.map((item) => (
-                            <div key={item.id} className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
-                                <div className="flex items-center justify-between mb-3">
-                                    <div>
-                                        <p className="font-medium">{item.product_name} {item.product_code ? `(${item.product_code})` : ''}</p>
-                                        <p className="text-sm text-neutral-500">Quantity: {item.quantity}</p>
+                    {/* Put-Away — shelf allocation for draft orders, required before confirm */}
+                    <Card className="p-6">
+                        <h3 className="font-semibold text-neutral-900 mb-3">Put-Away (Shelf Allocation)</h3>
+                        <p className="text-sm text-neutral-500 mb-4">
+                            Allocate each item's full quantity to shelves before confirming this order.
+                        </p>
+                        <div className="space-y-6">
+                            {order.items?.map((item) => (
+                                <div key={item.id} className="p-4 bg-neutral-50 rounded-lg border border-neutral-200">
+                                    <div className="flex items-center justify-between mb-3">
+                                        <div>
+                                            <p className="font-medium">{item.product_name} {item.product_code ? `(${item.product_code})` : ''}</p>
+                                            <p className="text-sm text-neutral-500">Quantity: {item.quantity}</p>
+                                        </div>
                                     </div>
-                                </div>
-                                <ShelfAllocationEditor
-                                    value={allocationDrafts[item.id] || []}
-                                    onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
-                                    onSearchShelves={searchShelvesForPutAway}
-                                    requiredQuantity={item.quantity}
-                                    mode="putaway"
-                                    disabled={savingAllocationFor === item.id}
-                                />
-                                <div className="flex justify-end mt-3">
-                                    <Button
-                                        size="sm"
-                                        onClick={() => handleSaveAllocations(item.id)}
-                                        loading={savingAllocationFor === item.id}
-                                    >
-                                        Save Allocations
-                                    </Button>
-                                </div>
-                            </div>
-                        ))}
-                    </div>
-                </Card>
-            )}
-
-            {/* Payments Section - Only for confirmed orders */}
-            {order.status !== 'draft' && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Payment History</h3>
-                    <PaymentHistoryList
-                        payments={payments}
-                        onDelete={(paymentId) => setPaymentToDelete(paymentId)}
-                        isAdmin={isAdmin}
-                    />
-                </Card>
-            )}
-
-            {/* Returns Section - Only for confirmed orders */}
-            {order.status !== 'draft' && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Returns</h3>
-                    <ReturnList
-                        returns={returns}
-                        onAccept={(returnId) => setReturnToAccept(returnId)}
-                        isAdmin={isAdmin}
-                        orderItems={order.items || []}
-                    />
-                </Card>
-            )}
-
-            {/* Saved PDFs - Only for confirmed orders */}
-            {order.status !== 'draft' && pdfs.length > 0 && (
-                <Card className="p-6">
-                    <h3 className="font-semibold text-neutral-900 mb-3">Saved PDFs</h3>
-                    <div className="space-y-2">
-                        {pdfs.map((pdf) => (
-                            <div key={pdf.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
-                                <div className="flex items-start gap-3 min-w-0">
-                                    <FileText className="w-5 h-5 text-neutral-400 flex-shrink-0 mt-0.5" />
-                                    <div className="min-w-0">
-                                        <a
-                                            href={pdf.file_url}
-                                            target="_blank"
-                                            rel="noopener noreferrer"
-                                            className="font-medium text-primary-600 hover:text-primary-700 hover:underline break-all"
+                                    <ShelfAllocationEditor
+                                        value={allocationDrafts[item.id] || []}
+                                        onChange={(next) => setAllocationDrafts((prev) => ({ ...prev, [item.id]: next }))}
+                                        onSearchShelves={searchShelvesForPutAway}
+                                        requiredQuantity={item.quantity}
+                                        mode="putaway"
+                                        disabled={savingAllocationFor === item.id}
+                                    />
+                                    <div className="flex justify-end mt-3">
+                                        <Button
+                                            size="sm"
+                                            onClick={() => handleSaveAllocations(item.id)}
+                                            loading={savingAllocationFor === item.id}
                                         >
-                                            {pdf.file_name}
-                                        </a>
-                                        <p className="text-xs text-neutral-500">
-                                            Saved: {new Date(pdf.created_at).toLocaleString()}
-                                        </p>
+                                            Save Allocations
+                                        </Button>
                                     </div>
                                 </div>
-                                <Button
-                                    size="sm"
-                                    variant="danger"
-                                    icon={Trash2}
-                                    onClick={() => setPdfToDelete(pdf)}
-                                    className="self-start sm:self-auto"
-                                >
-                                    Delete
-                                </Button>
-                            </div>
-                        ))}
+                            ))}
+                        </div>
+                    </Card>
+                </>
+            ) : (
+                <Card className="p-0 overflow-hidden" hover={false}>
+                    <div className="px-4 sm:px-6 pt-4">
+                        <Tabs
+                            tabs={[
+                                { value: 'items', label: 'Items', count: order.items?.length ?? 0 },
+                                { value: 'payments', label: 'Payments', count: payments.length },
+                                { value: 'returns', label: 'Returns', count: returns.length },
+                                { value: 'pdfs', label: 'Saved PDFs', count: pdfs.length },
+                            ]}
+                            activeTab={activeTab}
+                            onChange={setActiveTab}
+                        />
+                    </div>
+                    <div className="p-4 sm:p-6">
+                        <AnimatePresence mode="wait">
+                            <motion.div
+                                key={activeTab}
+                                initial={{ opacity: 0, y: 8 }}
+                                animate={{ opacity: 1, y: 0 }}
+                                exit={{ opacity: 0, y: -8 }}
+                                transition={{ duration: 0.18 }}
+                            >
+                                {activeTab === 'items' && itemsTable}
+
+                                {activeTab === 'payments' && (
+                                    <PaymentHistoryList
+                                        payments={payments}
+                                        onDelete={(paymentId) => setPaymentToDelete(paymentId)}
+                                        isAdmin={isAdmin}
+                                    />
+                                )}
+
+                                {activeTab === 'returns' && (
+                                    <ReturnList
+                                        returns={returns}
+                                        onAccept={(returnId) => setReturnToAccept(returnId)}
+                                        isAdmin={isAdmin}
+                                        orderItems={order.items || []}
+                                    />
+                                )}
+
+                                {activeTab === 'pdfs' && (
+                                    pdfs.length === 0 ? (
+                                        <EmptyState
+                                            icon={<FileText className="w-10 h-10 text-neutral-300" />}
+                                            title="No saved PDFs yet"
+                                            description="PDFs you save for this order will appear here."
+                                        />
+                                    ) : (
+                                        <div className="space-y-2">
+                                            {pdfs.map((pdf) => (
+                                                <div key={pdf.id} className="flex flex-col sm:flex-row sm:justify-between sm:items-center gap-3 p-3 bg-neutral-50 rounded-lg hover:bg-neutral-100 transition-colors">
+                                                    <div className="flex items-start gap-3 min-w-0">
+                                                        <FileText className="w-5 h-5 text-neutral-400 flex-shrink-0 mt-0.5" />
+                                                        <div className="min-w-0">
+                                                            <a
+                                                                href={pdf.file_url}
+                                                                target="_blank"
+                                                                rel="noopener noreferrer"
+                                                                className="font-medium text-primary-600 hover:text-primary-700 hover:underline break-all"
+                                                            >
+                                                                {pdf.file_name}
+                                                            </a>
+                                                            <p className="text-xs text-neutral-500">
+                                                                Saved: {new Date(pdf.created_at).toLocaleString()}
+                                                            </p>
+                                                        </div>
+                                                    </div>
+                                                    <Button
+                                                        size="sm"
+                                                        variant="danger"
+                                                        icon={Trash2}
+                                                        onClick={() => setPdfToDelete(pdf)}
+                                                        className="self-start sm:self-auto"
+                                                    >
+                                                        Delete
+                                                    </Button>
+                                                </div>
+                                            ))}
+                                        </div>
+                                    )
+                                )}
+                            </motion.div>
+                        </AnimatePresence>
                     </div>
                 </Card>
             )}
