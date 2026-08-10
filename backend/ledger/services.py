@@ -375,7 +375,7 @@ def generate_ledger_pdf_bytes(
     from django.template.loader import render_to_string
     from django.shortcuts import get_object_or_404
 
-    from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN
+    from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN, get_company_logo_data_uri
 
     ledger  = get_object_or_404(SupplierLedger, pk=ledger_id)
     entries, opening_balance, closing_balance = _get_entries_with_running_balance(
@@ -403,6 +403,7 @@ def generate_ledger_pdf_bytes(
         "generated_at"    : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "currency"        : "PKR",
         "company_name"    : django_settings.COMPANY_NAME,
+        "company_logo"    : get_company_logo_data_uri(),
         "page_margin"     : PDF_PAGE_MARGIN,
         "body_padding"    : PDF_BODY_PADDING,
     }

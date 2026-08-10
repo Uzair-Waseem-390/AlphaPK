@@ -2,6 +2,7 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>Ledger_{{ ledger.supplier_code }}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
 
@@ -13,12 +14,15 @@
 
   /* Header */
   .header {
-    display: flex; justify-content: space-between; align-items: flex-start;
+    display: flex; align-items: center;
     border-bottom: 2px solid #1a1a1a; padding-bottom: 14px; margin-bottom: 18px;
   }
-  .company-name  { font-size: 24px; font-weight: 900; letter-spacing: 2px; }
+  .header-logo { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; }
+  .header-logo img { max-height: 50px; max-width: 140px; object-fit: contain; }
+  .header-center { flex: 1 1 0; text-align: center; }
+  .company-name  { font-size: 18px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; }
   .company-sub   { font-size: 10px; color: #555; margin-top: 2px; }
-  .ledger-title  { text-align: right; }
+  .ledger-title  { flex: 1 1 0; text-align: right; }
   .ledger-title h2 { font-size: 16px; font-weight: 700; }
   .ledger-title .sub { font-size: 10px; color: #555; margin-top: 3px; }
 
@@ -81,12 +85,6 @@
   .closing-inner .closing-row td { color: #fff; font-weight: 700; font-size: 13px; }
   .closing-inner .right { text-align: right; }
 
-  /* Footer */
-  .footer {
-    border-top: 1px solid #e0e0e0; padding-top: 10px;
-    text-align: center; font-size: 9px; color: #aaa;
-  }
-
   /* Zero display */
   .zero { color: #ccc; }
 </style>
@@ -95,7 +93,10 @@
 
   <!-- Header -->
   <div class="header">
-    <div>
+    <div class="header-logo">
+      {% if company_logo %}<img src="{{ company_logo }}" alt="{{ company_name }}">{% endif %}
+    </div>
+    <div class="header-center">
       <div class="company-name">{{ company_name }}</div>
       <div class="company-sub">Supplier Account Ledger</div>
     </div>
@@ -199,14 +200,6 @@
     </div>
   </div>
 
-  <!-- Footer -->
-  <div class="footer">
-    <p>{{ company_name }} &mdash; Supplier Account Statement &mdash; {{ currency }}</p>
-    <p style="margin-top:3px;">
-      {{ ledger.supplier_name }} ({{ ledger.supplier_code }})
-      &nbsp;|&nbsp; Generated: {{ generated_at }}
-    </p>
-  </div>
 
 </body>
 </html>
