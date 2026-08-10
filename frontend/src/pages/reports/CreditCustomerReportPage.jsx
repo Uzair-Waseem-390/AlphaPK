@@ -70,6 +70,10 @@ const CreditCustomerReportPage = () => {
         setFilters({ ...filters, search: value || undefined });
     };
 
+    const handleClearFilters = () => {
+        setFilters({});
+    };
+
     const handleRowClick = (row) => {
         navigate(`/billing/customers/${row.customer_id}`);
     };
@@ -88,11 +92,19 @@ const CreditCustomerReportPage = () => {
             </div>
 
             <div className="space-y-4">
-                <SearchBar
-                    onSearch={handleSearch}
-                    placeholder="Search by customer name or code..."
-                    className="max-w-md"
-                />
+                <div className="flex flex-col sm:flex-row sm:items-center gap-3">
+                    <SearchBar
+                        onSearch={handleSearch}
+                        placeholder="Search by customer name or code..."
+                        value={filters.search || ''}
+                        className="w-full max-w-sm"
+                    />
+                    {(filters.search || activeTier) && (
+                        <Button variant="secondary" onClick={handleClearFilters}>
+                            Clear Filters
+                        </Button>
+                    )}
+                </div>
 
                 <div className="flex gap-2 flex-wrap">
                     {TIER_TABS.map((tab) => (

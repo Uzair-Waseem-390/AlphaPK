@@ -133,6 +133,7 @@ export const navGroups = [
         items: [
             { name: 'Invoices Report', path: '/reports/invoices', icon: Receipt },
             { name: 'Cash Collected Report', path: '/reports/cash-collected', icon: Banknote },
+            { name: 'Credit Customer Report', path: '/reports/credit-customers', icon: CreditCard },
             { name: 'Stock Movement Report', path: '/reports/stock-movement', icon: Package },
             { name: 'Inventory Valuation Report', path: '/reports/inventory-valuation', icon: Store },
             { name: 'Lost Inventory Report', path: '/reports/lost-inventory', icon: PackageX },
@@ -144,7 +145,6 @@ export const navGroups = [
             { name: 'Sales Tax Report', path: '/reports/sales-tax', icon: Receipt },
             { name: 'Profit Margin Report', path: '/reports/profit-margin', icon: TrendingUp },
             { name: 'Net Profit Report', path: '/reports/net-profit', icon: LineChart },
-            { name: 'Credit Customer Report', path: '/reports/credit-customers', icon: CreditCard },
         ],
     },
 ];
