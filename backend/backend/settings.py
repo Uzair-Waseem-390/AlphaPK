@@ -86,26 +86,26 @@ TEMPLATES = [
 WSGI_APPLICATION = 'backend.wsgi.application'
 
 
-DATABASES = {
-    "default": {
-        "ENGINE": "django.db.backends.sqlite3",
-        "NAME": BASE_DIR / "db.sqlite3",
-    }
-}
 # DATABASES = {
 #     "default": {
-#         "ENGINE": "django.db.backends.postgresql",
-#         "NAME": os.getenv("DB_NAME"),
-#         "USER": os.getenv("DB_USER"),
-#         "PASSWORD": os.getenv("DB_PASSWORD"),
-#         "HOST": os.getenv("DB_HOST"),
-#         "PORT": os.getenv("DB_PORT"),
-#         # Reuse a connection to the Supabase Session Pooler for 120s instead
-#         # of paying a fresh TCP+TLS+auth handshake on every request (the
-#         # dominant cost behind the ~6s customer-list load — see chat).
-#         "CONN_MAX_AGE": 120,
+#         "ENGINE": "django.db.backends.sqlite3",
+#         "NAME": BASE_DIR / "db.sqlite3",
 #     }
 # }
+DATABASES = {
+    "default": {
+        "ENGINE": "django.db.backends.postgresql",
+        "NAME": os.getenv("DB_NAME"),
+        "USER": os.getenv("DB_USER"),
+        "PASSWORD": os.getenv("DB_PASSWORD"),
+        "HOST": os.getenv("DB_HOST"),
+        "PORT": os.getenv("DB_PORT"),
+        # Reuse a connection to the Supabase Session Pooler for 120s instead
+        # of paying a fresh TCP+TLS+auth handshake on every request (the
+        # dominant cost behind the ~6s customer-list load — see chat).
+        "CONN_MAX_AGE": 120,
+    }
+}
 
 
 # Remote backup target (Supabase/Neon/any Postgres) — read from
@@ -174,6 +174,15 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "DEFAULT_PAGINATION_CLASS": "backend.paginations.StandardResultsSetPagination",
+    "NUM_PROXIES": 1,  # Crucial for Server side: Tells DRF we're behind 1 proxy so it gets the real client IP, not server's internal IP
+    "DEFAULT_THROTTLE_CLASSES": [
+        "rest_framework.throttling.AnonRateThrottle",
+        "rest_framework.throttling.UserRateThrottle"
+    ],
+    "DEFAULT_THROTTLE_RATES": {
+        "anon": "20/minute",   # 20 requests per minute for unauthenticated users
+        "user": "120/minute"   # 120 requests per minute for authenticated users
+    }
 }
  
 # ---- SimpleJWT settings ----
