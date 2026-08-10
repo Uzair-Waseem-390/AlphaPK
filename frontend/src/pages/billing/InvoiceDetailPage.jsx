@@ -252,8 +252,21 @@ const InvoiceDetailPage = () => {
             const isDraft = invoice?.status === 'draft';
             const blob = await billingApi.invoices.print(id, isDraft);
             const url = window.URL.createObjectURL(new Blob([blob], { type: 'application/pdf' }));
-            window.open(url, '_blank');
-            setTimeout(() => window.URL.revokeObjectURL(url), 1000);
+            const pdfWindow = window.open(url, '_blank');
+
+            // Revoke only once the opened tab is closed — revoking on a fixed
+            // short timeout breaks "Save As" inside the PDF viewer if the user
+            // hasn't clicked it yet by then (the blob URL is already dead).
+            if (pdfWindow) {
+                const checkClosed = setInterval(() => {
+                    if (pdfWindow.closed) {
+                        clearInterval(checkClosed);
+                        window.URL.revokeObjectURL(url);
+                    }
+                }, 1000);
+            } else {
+                window.URL.revokeObjectURL(url);
+            }
         } catch (error) {
             console.error('Failed to print:', error);
             toast.error(extractErrorMessage(error, 'Failed to print invoice. Please try again.'));

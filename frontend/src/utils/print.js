@@ -15,11 +15,23 @@ const openPdfBlob = async (url) => {
 
     const blob = await response.blob();
     const blobUrl = window.URL.createObjectURL(blob);
-    window.open(blobUrl, '_blank');
+    const pdfWindow = window.open(blobUrl, '_blank');
 
-    setTimeout(() => {
+    // Revoking too early (e.g. a fixed 1s timeout) breaks "Save As" inside the
+    // opened PDF viewer if the user hasn't clicked it yet by then — the blob
+    // URL is already dead, so the browser has nothing to save. Revoke only
+    // once the tab that's actually using it is closed.
+    if (pdfWindow) {
+        const checkClosed = setInterval(() => {
+            if (pdfWindow.closed) {
+                clearInterval(checkClosed);
+                window.URL.revokeObjectURL(blobUrl);
+            }
+        }, 1000);
+    } else {
+        // Popup blocked — nothing holding the URL, safe to revoke now.
         window.URL.revokeObjectURL(blobUrl);
-    }, 1000);
+    }
 };
 
 export const printInvoice = async (invoiceId, isDraft = false) => {
