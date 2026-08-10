@@ -145,21 +145,26 @@ const RecurringExpenseTemplatesPage = () => {
             key: 'is_active',
             label: 'Status',
             render: (v, row) => (
-                <button onClick={() => handleToggleActive(row)} disabled={togglingId === row.id} className="disabled:opacity-50">
-                    {v ? <Badge variant="success" size="sm">Active</Badge> : <Badge size="sm">Inactive</Badge>}
-                </button>
+                <Button 
+                    size="sm"
+                    variant={v ? 'success' : 'secondary'}
+                    onClick={() => handleToggleActive(row)} 
+                    disabled={togglingId === row.id}
+                >
+                    {v ? 'Active' : 'Inactive'}
+                </Button>
             ),
         },
         {
             key: 'actions',
             label: 'Actions',
-            width: '150px',
+            width: '200px',
             render: (_v, row) => (
-                <div className="flex items-center gap-3">
-                    <button onClick={() => handleEdit(row)} className="inline-flex items-center gap-1 text-primary-600 hover:text-primary-700 text-sm font-medium min-h-[44px] sm:min-h-0">
+                <div className="flex items-center gap-2">
+                    <button onClick={() => handleEdit(row)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-primary-200 bg-primary-50 text-primary-700 hover:bg-primary-100 transition-colors text-sm font-medium min-h-[44px] sm:min-h-0">
                         <Pencil className="w-3.5 h-3.5" /> Edit
                     </button>
-                    <button onClick={() => setDeleteConfirm(row)} className="inline-flex items-center gap-1 text-error-600 hover:text-error-700 text-sm font-medium min-h-[44px] sm:min-h-0">
+                    <button onClick={() => setDeleteConfirm(row)} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-md border border-error-200 bg-error-50 text-error-700 hover:bg-error-100 transition-colors text-sm font-medium min-h-[44px] sm:min-h-0">
                         <Trash2 className="w-3.5 h-3.5" /> Delete
                     </button>
                 </div>
