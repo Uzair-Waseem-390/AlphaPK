@@ -71,7 +71,7 @@ const Sidebar = ({ desktopOpen, mobileOpen, onCloseMobile }) => {
                                     animate={{ opacity: 1 }}
                                     className="text-lg font-bold text-neutral-900 whitespace-nowrap"
                                 >
-                                    ERP System
+                                    {import.meta.env.VITE_APP_NAME}
                                 </motion.span>
                             )}
                         </div>

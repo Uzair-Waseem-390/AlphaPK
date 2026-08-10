@@ -20,6 +20,7 @@ CSRF_TRUSTED_ORIGINS = env_list("CSRF_TRUSTED_ORIGINS")
 BACKEND_URL = os.getenv("BACKEND_URL").rstrip("/")
 
 PATH_ADMIN = os.getenv("PATH_ADMIN")
+COMPANY_NAME=os.getenv("COMPANY_NAME")
 
 INSTALLED_APPS = [
     'django.contrib.admin',

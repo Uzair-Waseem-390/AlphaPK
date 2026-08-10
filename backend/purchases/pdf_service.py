@@ -50,6 +50,7 @@ def _render_order_html(order: PurchaseOrder, is_draft: bool = False) -> str:
         "order_date"  : order_date,
         "is_draft"    : is_draft,
         "generated_at": timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
+        "company_name": settings.COMPANY_NAME,
     }
     return render_to_string("purchases/purchase_order_pdf.html", context)
 

@@ -101,7 +101,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="company-name">APHA</div>
+      <div class="company-name">{{ company_name }}</div>
       <div class="company-sub">Purchase Order</div>
     </div>
     <div class="po-title">
@@ -214,7 +214,7 @@
 
   <!-- Footer -->
   <div class="footer">
-    <p>Apha &mdash; Internal Purchase Document</p>
+    <p>{{ company_name }} &mdash; Internal Purchase Document</p>
     <p style="margin-top:4px;">Generated: {{ generated_at }} &nbsp;|&nbsp; {{ order.order_number }}</p>
   </div>
 

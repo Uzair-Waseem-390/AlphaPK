@@ -400,6 +400,7 @@ def generate_ledger_pdf_bytes(
         "date_to"         : date_to,
         "generated_at"    : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "currency"        : "PKR",
+        "company_name"    : django_settings.COMPANY_NAME,
     }
     html     = render_to_string("ledger/supplier_ledger_pdf.html", context)
     from weasyprint import HTML

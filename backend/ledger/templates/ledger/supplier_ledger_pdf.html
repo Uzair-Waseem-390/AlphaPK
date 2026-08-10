@@ -91,7 +91,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="company-name">APHA</div>
+      <div class="company-name">{{ company_name }}</div>
       <div class="company-sub">Supplier Account Ledger</div>
     </div>
     <div class="ledger-title">
@@ -196,7 +196,7 @@
 
   <!-- Footer -->
   <div class="footer">
-    <p>Apha &mdash; Supplier Account Statement &mdash; {{ currency }}</p>
+    <p>{{ company_name }} &mdash; Supplier Account Statement &mdash; {{ currency }}</p>
     <p style="margin-top:3px;">
       {{ ledger.supplier_name }} ({{ ledger.supplier_code }})
       &nbsp;|&nbsp; Generated: {{ generated_at }}

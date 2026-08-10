@@ -199,7 +199,7 @@
   <!-- Header -->
   <div class="header">
     <div>
-      <div class="company-name">APHA</div>
+      <div class="company-name">{{ company_name }}</div>
       <div class="company-sub">Official Invoice</div>
     </div>
     <div class="invoice-title">
@@ -326,7 +326,7 @@
 
   <!-- Footer -->
   <div class="footer">
-    <p>Apha &mdash; Thank you for your business.</p>
+    <p>{{ company_name }} &mdash; Thank you for your business.</p>
     <p style="margin-top:4px;">
       Generated: {{ generated_at }} &nbsp;|&nbsp; {{ invoice.bill_number }}
     </p>

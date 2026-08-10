@@ -114,6 +114,7 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
         "grand_total_display": grand_total_display,
         "invoice_date"       : invoice_date,
         "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
+        "company_name"       : settings.COMPANY_NAME,
     }
     return render_to_string("billing/invoice_pdf.html", context)
 

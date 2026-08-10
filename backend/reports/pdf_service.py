@@ -31,6 +31,7 @@ def generate_report_pdf_bytes(
         "stats"              : stats,
         "row_count"          : len(rows),
         "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
+        "company_name"       : settings.COMPANY_NAME,
     }
     html = render_to_string("reports/report_pdf.html", context)
     pdf  = _html_to_pdf_bytes(html)

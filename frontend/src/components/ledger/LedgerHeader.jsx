@@ -17,7 +17,7 @@ const LedgerHeader = ({ ledger, closingBalance }) => {
             <div className="flex flex-col md:flex-row md:items-center justify-between">
                 <div>
                     <p className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Company</p>
-                    <h1 className="text-3xl font-bold text-neutral-900">Apha</h1>
+                    <h1 className="text-3xl font-bold text-neutral-900">{import.meta.env.VITE_APP_NAME}</h1>
                     <div className="mt-2">
                         <h2 className="text-xl font-semibold text-neutral-900">{ledger?.supplier_name}</h2>
                         <p className="text-sm text-neutral-500">Code: {ledger?.supplier_code}</p>
