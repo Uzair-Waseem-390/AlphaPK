@@ -702,7 +702,7 @@ class InvoicesReportPrintView(BaseReportPrintView):
     columns           = [
         {"key": "bill_number", "label": "Bill #"}, {"key": "customer_name", "label": "Customer"},
         {"key": "grand_total", "label": "Grand Total"}, {"key": "payment_status", "label": "Status"},
-        {"key": "confirmed_at", "label": "Date"},
+        {"key": "confirmed_at", "label": "Date"}, {"key": "payment_due_date", "label": "Due Date"},
     ]
     queryset_fn       = staticmethod(get_invoices_report_queryset)
     stats_fn          = staticmethod(get_invoices_report_stats)

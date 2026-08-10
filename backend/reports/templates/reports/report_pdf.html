@@ -14,24 +14,22 @@
 
   .header {
     display: flex;
-    justify-content: space-between;
-    align-items: flex-start;
+    align-items: center;
     border-bottom: 2px solid #1a1a1a;
     padding-bottom: 16px;
     margin-bottom: 16px;
   }
+  .header-logo { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; }
+  .header-logo img { max-height: 50px; max-width: 140px; object-fit: contain; }
+  .header-center { flex: 1 1 0; text-align: center; }
   .company-name {
-    font-size: 24px;
+    font-size: 18px;
     font-weight: 900;
-    letter-spacing: 2px;
+    letter-spacing: 1px;
     color: #1a1a1a;
+    white-space: nowrap;
   }
-  .company-sub {
-    font-size: 10px;
-    color: #555;
-    margin-top: 3px;
-  }
-  .report-title { text-align: right; }
+  .report-title { flex: 1 1 0; text-align: right; }
   .report-title h2 {
     font-size: 18px;
     font-weight: 700;
@@ -55,26 +53,28 @@
   .stats-row {
     display: flex;
     flex-wrap: wrap;
-    gap: 10px;
+    gap: 8px;
     margin-bottom: 20px;
   }
   .stat-box {
     border: 1px solid #e0e0e0;
     border-radius: 4px;
-    padding: 8px 12px;
-    min-width: 120px;
+    padding: 6px 10px;
+    min-width: 95px;
+    min-height: 38px;
   }
   .stat-box .label {
-    font-size: 9px;
+    font-size: 8px;
     color: #888;
     text-transform: uppercase;
-    letter-spacing: 0.5px;
+    letter-spacing: 0.3px;
+    line-height: 1.3;
   }
   .stat-box .value {
-    font-size: 14px;
+    font-size: 13px;
     font-weight: 700;
     color: #1a1a1a;
-    margin-top: 2px;
+    margin-top: 3px;
   }
 
   .report-table {
@@ -109,14 +109,6 @@
     font-size: 12px;
   }
 
-  .footer {
-    border-top: 1px solid #e0e0e0;
-    padding-top: 10px;
-    text-align: center;
-    font-size: 9px;
-    color: #aaa;
-  }
-
   @page { size: A4 landscape; margin: {{ page_margin }}; }
 </style>
 </head>
@@ -124,9 +116,11 @@
 <div class="page">
 
   <div class="header">
-    <div>
+    <div class="header-logo">
+      {% if company_logo %}<img src="{{ company_logo }}" alt="{{ company_name }}">{% endif %}
+    </div>
+    <div class="header-center">
       <div class="company-name">{{ company_name }}</div>
-      <div class="company-sub">Internal Report — not a certified filing</div>
     </div>
     <div class="report-title">
       <h2>{{ title }}</h2>
@@ -172,10 +166,6 @@
   {% else %}
   <div class="empty-note">No records match this filter.</div>
   {% endif %}
-
-  <div class="footer">
-    <p>Internal estimate, not a certified valuation or filing. The developer is not responsible at all for decisions made from this document.</p>
-  </div>
 
 </div>
 </body>

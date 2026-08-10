@@ -2,7 +2,7 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
 
-from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN
+from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN, get_company_logo_data_uri
 
 
 def _html_to_pdf_bytes(html: str) -> bytes:
@@ -34,6 +34,7 @@ def generate_report_pdf_bytes(
         "row_count"          : len(rows),
         "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "company_name"       : settings.COMPANY_NAME,
+        "company_logo"       : get_company_logo_data_uri(),
         "page_margin"        : PDF_PAGE_MARGIN,
         "body_padding"       : PDF_BODY_PADDING,
     }

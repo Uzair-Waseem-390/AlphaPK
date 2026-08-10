@@ -43,12 +43,13 @@ class ReportDateFilterSerializer(serializers.Serializer):
 
 class InvoiceReportItemSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.name", read_only=True)
+    confirmed_at  = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = Invoice
         fields = [
             "id", "bill_number", "customer_name",
-            "grand_total", "payment_status", "confirmed_at",
+            "grand_total", "payment_status", "confirmed_at", "payment_due_date",
         ]
         read_only_fields = fields
 
@@ -114,6 +115,7 @@ class LostInventoryReportItemSerializer(serializers.ModelSerializer):
 class PurchaseReturnReportItemSerializer(serializers.ModelSerializer):
     order_number  = serializers.CharField(source="order.order_number", read_only=True)
     supplier_name = serializers.CharField(source="order.supplier.name", read_only=True)
+    accepted_at   = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = PurchaseReturn
@@ -132,6 +134,7 @@ class PurchaseReturnReportItemSerializer(serializers.ModelSerializer):
 class CustomerReturnReportItemSerializer(serializers.ModelSerializer):
     bill_number   = serializers.CharField(source="invoice.bill_number", read_only=True)
     customer_name = serializers.CharField(source="invoice.customer.name", read_only=True)
+    accepted_at   = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = Return
@@ -149,6 +152,7 @@ class CustomerReturnReportItemSerializer(serializers.ModelSerializer):
 class ProfitMarginReportItemSerializer(serializers.ModelSerializer):
     customer_name  = serializers.CharField(source="customer.name", read_only=True)
     margin_percent = serializers.SerializerMethodField()
+    confirmed_at   = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = Invoice
@@ -162,7 +166,7 @@ class ProfitMarginReportItemSerializer(serializers.ModelSerializer):
     def get_margin_percent(self, obj):
         if not obj.grand_total:
             return 0
-        return obj.gross_profit / obj.grand_total * 100
+        return round(obj.gross_profit / obj.grand_total * 100, 4)
 
 
 # ---------------------------------------------------------------------------
@@ -186,6 +190,7 @@ class InventoryValuationReportItemSerializer(serializers.Serializer):
 class InputTaxReportItemSerializer(serializers.ModelSerializer):
     supplier_name = serializers.CharField(source="supplier.name", read_only=True)
     supplier_code = serializers.CharField(source="supplier.code", read_only=True)
+    confirmed_at  = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = PurchaseOrder
@@ -203,6 +208,7 @@ class InputTaxReportItemSerializer(serializers.ModelSerializer):
 class OutputTaxReportItemSerializer(serializers.ModelSerializer):
     customer_name = serializers.CharField(source="customer.name", read_only=True)
     customer_code = serializers.CharField(source="customer.code", read_only=True)
+    confirmed_at  = serializers.DateTimeField(format="%d %b %Y", read_only=True)
 
     class Meta:
         model = Invoice
@@ -218,6 +224,8 @@ class OutputTaxReportItemSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class RecurringExpenseReportItemSerializer(serializers.ModelSerializer):
+    assigned_at = serializers.DateTimeField(format="%d %b %Y", read_only=True)
+
     class Meta:
         model = RecurringExpenseAssignment
         fields = [
