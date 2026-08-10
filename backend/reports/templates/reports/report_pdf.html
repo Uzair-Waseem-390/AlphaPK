@@ -9,7 +9,7 @@
     font-family: Arial, sans-serif;
     font-size: 11px;
     color: #1a1a1a;
-    padding: 30px;
+    padding: {{ body_padding }};
   }
 
   .header {
@@ -117,7 +117,7 @@
     color: #aaa;
   }
 
-  @page { size: A4 landscape; margin: 15mm; }
+  @page { size: A4 landscape; margin: {{ page_margin }}; }
 </style>
 </head>
 <body>

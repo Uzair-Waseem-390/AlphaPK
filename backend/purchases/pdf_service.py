@@ -5,6 +5,8 @@ from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
 
+from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN, get_company_logo_data_uri
+
 from .models import PurchaseOrder, SavedPurchaseOrderPDF
 from .selectors import get_purchase_order_by_id
 
@@ -51,6 +53,9 @@ def _render_order_html(order: PurchaseOrder, is_draft: bool = False) -> str:
         "is_draft"    : is_draft,
         "generated_at": timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "company_name": settings.COMPANY_NAME,
+        "company_logo": get_company_logo_data_uri(),
+        "page_margin" : PDF_PAGE_MARGIN,
+        "body_padding": PDF_BODY_PADDING,
     }
     return render_to_string("purchases/purchase_order_pdf.html", context)
 

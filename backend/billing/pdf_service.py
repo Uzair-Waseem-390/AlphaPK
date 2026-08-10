@@ -1,12 +1,12 @@
-import base64
 import os
 from datetime import datetime
-from functools import lru_cache
 from pathlib import Path
 
 from django.conf import settings
 from django.template.loader import render_to_string
 from django.utils import timezone
+
+from backend.pdf_utils import PDF_BODY_PADDING, PDF_PAGE_MARGIN, get_company_logo_data_uri
 
 from .models import Invoice, SavedInvoicePDF
 from .selectors import get_invoice_by_id
@@ -21,21 +21,6 @@ def _get_invoice_pdf_dir(year: int) -> Path:
     path = Path(settings.MEDIA_ROOT) / "invoices" / str(year)
     path.mkdir(parents=True, exist_ok=True)
     return path
-
-
-@lru_cache(maxsize=1)
-def _get_company_logo_data_uri() -> str:
-    """
-    Embeds the logo as a base64 data URI so WeasyPrint doesn't need to
-    resolve a filesystem/URL path (which differs between dev and prod) —
-    works identically everywhere the file is present on disk.
-    Cached: the logo file doesn't change without a redeploy.
-    """
-    logo_path = Path(settings.STATIC_ROOT) / "images" / "logo.png"
-    if not logo_path.is_file():
-        return ""
-    encoded = base64.b64encode(logo_path.read_bytes()).decode("ascii")
-    return f"data:image/png;base64,{encoded}"
 
 
 def _build_item_context(invoice: Invoice) -> list[dict]:
@@ -132,7 +117,9 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
         "invoice_date"       : invoice_date,
         "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),
         "company_name"       : settings.COMPANY_NAME,
-        "company_logo"       : _get_company_logo_data_uri(),
+        "company_logo"       : get_company_logo_data_uri(),
+        "page_margin"        : PDF_PAGE_MARGIN,
+        "body_padding"       : PDF_BODY_PADDING,
     }
     return render_to_string("billing/invoice_pdf.html", context)
 

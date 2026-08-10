@@ -4,7 +4,12 @@
 <meta charset="UTF-8">
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: 28px; }
+
+  /* page_margin/body_padding come from backend.pdf_utils — shared across
+     every PDF template, tune them there rather than per-template. */
+  @page { margin: {{ page_margin }}; }
+
+  body { font-family: Arial, sans-serif; font-size: 11px; color: #1a1a1a; padding: {{ body_padding }}; }
 
   /* Header */
   .header {

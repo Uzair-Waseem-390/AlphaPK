@@ -2,9 +2,15 @@
 <html lang="en">
 <head>
 <meta charset="UTF-8">
+<title>{{ order.order_number }}</title>
 <style>
   * { margin: 0; padding: 0; box-sizing: border-box; }
-  body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; padding: 30px; }
+
+  /* page_margin/body_padding come from backend.pdf_utils — shared across
+     every PDF template, tune them there rather than per-template. */
+  @page { margin: {{ page_margin }}; }
+
+  body { font-family: Arial, sans-serif; font-size: 12px; color: #1a1a1a; padding: {{ body_padding }}; }
 
   /* DRAFT watermark */
   {% if is_draft %}
@@ -26,12 +32,15 @@
   .page { position: relative; z-index: 1; }
 
   .header {
-    display: flex; justify-content: space-between; align-items: flex-start;
+    display: flex; align-items: center;
     border-bottom: 2px solid #1a1a1a; padding-bottom: 16px; margin-bottom: 20px;
   }
-  .company-name { font-size: 28px; font-weight: 900; letter-spacing: 2px; }
+  .header-logo { flex: 1 1 0; display: flex; align-items: center; justify-content: flex-start; }
+  .header-logo img { max-height: 50px; max-width: 140px; object-fit: contain; }
+  .header-center { flex: 1 1 0; text-align: center; }
+  .company-name { font-size: 18px; font-weight: 900; letter-spacing: 1px; white-space: nowrap; }
   .company-sub  { font-size: 11px; color: #555; margin-top: 3px; }
-  .po-title     { text-align: right; }
+  .po-title     { flex: 1 1 0; text-align: right; }
   .po-title h2  { font-size: 22px; font-weight: 700; }
   {% if is_draft %}
   .po-title h2  { color: #cc2222; }
@@ -39,16 +48,9 @@
   .po-title .order-number { font-size: 13px; font-weight: 600; margin-top: 4px; }
   .po-title .order-date   { font-size: 11px; color: #555; margin-top: 2px; }
 
-  .meta-row { display: flex; justify-content: space-between; margin-bottom: 20px; }
-  .supplier-box h4 { font-size: 10px; text-transform: uppercase; color: #888; letter-spacing: 1px; margin-bottom: 5px; }
-  .supplier-box p  { font-size: 12px; line-height: 1.6; }
-  .supplier-name   { font-weight: 700; font-size: 14px; }
-
-  .order-meta { text-align: right; }
-  .order-meta table { margin-left: auto; }
-  .order-meta td { padding: 2px 0 2px 16px; font-size: 11px; }
-  .order-meta td:first-child { color: #888; }
-  .order-meta td:last-child  { font-weight: 600; }
+  .meta-row { margin-bottom: 20px; }
+  .supplier-row { display: flex; align-items: baseline; gap: 16px; font-size: 12px; }
+  .supplier-label { text-transform: uppercase; color: #888; letter-spacing: 1px; }
 
   .description-box {
     background: #f9f9f9; border: 1px solid #e0e0e0; border-radius: 4px;
@@ -68,31 +70,14 @@
   .items-table tbody td.center { text-align: center; }
 
   .totals-wrapper { display: flex; justify-content: flex-end; margin-bottom: 24px; }
-  .totals-box { width: 300px; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden; }
-  .totals-box table { width: 100%; border-collapse: collapse; }
-  .totals-box td { padding: 7px 14px; font-size: 12px; }
-  .totals-box tr { border-bottom: 1px solid #f0f0f0; }
-  .totals-box tr:last-child { border-bottom: none; }
-  .totals-box .label  { color: #555; }
-  .totals-box .amount { text-align: right; font-weight: 600; }
-  .totals-box .grand-row { background: #1a1a1a; }
-  .totals-box .grand-row td { color: #fff; font-size: 13px; font-weight: 700; }
-
-  .payment-section {
-    display: flex; justify-content: space-between; align-items: flex-start;
-    padding: 14px 0; border-top: 1px solid #e0e0e0; margin-bottom: 24px;
-  }
-  .payment-badge { display: inline-block; padding: 4px 12px; border-radius: 12px; font-size: 11px; font-weight: 700; text-transform: uppercase; }
-  .badge-paid    { background: #d4edda; color: #155724; }
-  .badge-partial { background: #fff3cd; color: #856404; }
-  .badge-unpaid  { background: #f8d7da; color: #721c24; }
-
-  .payment-detail table { margin-left: auto; }
-  .payment-detail td { padding: 2px 0 2px 16px; font-size: 11px; }
-  .payment-detail td:first-child { color: #888; }
-  .payment-detail td:last-child  { font-weight: 600; }
-
-  .footer { border-top: 1px solid #e0e0e0; padding-top: 12px; text-align: center; font-size: 10px; color: #aaa; }
+  .totals-row { display: flex; border: 1px solid #e0e0e0; border-radius: 4px; overflow: hidden; }
+  .totals-cell { padding: 10px 16px; border-right: 1px solid #f0f0f0; text-align: right; }
+  .totals-cell:last-child { border-right: none; }
+  .totals-label { font-size: 10px; color: #888; text-transform: uppercase; letter-spacing: 0.5px; margin-bottom: 4px; }
+  .totals-value { font-size: 12px; font-weight: 600; }
+  .totals-cell-grand { background: #1a1a1a; }
+  .totals-cell-grand .totals-label { color: #ccc; }
+  .totals-cell-grand .totals-value { color: #fff; font-size: 12px; font-weight: 700; }
 </style>
 </head>
 <body>
@@ -100,7 +85,10 @@
 
   <!-- Header -->
   <div class="header">
-    <div>
+    <div class="header-logo">
+      {% if company_logo %}<img src="{{ company_logo }}" alt="{{ company_name }}">{% endif %}
+    </div>
+    <div class="header-center">
       <div class="company-name">{{ company_name }}</div>
       <div class="company-sub">Purchase Order</div>
     </div>
@@ -111,23 +99,12 @@
     </div>
   </div>
 
-  <!-- Supplier + Meta -->
+  <!-- Supplier -->
   <div class="meta-row">
-    <div class="supplier-box">
-      <h4>Supplier</h4>
-      <p class="supplier-name">{{ order.supplier.name }}</p>
-      <p>Code: {{ order.supplier.code }}</p>
-    </div>
-    <div class="order-meta">
-      <table>
-        <tr><td>Order Number</td><td>{{ order.order_number }}</td></tr>
-        <tr><td>Status</td><td>{{ order.get_status_display }}</td></tr>
-        <tr><td>Prepared by</td><td>{{ order.created_by }}</td></tr>
-        {% if order.confirmed_by %}
-        <tr><td>Confirmed by</td><td>{{ order.confirmed_by }}</td></tr>
-        {% endif %}
-        <tr><td>Payment Status</td><td>{{ order.get_payment_status_display }}</td></tr>
-      </table>
+    <div class="supplier-row">
+      <span class="supplier-label">Supplier:</span>
+      <span>{{ order.supplier.name }}</span>
+      <span>Code: {{ order.supplier.code }}</span>
     </div>
   </div>
 
@@ -179,43 +156,24 @@
 
   <!-- Totals -->
   <div class="totals-wrapper">
-    <div class="totals-box">
-      <table>
-        <tr><td class="label">Gross Amount</td><td class="amount">{{ order.gross_amount }}</td></tr>
-        <tr><td class="label">GST Total</td><td class="amount">+ {{ order.gst_total }}</td></tr>
-        <tr><td class="label">WHT Total</td><td class="amount">- {{ order.wht_total }}</td></tr>
-        <tr class="grand-row">
-          <td class="label">Net Payable</td><td class="amount">{{ order.net_payable }}</td>
-        </tr>
-      </table>
+    <div class="totals-row">
+      <div class="totals-cell">
+        <div class="totals-label">Gross Amount</div>
+        <div class="totals-value">{{ order.gross_amount }}</div>
+      </div>
+      <div class="totals-cell">
+        <div class="totals-label">GST Total</div>
+        <div class="totals-value">+ {{ order.gst_total }}</div>
+      </div>
+      <div class="totals-cell">
+        <div class="totals-label">WHT Total</div>
+        <div class="totals-value">- {{ order.wht_total }}</div>
+      </div>
+      <div class="totals-cell totals-cell-grand">
+        <div class="totals-label">Net Payable</div>
+        <div class="totals-value">{{ order.net_payable }}</div>
+      </div>
     </div>
-  </div>
-
-  <!-- Payment Status -->
-  <div class="payment-section">
-    <div>
-      <div style="font-size:11px;color:#888;margin-bottom:6px;text-transform:uppercase;letter-spacing:1px;">Payment Status</div>
-      {% if order.payment_status == "paid" %}
-        <span class="payment-badge badge-paid">Paid</span>
-      {% elif order.payment_status == "partial" %}
-        <span class="payment-badge badge-partial">Partial</span>
-      {% else %}
-        <span class="payment-badge badge-unpaid">Unpaid</span>
-      {% endif %}
-    </div>
-    <div class="payment-detail">
-      <table>
-        <tr><td>Net Payable</td><td>{{ order.net_payable }}</td></tr>
-        <tr><td>Amount Paid</td><td>{{ order.total_paid }}</td></tr>
-        <tr><td>Outstanding</td><td>{{ order.payable_outstanding }}</td></tr>
-      </table>
-    </div>
-  </div>
-
-  <!-- Footer -->
-  <div class="footer">
-    <p>{{ company_name }} &mdash; Internal Purchase Document</p>
-    <p style="margin-top:4px;">Generated: {{ generated_at }} &nbsp;|&nbsp; {{ order.order_number }}</p>
   </div>
 
 </div>
