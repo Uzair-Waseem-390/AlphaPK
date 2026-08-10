@@ -6,14 +6,11 @@ import {
     ClipboardList, Wallet, Undo2, BarChart3, FileText, Clock, TrendingUp,
     Repeat, Tag, Send, Calendar, Receipt, Banknote, PackageX, RotateCcw,
     LineChart, TrendingDown, IdCard, ArrowDownCircle, Handshake, Trash2,
-    Gem, Archive,
+    Gem, Archive, CreditCard,
 } from 'lucide-react';
 
 export const mainNavigation = [
     { name: 'Dashboard', path: '/dashboard', icon: LayoutDashboard },
-    // Listing all users is superuser-only (see users app permission matrix)
-    { name: 'Users', path: '/users', icon: Users, superuserOnly: true },
-    { name: 'Profile', path: '/profile', icon: User },
     // Inventory + Rates are viewable by every role
     { name: 'Inventory', path: '/purchases/inventory', icon: Store },
     { name: 'Rates', path: '/rates', icon: DollarSign },
@@ -136,22 +133,25 @@ export const navGroups = [
         items: [
             { name: 'Invoices Report', path: '/reports/invoices', icon: Receipt },
             { name: 'Cash Collected Report', path: '/reports/cash-collected', icon: Banknote },
-            { name: 'Expenses Report', path: '/reports/expenses', icon: ClipboardList },
+            { name: 'Stock Movement Report', path: '/reports/stock-movement', icon: Package },
+            { name: 'Inventory Valuation Report', path: '/reports/inventory-valuation', icon: Store },
             { name: 'Lost Inventory Report', path: '/reports/lost-inventory', icon: PackageX },
-            { name: 'Profit Margin Report', path: '/reports/profit-margin', icon: TrendingUp },
+            { name: 'Recurring Expenses Report', path: '/reports/recurring-expenses', icon: Repeat },
+            { name: 'Expenses Report', path: '/reports/expenses', icon: ClipboardList },
             { name: 'Purchase Returns Report', path: '/reports/purchase-returns', icon: RotateCcw },
             { name: 'Customer Returns Report', path: '/reports/customer-returns', icon: Undo2 },
-            { name: 'Inventory Valuation Report', path: '/reports/inventory-valuation', icon: Store },
-            { name: 'Sales Tax Report', path: '/reports/sales-tax', icon: Receipt },
-            { name: 'Recurring Expenses Report', path: '/reports/recurring-expenses', icon: Repeat },
-            { name: 'Net Profit Report', path: '/reports/net-profit', icon: LineChart },
             { name: 'Asset Depreciation Report', path: '/reports/asset-depreciation', icon: TrendingDown },
-            { name: 'Stock Movement Report', path: '/reports/stock-movement', icon: Package },
+            { name: 'Sales Tax Report', path: '/reports/sales-tax', icon: Receipt },
+            { name: 'Profit Margin Report', path: '/reports/profit-margin', icon: TrendingUp },
+            { name: 'Net Profit Report', path: '/reports/net-profit', icon: LineChart },
+            { name: 'Credit Customer Report', path: '/reports/credit-customers', icon: CreditCard },
         ],
     },
 ];
 
-// Standalone links — not grouped, rendered after navGroups
+// Standalone links — not grouped, rendered after navGroups (in this order)
 export const standaloneLinks = [
+    // Listing all users is superuser-only (see users app permission matrix)
+    { name: 'Users', path: '/users', icon: Users, superuserOnly: true },
     { name: 'Backups', path: '/backups', icon: Archive, adminOnly: true },
 ];

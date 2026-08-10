@@ -36,7 +36,9 @@ const Sidebar = ({ desktopOpen, mobileOpen, onCloseMobile }) => {
         (item) => (!item.adminOnly || isAdmin) && (!item.superuserOnly || isSuperuser)
     );
     const visibleGroups = navGroups.filter((g) => !g.adminOnly || isAdmin);
-    const visibleStandalone = standaloneLinks.filter((l) => !l.adminOnly || isAdmin);
+    const visibleStandalone = standaloneLinks.filter(
+        (l) => (!l.adminOnly || isAdmin) && (!l.superuserOnly || isSuperuser)
+    );
 
     return (
         <>
