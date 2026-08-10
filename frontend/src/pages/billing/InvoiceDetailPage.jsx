@@ -479,7 +479,16 @@ const InvoiceDetailPage = () => {
                 <tbody className="divide-y divide-neutral-100">
                     {invoice.items?.map((item, index) => (
                         <tr key={item.id || index} className="hover:bg-neutral-50">
-                            <td className="px-3 py-2 text-sm">{item.product_name || 'N/A'}</td>
+                            <td className="px-3 py-2 text-sm">
+                                <p>{item.product_name || 'N/A'}</p>
+                                {item.shelf_allocations?.length > 0 ? (
+                                    <p className="text-xs text-neutral-500 mt-0.5">
+                                        Shelf: {item.shelf_allocations.map((a) => `${a.shelf_name} (${a.quantity})`).join(', ')}
+                                    </p>
+                                ) : !isDraft && (
+                                    <p className="text-xs text-neutral-400 mt-0.5 italic">No shelf allocation</p>
+                                )}
+                            </td>
                             <td className="px-3 py-2 text-sm">{item.quantity}</td>
                             <td className="px-3 py-2 text-sm">{item.discount || 0}</td>
                             <td className="px-3 py-2 text-sm">{item.gst || 0}%</td>
