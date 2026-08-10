@@ -97,7 +97,7 @@ const CreditCustomerReportPage = () => {
                         onSearch={handleSearch}
                         placeholder="Search by customer name or code..."
                         value={filters.search || ''}
-                        className="w-full max-w-sm"
+                        className="w-full flex-1"
                     />
                     {(filters.search || activeTier) && (
                         <Button variant="secondary" onClick={handleClearFilters}>
