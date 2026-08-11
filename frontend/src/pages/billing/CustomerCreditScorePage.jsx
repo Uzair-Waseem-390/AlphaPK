@@ -1,17 +1,17 @@
 import { useState, useEffect, useCallback } from 'react';
-import { useParams } from 'react-router-dom';
+import { useParams, Link } from 'react-router-dom';
 import { History } from 'lucide-react';
 import { creditScoreApi } from '../../services/creditScoreApi';
-import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
+
+const RECENT_HISTORY_PREVIEW_SIZE = 5;
 
 const TIER_BADGE_VARIANT = {
     good: 'success',
@@ -57,9 +57,32 @@ const CustomerCreditScorePage = () => {
     const [loading, setLoading] = useState(true);
     const [error, setError] = useState(null);
 
-    const {
-        data: history, meta, page, setPage, loading: historyLoading, error: historyError, refetch: refetchHistory,
-    } = usePaginatedList((params) => creditScoreApi.customers.getHistory(id, params), {}, 20, [id]);
+    // A compact, non-paginated preview — the last few events only. Full
+    // paginated history lives on its own page (see "View History" link
+    // below) so this page stays light regardless of how long a customer's
+    // history has grown.
+    const [recentHistory, setRecentHistory] = useState([]);
+    const [historyCount, setHistoryCount] = useState(0);
+    const [historyLoading, setHistoryLoading] = useState(true);
+    const [historyError, setHistoryError] = useState(null);
+
+    const fetchRecentHistory = useCallback(async () => {
+        setHistoryLoading(true);
+        setHistoryError(null);
+        try {
+            const data = await creditScoreApi.customers.getHistory(id, { page_size: RECENT_HISTORY_PREVIEW_SIZE });
+            setRecentHistory(data?.results || []);
+            setHistoryCount(data?.count ?? 0);
+        } catch (err) {
+            setHistoryError(extractErrorMessage(err, 'Failed to load history.'));
+        } finally {
+            setHistoryLoading(false);
+        }
+    }, [id]);
+
+    useEffect(() => {
+        fetchRecentHistory();
+    }, [fetchRecentHistory]);
 
     const fetchScore = useCallback(async () => {
         setLoading(true);
@@ -109,10 +132,15 @@ const CustomerCreditScorePage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <BackLink to={`/billing/customers/${id}`}>Back to {scoreData.customer_name}</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-2">Credit Score</h1>
-                <p className="text-neutral-500">{scoreData.customer_name} ({scoreData.customer_code})</p>
+            <div className="flex items-start justify-between flex-wrap gap-3">
+                <div>
+                    <BackLink to={`/billing/customers/${id}`}>Back to {scoreData.customer_name}</BackLink>
+                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Credit Score</h1>
+                    <p className="text-neutral-500">{scoreData.customer_name} ({scoreData.customer_code})</p>
+                </div>
+                <BackLink to={`/billing/customers/${id}/credit-score/history`} direction="right">
+                    View History
+                </BackLink>
             </div>
 
             <Card className="p-6" hover={false}>
@@ -185,32 +213,31 @@ const CustomerCreditScorePage = () => {
             </Card>
 
             <Card className="p-6" hover={false}>
-                <h3 className="font-semibold text-neutral-900 mb-4">History</h3>
+                <div className="flex items-center justify-between mb-4">
+                    <h3 className="font-semibold text-neutral-900">Recent History</h3>
+                    {historyCount > RECENT_HISTORY_PREVIEW_SIZE && (
+                        <Link
+                            to={`/billing/customers/${id}/credit-score/history`}
+                            className="text-sm font-medium text-primary-600 hover:text-primary-700"
+                        >
+                            View all ({historyCount}) →
+                        </Link>
+                    )}
+                </div>
                 {historyLoading ? (
                     <div className="flex justify-center py-8">
                         <LoadingSpinner size="md" />
                     </div>
                 ) : historyError ? (
-                    <InlineAlert variant="error" message={historyError} onRetry={refetchHistory} />
-                ) : history.length === 0 ? (
+                    <InlineAlert variant="error" message={historyError} onRetry={fetchRecentHistory} />
+                ) : recentHistory.length === 0 ? (
                     <EmptyState
                         icon={<History className="w-8 h-8 text-neutral-400" />}
                         title="No history yet"
                         description="Score-changing events for this customer will appear here."
                     />
                 ) : (
-                    <>
-                        <Table columns={historyColumns} data={history} />
-                        {meta.totalPages > 1 && (
-                            <div className="mt-4">
-                                <Pagination
-                                    currentPage={meta.currentPage}
-                                    totalPages={meta.totalPages}
-                                    onPageChange={setPage}
-                                />
-                            </div>
-                        )}
-                    </>
+                    <Table columns={historyColumns} data={recentHistory} />
                 )}
             </Card>
         </div>

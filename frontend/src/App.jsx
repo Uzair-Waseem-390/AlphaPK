@@ -40,6 +40,7 @@ import PriceHistoryPage from './pages/rates/PriceHistoryPage';
 import CustomersPage from './pages/billing/CustomersPage';
 import CustomerDetailPage from './pages/billing/CustomerDetailPage';
 import CustomerCreditScorePage from './pages/billing/CustomerCreditScorePage';
+import CustomerCreditScoreHistoryPage from './pages/billing/CustomerCreditScoreHistoryPage';
 import CustomerOutstandingPage from './pages/billing/CustomerOutstandingPage';
 import InvoicesPage from './pages/billing/InvoicesPage';
 import CreateInvoicePage from './pages/billing/CreateInvoicePage';
@@ -375,6 +376,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <CustomerCreditScorePage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/billing/customers/:id/credit-score/history" element={
+          <ProtectedRoute>
+            <Layout>
+              <CustomerCreditScoreHistoryPage />
             </Layout>
           </ProtectedRoute>
         } />
