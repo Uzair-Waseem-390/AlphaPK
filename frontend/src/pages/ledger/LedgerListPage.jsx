@@ -1,11 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
-import { useNavigate, useSearchParams } from 'react-router-dom';
+import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useLedgerList } from '../../hooks/useLedger';
 import { ledgerApi, customerLedgerApi } from '../../services/ledgerApi';
 import LedgerListTable, { SUPPLIER_COLUMNS } from '../../components/ledger/LedgerListTable';
-import Tabs from '../../components/ui/Tabs';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -48,10 +47,10 @@ const TAB_CONFIG = {
 const LedgerListPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
-    const [searchParams, setSearchParams] = useSearchParams();
+    const location = useLocation();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const activeTab = searchParams.get('type') === 'customer' ? 'customer' : 'supplier';
+    const activeTab = location.pathname === '/ledger/customers' ? 'customer' : 'supplier';
     const config = TAB_CONFIG[activeTab];
 
     // One hook instance, api client swapped by tab — `deps: [activeTab]`
@@ -65,12 +64,6 @@ const LedgerListPage = () => {
         navigate('/dashboard');
         return null;
     }
-
-    const handleTabChange = (value) => {
-        setSearchTerm('');
-        setFilters({});
-        setSearchParams(value === 'customer' ? { type: 'customer' } : {});
-    };
 
     const handleSearch = (value) => {
         setSearchTerm(value);
@@ -97,15 +90,6 @@ const LedgerListPage = () => {
                     <p className="text-neutral-500 mt-1">{config.subheading}</p>
                 </div>
             </div>
-
-            <Tabs
-                tabs={[
-                    { value: 'supplier', label: 'Suppliers' },
-                    { value: 'customer', label: 'Customers' },
-                ]}
-                activeTab={activeTab}
-                onChange={handleTabChange}
-            />
 
             <div className="flex gap-4">
                 <SearchBar

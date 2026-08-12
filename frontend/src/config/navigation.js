@@ -14,8 +14,6 @@ export const mainNavigation = [
     // Inventory + Rates are viewable by every role
     { name: 'Inventory', path: '/purchases/inventory', icon: Store },
     { name: 'Rates', path: '/rates', icon: DollarSign },
-    // Ledger app is admin/superuser-only end to end
-    { name: 'Ledger', path: '/ledger', icon: BookOpen, adminOnly: true },
     // Cash Calculator — available to all authenticated roles
     { name: 'Cash Calculator', path: '/cash-calculator', icon: Calculator },
     // One-time bootstrap tool — superuser only
@@ -23,6 +21,17 @@ export const mainNavigation = [
 ];
 
 export const navGroups = [
+    {
+        // Ledger app is admin/superuser-only end to end
+        key: 'ledger',
+        label: 'Ledger',
+        icon: BookOpen,
+        adminOnly: true,
+        items: [
+            { name: 'Suppliers', path: '/ledger', icon: Building2 },
+            { name: 'Customers', path: '/ledger/customers', icon: User },
+        ],
+    },
     {
         key: 'purchases',
         label: 'Purchases',

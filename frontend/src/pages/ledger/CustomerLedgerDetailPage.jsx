@@ -151,7 +151,7 @@ const CustomerLedgerDetailPage = () => {
         setDeleteError(null);
         try {
             await customerLedgerApi.delete(id);
-            navigate('/ledger?type=customer');
+            navigate('/ledger/customers');
         } catch (error) {
             console.error('Failed to delete ledger:', error);
             setDeleteError(extractErrorMessage(error, 'Failed to delete ledger. Please try again.'));
@@ -174,7 +174,7 @@ const CustomerLedgerDetailPage = () => {
             <div className="text-center py-12">
                 <h2 className="text-2xl font-semibold text-neutral-900">Ledger Not Found</h2>
                 <p className="text-neutral-500 mt-1">The ledger you're looking for doesn't exist.</p>
-                <BackLink to="/ledger?type=customer" className="mt-4">Back to Ledgers</BackLink>
+                <BackLink to="/ledger/customers" className="mt-4">Back to Ledgers</BackLink>
             </div>
         );
     }
@@ -183,7 +183,7 @@ const CustomerLedgerDetailPage = () => {
         <div className="space-y-6">
             {/* Header with Actions */}
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <BackLink to="/ledger?type=customer">Back to Ledgers</BackLink>
+                <BackLink to="/ledger/customers">Back to Ledgers</BackLink>
                 <div className="flex gap-2 flex-wrap">
                     <Button variant="secondary" onClick={handlePrint}>
                         Print

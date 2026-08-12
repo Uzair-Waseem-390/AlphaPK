@@ -522,6 +522,14 @@ const AppContent = () => {
           </ProtectedRoute>
         } />
 
+        <Route path="/ledger/customers" element={
+          <ProtectedRoute>
+            <Layout>
+              <LedgerListPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
         <Route path="/ledger/:id" element={
           <ProtectedRoute>
             <Layout>
