@@ -335,6 +335,10 @@ def create_customer(*, name: str, code: str, address: str, mobile: str = "", use
     from credit_score.services import initialize_credit_score
     initialize_credit_score(customer, user)
 
+    # Auto-create empty ledger for this customer
+    from ledger.services import create_ledger_for_customer
+    create_ledger_for_customer(customer=customer)
+
     return customer
 
 
@@ -450,6 +454,16 @@ def create_invoice(
         from cash_flow.services import record_cash_movement, sync_invoice_advance_payment_created
         sync_invoice_advance_payment_created(advance_amount=advance_amount, user=user)
         record_cash_movement(adv_payment)
+
+        # Ledger entry: advance credit (customer paid upfront, owes us less)
+        from ledger.services import add_customer_advance_entry
+        add_customer_advance_entry(
+            customer=invoice.customer,
+            payment=adv_payment,
+            amount=advance_amount,
+            date=adv_payment.payment_date,
+            user=user,
+        )
 
     for product, quantity, discount, gst, wht in validated_items:
         InvoiceItem.objects.create(
@@ -907,6 +921,17 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         total_cogs=invoice.total_cogs, gross_profit=invoice.gross_profit, user=user,
     )
 
+    # Ledger entry: sale debit (customer owes us the full grand_total; any
+    # advance already collected was separately credited at draft creation)
+    from ledger.services import add_sale_entry
+    add_sale_entry(
+        customer=invoice.customer,
+        invoice=invoice,
+        amount=invoice.grand_total,
+        date=timezone.localtime(invoice.confirmed_at).date(),
+        user=user,
+    )
+
     # Sync TaxFlow: GST charged to customer + WHT withheld by customer
     from taxes.services import sync_invoice_tax
     sync_invoice_tax(gst_amount=invoice.gst_total, wht_amount=invoice.wht_total, user=user)
@@ -1009,6 +1034,13 @@ def create_payment(
     sync_invoice_payment_received(amount=amount, user=user)
     record_cash_movement(payment)
 
+    # Ledger entry: payment credit (customer owes us less)
+    from ledger.services import add_customer_payment_entry
+    add_customer_payment_entry(
+        customer=invoice.customer, payment=payment,
+        amount=amount, date=payment.payment_date, user=user,
+    )
+
     from credit_score.services import recalculate_credit_score
     recalculate_credit_score(
         customer_id=invoice.customer_id, user=user,
@@ -1030,6 +1062,12 @@ def delete_payment(*, payment_id: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_invoice_payment_deleted
     sync_invoice_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)  # no-op for credit notes (never recorded)
+
+    # Reverse ledger entry — no-op for credit-note payments, which were
+    # never given a payment-linked entry (they're tracked via the Return
+    # instead, see accept_return).
+    from ledger.services import remove_customer_ledger_entry_for_payment
+    remove_customer_ledger_entry_for_payment(payment=payment)
 
     from credit_score.services import recalculate_credit_score
     recalculate_credit_score(
@@ -1301,6 +1339,19 @@ def accept_return(*, return_id: int, user) -> Return:
     from cash_flow.services import sync_invoice_return_accepted
     sync_invoice_return_accepted(
         return_amount=total_return_amount, return_cogs=total_return_cogs, user=user,
+    )
+
+    # Ledger entry: return credit (reduces what the customer owes) — linked
+    # to the Return itself, not the auto-generated negative credit-note
+    # Payment above (that Payment is written directly via .objects.create(),
+    # never through create_payment(), so it never double-fires this hook).
+    from ledger.services import add_customer_return_entry
+    add_customer_return_entry(
+        customer=invoice.customer,
+        customer_return=return_record,
+        amount=total_return_amount,
+        date=timezone.localtime(return_record.accepted_at).date(),
+        user=user,
     )
 
     from credit_score.services import recalculate_credit_score

@@ -1,6 +1,13 @@
 from django.urls import path
 
 from .views import (
+    CustomerLedgerByCustomerView,
+    CustomerLedgerDetailView,
+    CustomerLedgerListView,
+    CustomerLedgerPrintView,
+    CustomerLedgerSavedPDFDeleteView,
+    CustomerLedgerSavedPDFListView,
+    CustomerLedgerSavePDFView,
     LedgerPrintView,
     LedgerSavedPDFDeleteView,
     LedgerSavedPDFListView,
@@ -11,6 +18,16 @@ from .views import (
 )
 
 urlpatterns = [
+    # -- Customer ledger routes (declared first — "customers/" would
+    #    otherwise be swallowed by the supplier "<int:pk>/" pattern below) --
+    path("customers/", CustomerLedgerListView.as_view(), name="customer-ledger-list"),
+    path("customers/by-customer/<int:customer_id>/", CustomerLedgerByCustomerView.as_view(), name="customer-ledger-by-customer"),
+    path("customers/pdf/<int:saved_pdf_id>/", CustomerLedgerSavedPDFDeleteView.as_view(), name="customer-ledger-pdf-delete"),
+    path("customers/<int:pk>/", CustomerLedgerDetailView.as_view(), name="customer-ledger-detail"),
+    path("customers/<int:pk>/print/", CustomerLedgerPrintView.as_view(), name="customer-ledger-print"),
+    path("customers/<int:pk>/pdf/save/", CustomerLedgerSavePDFView.as_view(), name="customer-ledger-pdf-save"),
+    path("customers/<int:pk>/pdf/", CustomerLedgerSavedPDFListView.as_view(), name="customer-ledger-pdf-list"),
+
     # List all ledgers
     path("", SupplierLedgerListView.as_view(), name="ledger-list"),
 

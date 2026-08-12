@@ -63,6 +63,7 @@ import EditExpensePage from './pages/expenses/EditExpensePage';
 import LedgerListPage from './pages/ledger/LedgerListPage';
 import LedgerDetailPage from './pages/ledger/LedgerDetailPage';
 import LedgerBySupplierPage from './pages/ledger/LedgerBySupplierPage';
+import CustomerLedgerDetailPage from './pages/ledger/CustomerLedgerDetailPage';
 
 // Reports pages
 import ReportsHomePage from './pages/reports/ReportsHomePage';
@@ -525,6 +526,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <LedgerDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/ledger/customers/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <CustomerLedgerDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

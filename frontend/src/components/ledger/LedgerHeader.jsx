@@ -1,13 +1,20 @@
 import PropTypes from 'prop-types';
 import BalanceDisplay from './BalanceDisplay';
 
-const LedgerHeader = ({ ledger, closingBalance }) => {
+const LedgerHeader = ({
+    ledger,
+    closingBalance,
+    nameKey = 'supplier_name',
+    codeKey = 'supplier_code',
+    positiveLabel = 'Payable',
+    negativeLabel = 'Credit',
+}) => {
     const getBalanceStatus = (balance) => {
         const num = typeof balance === 'string' ? parseFloat(balance) : balance;
         if (isNaN(num)) return { text: 'Settled', color: 'text-neutral-500' };
         if (num === 0) return { text: 'Settled', color: 'text-neutral-500' };
-        if (num > 0) return { text: 'Payable', color: 'text-error-600' };
-        return { text: 'Credit', color: 'text-success-600' };
+        if (num > 0) return { text: positiveLabel, color: 'text-error-600' };
+        return { text: negativeLabel, color: 'text-success-600' };
     };
 
     const status = getBalanceStatus(closingBalance);
@@ -19,8 +26,8 @@ const LedgerHeader = ({ ledger, closingBalance }) => {
                     <p className="text-xs text-neutral-400 font-medium uppercase tracking-wider">Company</p>
                     <h1 className="text-3xl font-bold text-neutral-900">{import.meta.env.VITE_APP_NAME}</h1>
                     <div className="mt-2">
-                        <h2 className="text-xl font-semibold text-neutral-900">{ledger?.supplier_name}</h2>
-                        <p className="text-sm text-neutral-500">Code: {ledger?.supplier_code}</p>
+                        <h2 className="text-xl font-semibold text-neutral-900">{ledger?.[nameKey]}</h2>
+                        <p className="text-sm text-neutral-500">Code: {ledger?.[codeKey]}</p>
                         <p className="text-sm text-neutral-500">
                             Account since: {ledger?.created_at ? new Date(ledger.created_at).toLocaleDateString() : 'N/A'}
                         </p>
@@ -47,6 +54,10 @@ const LedgerHeader = ({ ledger, closingBalance }) => {
 LedgerHeader.propTypes = {
     ledger: PropTypes.object,
     closingBalance: PropTypes.oneOfType([PropTypes.string, PropTypes.number]),
+    nameKey: PropTypes.string,
+    codeKey: PropTypes.string,
+    positiveLabel: PropTypes.string,
+    negativeLabel: PropTypes.string,
 };
 
 export default LedgerHeader;

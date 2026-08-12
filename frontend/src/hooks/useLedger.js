@@ -3,16 +3,23 @@ import { ledgerApi } from '../services/ledgerApi';
 import { usePaginatedList } from './usePaginatedList';
 
 // Hook for ledger list — thin wrapper around usePaginatedList.
-export const useLedgerList = (initialFilters = {}) => {
-    const { data, meta, loading, error, filters, setFilters, page, setPage, refetch } =
-        usePaginatedList((params) => ledgerApi.getAll(params), initialFilters);
+// `api` defaults to the supplier ledger client; pass `customerLedgerApi` to
+// reuse this same hook for customer ledgers instead of duplicating it.
+// `deps` is forwarded to usePaginatedList so a caller switching api clients
+// (e.g. a tab toggle) can force a refetch even when filters/page haven't
+// changed themselves.
+export const useLedgerList = (initialFilters = {}, api = ledgerApi, deps = []) => {
+    const { data, meta, loading, initialLoading, error, filters, setFilters, page, setPage, refetch } =
+        usePaginatedList((params) => api.getAll(params), initialFilters, 25, deps);
 
-    return { data, meta, page, setPage, loading, error, filters, setFilters, refetch };
+    return { data, meta, page, setPage, loading, initialLoading, error, filters, setFilters, refetch };
 };
 
 // Hook for ledger detail — entries come back paginated (manually, on the
 // backend, since running balance is computed over the full history first).
-export const useLedgerDetail = (ledgerId, initialFilters = {}, pageSize = 25) => {
+// `api` defaults to the supplier ledger client; pass `customerLedgerApi` for
+// the customer ledger detail page.
+export const useLedgerDetail = (ledgerId, initialFilters = {}, pageSize = 25, api = ledgerApi) => {
     const [ledger, setLedger] = useState(null);
     const [entries, setEntries] = useState([]);
     const [meta, setMeta] = useState({ count: 0, totalPages: 1, currentPage: 1, pageSize });
@@ -33,7 +40,7 @@ export const useLedgerDetail = (ledgerId, initialFilters = {}, pageSize = 25) =>
                     cleanFilters[key] = filters[key];
                 }
             });
-            const result = await ledgerApi.getById(ledgerId, { ...cleanFilters, page, page_size: pageSize });
+            const result = await api.getById(ledgerId, { ...cleanFilters, page, page_size: pageSize });
             setLedger(result.ledger);
             setEntries(result.results || []);
             setClosingBalance(result.closing_balance || 0);
@@ -49,7 +56,7 @@ export const useLedgerDetail = (ledgerId, initialFilters = {}, pageSize = 25) =>
         } finally {
             setLoading(false);
         }
-    }, [ledgerId, filters, page, pageSize]);
+    }, [ledgerId, filters, page, pageSize, api]);
 
     useEffect(() => {
         fetchData();
@@ -75,8 +82,9 @@ export const useLedgerDetail = (ledgerId, initialFilters = {}, pageSize = 25) =>
     };
 };
 
-// Hook for saved PDFs
-export const useSavedPDFs = (ledgerId) => {
+// Hook for saved PDFs — `api` defaults to the supplier ledger client; pass
+// `customerLedgerApi` for the customer ledger detail page.
+export const useSavedPDFs = (ledgerId, api = ledgerApi) => {
     const [data, setData] = useState([]);
     const [loading, setLoading] = useState(false);
     const [error, setError] = useState(null);
@@ -86,7 +94,7 @@ export const useSavedPDFs = (ledgerId) => {
         setLoading(true);
         setError(null);
         try {
-            const result = await ledgerApi.getSavedPDFs(ledgerId, { page_size: 500 });
+            const result = await api.getSavedPDFs(ledgerId, { page_size: 500 });
             setData(result?.results ?? result ?? []);
         } catch (err) {
             setError(err.message || 'Failed to fetch saved PDFs');
@@ -94,7 +102,7 @@ export const useSavedPDFs = (ledgerId) => {
         } finally {
             setLoading(false);
         }
-    }, [ledgerId]);
+    }, [ledgerId, api]);
 
     useEffect(() => {
         fetchData();
@@ -103,7 +111,7 @@ export const useSavedPDFs = (ledgerId) => {
     const deletePDF = async (pdfId) => {
         setLoading(true);
         try {
-            await ledgerApi.deleteSavedPDF(pdfId);
+            await api.deleteSavedPDF(pdfId);
             await fetchData();
         } catch (err) {
             setError(err.message);

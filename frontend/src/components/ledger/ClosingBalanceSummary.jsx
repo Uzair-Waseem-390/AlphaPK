@@ -1,7 +1,18 @@
 import PropTypes from 'prop-types';
 import BalanceDisplay from './BalanceDisplay';
 
-const ClosingBalanceSummary = ({ entries }) => {
+// Default (supplier ledger) wording. Customer ledger callers pass their own
+// `getBalanceMessage` since the debit/credit direction — and therefore what
+// a positive/negative balance means — is the opposite for receivables.
+const defaultGetBalanceMessage = (balance) => {
+    const num = typeof balance === 'string' ? parseFloat(balance) : balance;
+    if (isNaN(num)) return 'Account Settled';
+    if (num === 0) return 'Account Settled';
+    if (num > 0) return `Amount Payable: Rs. ${num.toFixed(2)} — You owe supplier this amount`;
+    return `Supplier Credit: Rs. ${Math.abs(num).toFixed(2)} — Supplier owes you this amount`;
+};
+
+const ClosingBalanceSummary = ({ entries, getBalanceMessage = defaultGetBalanceMessage }) => {
     let totalDebits = 0;
     let totalCredits = 0;
     let closingBalance = 0;
@@ -15,14 +26,6 @@ const ClosingBalanceSummary = ({ entries }) => {
     });
 
     const netMovement = totalCredits - totalDebits;
-
-    const getBalanceMessage = (balance) => {
-        const num = typeof balance === 'string' ? parseFloat(balance) : balance;
-        if (isNaN(num)) return 'Account Settled';
-        if (num === 0) return 'Account Settled';
-        if (num > 0) return `Amount Payable: Rs. ${num.toFixed(2)} — You owe supplier this amount`;
-        return `Supplier Credit: Rs. ${Math.abs(num).toFixed(2)} — Supplier owes you this amount`;
-    };
 
     return (
         <div className="mt-6 p-4 bg-neutral-50 border-t border-neutral-200 rounded-b-xl">
@@ -61,6 +64,7 @@ const ClosingBalanceSummary = ({ entries }) => {
 
 ClosingBalanceSummary.propTypes = {
     entries: PropTypes.array.isRequired,
+    getBalanceMessage: PropTypes.func,
 };
 
 export default ClosingBalanceSummary;

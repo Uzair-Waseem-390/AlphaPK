@@ -83,6 +83,7 @@ def create_customer_opening_balance(*, customer_id: int, amount: Decimal, note: 
     from billing.selectors import get_customer_by_id
     from billing.services import create_opening_balance_invoice
     from cash_flow.services import sync_data_entry_customer_opening_balance
+    from ledger.services import add_customer_opening_balance_entry
 
     customer = get_customer_by_id(customer_id)   # 404 if missing / soft-deleted
 
@@ -94,6 +95,16 @@ def create_customer_opening_balance(*, customer_id: int, amount: Decimal, note: 
     invoice = create_opening_balance_invoice(customer=customer, amount=amount, user=user)
 
     sync_data_entry_customer_opening_balance(amount=amount, user=user)
+
+    add_customer_opening_balance_entry(
+        customer=customer,
+        invoice=invoice,
+        amount=amount,
+        date=timezone.localtime(timezone.now()).date(),
+        reference=f"OB-{customer.code}",
+        details="Opening Balance",
+        user=user,
+    )
 
     try:
         # Same IntegrityError guard as create_supplier_opening_balance —

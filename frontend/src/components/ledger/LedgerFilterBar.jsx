@@ -5,7 +5,21 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 
-const LedgerFilterBar = ({ filters, onFilterChange, onClear, className = '' }) => {
+const SUPPLIER_ENTRY_TYPE_OPTIONS = [
+    { value: '', label: 'All Types' },
+    { value: 'purchase', label: 'Purchase' },
+    { value: 'payment', label: 'Payment' },
+    { value: 'return', label: 'Return' },
+    { value: 'advance', label: 'Advance' },
+];
+
+const LedgerFilterBar = ({
+    filters,
+    onFilterChange,
+    onClear,
+    className = '',
+    entryTypeOptions = SUPPLIER_ENTRY_TYPE_OPTIONS,
+}) => {
     const [localFilters, setLocalFilters] = useState(filters || {});
 
     const handleChange = (key, value) => {
@@ -48,13 +62,7 @@ const LedgerFilterBar = ({ filters, onFilterChange, onClear, className = '' }) =
                     label="Entry Type"
                     value={localFilters.entry_type || ''}
                     onChange={(e) => handleChange('entry_type', e.target.value)}
-                    options={[
-                        { value: '', label: 'All Types' },
-                        { value: 'purchase', label: 'Purchase' },
-                        { value: 'payment', label: 'Payment' },
-                        { value: 'return', label: 'Return' },
-                        { value: 'advance', label: 'Advance' },
-                    ]}
+                    options={entryTypeOptions}
                     className="w-full"
                 />
                 <Input
@@ -97,6 +105,10 @@ LedgerFilterBar.propTypes = {
     onFilterChange: PropTypes.func.isRequired,
     onClear: PropTypes.func.isRequired,
     className: PropTypes.string,
+    entryTypeOptions: PropTypes.arrayOf(
+        PropTypes.shape({ value: PropTypes.string, label: PropTypes.string })
+    ),
 };
 
+export { SUPPLIER_ENTRY_TYPE_OPTIONS };
 export default LedgerFilterBar;

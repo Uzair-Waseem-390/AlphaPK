@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import SavedLedgerPDF, SupplierLedger
+from .models import CustomerLedger, SavedCustomerLedgerPDF, SavedLedgerPDF, SupplierLedger
 
 
 class SupplierLedgerReadSerializer(serializers.ModelSerializer):
@@ -73,3 +73,49 @@ class SaveLedgerPDFRequestSerializer(serializers.Serializer):
 
     def validate_file_name(self, value):
         return value.strip() if value else value
+
+
+# ---------------------------------------------------------------------------
+# Customer ledger — mirrors the supplier serializers above.
+# ---------------------------------------------------------------------------
+
+class CustomerLedgerReadSerializer(serializers.ModelSerializer):
+    customer_name = serializers.CharField(read_only=True)
+    customer_code = serializers.CharField(read_only=True)
+    customer_is_deleted = serializers.BooleanField(source="customer.is_deleted", read_only=True)
+
+    class Meta:
+        model  = CustomerLedger
+        fields = ["id", "customer", "customer_name", "customer_code", "customer_is_deleted", "created_at"]
+        read_only_fields = fields
+
+
+class CustomerLedgerResponseSerializer(serializers.Serializer):
+    """Wraps entries + closing balance in one response."""
+    ledger          = CustomerLedgerReadSerializer()
+    entries         = LedgerEntrySerializer(many=True)
+    closing_balance = serializers.DecimalField(max_digits=18, decimal_places=4)
+    date_from       = serializers.DateField(allow_null=True)
+    date_to         = serializers.DateField(allow_null=True)
+
+
+class SavedCustomerLedgerPDFSerializer(serializers.ModelSerializer):
+    saved_by   = serializers.StringRelatedField(read_only=True)
+    deleted_by = serializers.StringRelatedField(read_only=True)
+    file_url   = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = SavedCustomerLedgerPDF
+        fields = [
+            "id", "ledger", "file_name", "file_url",
+            "date_from", "date_to",
+            "saved_by", "created_at", "deleted_by", "deleted_at", "is_deleted",
+        ]
+        read_only_fields = fields
+
+    def get_file_url(self, obj):
+        if not obj.file_path:
+            return None
+        from django.conf import settings
+        path = obj.file_path.replace("\\", "/")
+        return f"{settings.BACKEND_URL}{settings.MEDIA_URL}{path}"

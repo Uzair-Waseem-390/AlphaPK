@@ -31,6 +31,7 @@ TRACKED_MODELS = {
     ("cash_flow", "expensecategory"),
     ("cash_flow", "expense"),
     ("ledger", "savedledgerpdf"),
+    ("ledger", "savedcustomerledgerpdf"),
     ("data_entry", "supplieropeningbalance"),
     ("data_entry", "customeropeningbalance"),
     ("data_entry", "openingcashentry"),

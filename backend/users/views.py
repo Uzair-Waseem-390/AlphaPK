@@ -110,7 +110,13 @@ class TokenRefreshView(APIView):
         from rest_framework_simplejwt.serializers import TokenRefreshSerializer
 
         serializer = TokenRefreshSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
+        try:
+            serializer.is_valid(raise_exception=True)
+        except TokenError:
+            return Response(
+                {"detail": "Refresh token is invalid, expired, or already blacklisted."},
+                status=status.HTTP_401_UNAUTHORIZED,
+            )
         return Response(serializer.validated_data, status=status.HTTP_200_OK)
 
 
