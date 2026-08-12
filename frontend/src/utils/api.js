@@ -23,6 +23,44 @@ apiClient.interceptors.request.use(
     (error) => Promise.reject(error)
 );
 
+// Refresh is rotated server-side (ROTATE_REFRESH_TOKENS + BLACKLIST_AFTER_ROTATION) —
+// the old refresh token is blacklisted the moment one refresh call succeeds. If several
+// requests 401 at once, each firing its own refresh call would race: only the first
+// lands before rotation, every other one reuses the now-blacklisted token and fails.
+// Sharing a single in-flight promise means concurrent 401s all wait on the SAME refresh
+// call instead of each spending the refresh token themselves.
+let refreshPromise = null;
+
+const performTokenRefresh = () => {
+    const refreshToken = localStorage.getItem('refresh_token');
+    if (!refreshToken) {
+        return Promise.reject(new Error('No refresh token available'));
+    }
+    return axios
+        .post(`${backendConfig.getAPIURL()}/auth/token/refresh/`, { refresh: refreshToken })
+        .then((response) => {
+            const { access, refresh } = response.data;
+            localStorage.setItem('access_token', access);
+            // Must persist the rotated refresh token too — the old one is blacklisted
+            // server-side as soon as this call succeeds, so leaving the stale value in
+            // localStorage guarantees the NEXT refresh attempt fails.
+            if (refresh) {
+                localStorage.setItem('refresh_token', refresh);
+            }
+            return access;
+        })
+        .catch((refreshError) => {
+            localStorage.removeItem('access_token');
+            localStorage.removeItem('refresh_token');
+            localStorage.removeItem('user');
+            window.location.href = '/login';
+            throw refreshError;
+        })
+        .finally(() => {
+            refreshPromise = null;
+        });
+};
+
 // Response interceptor
 apiClient.interceptors.response.use(
     (response) => response.data,
@@ -32,22 +70,13 @@ apiClient.interceptors.response.use(
         if (error.response?.status === 401 && !originalRequest._retry) {
             originalRequest._retry = true;
             try {
-                const refreshToken = localStorage.getItem('refresh_token');
-                if (refreshToken) {
-                    const response = await axios.post(
-                        `${backendConfig.getAPIURL()}/auth/token/refresh/`,
-                        { refresh: refreshToken }
-                    );
-                    const { access } = response.data;
-                    localStorage.setItem('access_token', access);
-                    originalRequest.headers.Authorization = `Bearer ${access}`;
-                    return apiClient(originalRequest);
+                if (!refreshPromise) {
+                    refreshPromise = performTokenRefresh();
                 }
+                const access = await refreshPromise;
+                originalRequest.headers.Authorization = `Bearer ${access}`;
+                return apiClient(originalRequest);
             } catch (refreshError) {
-                localStorage.removeItem('access_token');
-                localStorage.removeItem('refresh_token');
-                localStorage.removeItem('user');
-                window.location.href = '/login';
                 return Promise.reject(refreshError);
             }
         }
