@@ -4,7 +4,9 @@ import { useNavigate } from 'react-router-dom';
 import { Plus, Receipt, ListPlus, User, CalendarDays, Wallet } from 'lucide-react';
 import { billingApi } from '../../services/billingApi';
 import { ratesApi } from '../../services/ratesApi';
+import { creditScoreApi } from '../../services/creditScoreApi';
 import { useToast } from '../../context/ToastContext';
+import { creditScoreColorClass } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -30,6 +32,7 @@ const CreateInvoicePage = () => {
     const { toast } = useToast();
     const [loading, setLoading] = useState(false);
     const [selectedCustomerLabel, setSelectedCustomerLabel] = useState('');
+    const [creditScore, setCreditScore] = useState(null);
 
     const [formData, setFormData] = useState({
         customer_id: '',
@@ -48,6 +51,18 @@ const CreateInvoicePage = () => {
         const res = await billingApi.customers.getAll({ search: query, page_size: 25 });
         const results = res?.results ?? res ?? [];
         return results.map(c => ({ value: c.id, label: `${c.code} - ${c.name}` }));
+    };
+
+    // Fires only once, right after a customer is actually selected — not on
+    // every search keystroke.
+    const handleCustomerSelect = (value, option) => {
+        setFormData(prev => ({ ...prev, customer_id: value }));
+        setSelectedCustomerLabel(option?.label ?? '');
+        setCreditScore(null);
+        if (!value) return;
+        creditScoreApi.customers.getById(value)
+            .then(setCreditScore)
+            .catch(() => setCreditScore(null));
     };
 
     // Products come from the rate list, not the Purchases app — normal users
@@ -233,19 +248,23 @@ const CreateInvoicePage = () => {
                     </div>
 
                     <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-                        <SearchableSelect
-                            label="Customer"
-                            value={formData.customer_id}
-                            selectedLabel={selectedCustomerLabel}
-                            onChange={(value, option) => {
-                                setFormData(prev => ({ ...prev, customer_id: value }));
-                                setSelectedCustomerLabel(option?.label ?? '');
-                            }}
-                            onSearch={searchCustomers}
-                            placeholder="Search customer by name or code"
-                            error={fieldErrors.customer_id}
-                            required
-                        />
+                        <div>
+                            <SearchableSelect
+                                label="Customer"
+                                value={formData.customer_id}
+                                selectedLabel={selectedCustomerLabel}
+                                onChange={handleCustomerSelect}
+                                onSearch={searchCustomers}
+                                placeholder="Search customer by name or code"
+                                error={fieldErrors.customer_id}
+                                required
+                            />
+                            {creditScore && (
+                                <p className={`text-sm mt-1 font-medium ${creditScoreColorClass(creditScore.tier)}`}>
+                                    Credit Score: {creditScore.score}
+                                </p>
+                            )}
+                        </div>
 
                         <Input
                             label="Due Date"

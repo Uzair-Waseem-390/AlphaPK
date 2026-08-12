@@ -8,6 +8,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { creditScoreColorClass } from '../../utils/helpers';
 import { billingApi } from '../../services/billingApi';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
@@ -663,6 +664,14 @@ const InvoiceDetailPage = () => {
                         <p className="text-sm text-neutral-500">Mobile</p>
                         <p className="font-medium">{invoice.customer?.mobile || 'N/A'}</p>
                     </div>
+                    {invoice.customer?.credit_score != null && (
+                        <div>
+                            <p className="text-sm text-neutral-500">Credit Score</p>
+                            <p className={`font-medium ${creditScoreColorClass(invoice.customer.credit_tier)}`}>
+                                {invoice.customer.credit_score}
+                            </p>
+                        </div>
+                    )}
                     {invoice.payment_type === 'advance' && amount(invoice.advance_amount) > 0 && (
                         <div>
                             <p className="text-sm text-neutral-500">Advance Amount (PKR)</p>

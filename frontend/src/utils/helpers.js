@@ -12,3 +12,13 @@ export const todayLocalDate = () => {
     const day = String(d.getDate()).padStart(2, '0');
     return `${year}-${month}-${day}`;
 };
+
+// Text color class for a customer's credit score tier — matches the
+// backend's own good (70+) / average (31-69) / poor (<=30) thresholds
+// (credit_score/utils.py), never re-derived from the raw score here.
+export const creditScoreColorClass = (tier) => {
+    if (tier === 'good') return 'text-success-600';
+    if (tier === 'average') return 'text-warning-600';
+    if (tier === 'poor') return 'text-error-600';
+    return 'text-neutral-500';
+};
