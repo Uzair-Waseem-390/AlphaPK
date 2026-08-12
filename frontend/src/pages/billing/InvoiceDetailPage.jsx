@@ -487,6 +487,14 @@ const InvoiceDetailPage = () => {
                         <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500">WHT%</th>
                         <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Effective Price</th>
                         <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Total</th>
+                        {/* Cost/profit — admin & superuser only, and only meaningful once
+                            confirmed (these are computed at confirmation, still 0 on a draft). */}
+                        {isAdmin && !isDraft && (
+                            <>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">COGS</th>
+                                <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500">Profit</th>
+                            </>
+                        )}
                     </tr>
                 </thead>
                 <tbody className="divide-y divide-neutral-100">
@@ -512,34 +520,60 @@ const InvoiceDetailPage = () => {
                             <td className="px-3 py-2 text-sm text-right font-medium tabular-nums">
                                 {item.line_total ? parseFloat(item.line_total).toFixed(2) : '0.00'}
                             </td>
+                            {isAdmin && !isDraft && (
+                                <>
+                                    <td className="px-3 py-2 text-sm text-right tabular-nums text-neutral-600">
+                                        {item.line_cogs ? parseFloat(item.line_cogs).toFixed(2) : '0.00'}
+                                    </td>
+                                    <td className="px-3 py-2 text-sm text-right font-medium tabular-nums text-success-600">
+                                        {item.line_profit ? parseFloat(item.line_profit).toFixed(2) : '0.00'}
+                                    </td>
+                                </>
+                            )}
                         </tr>
                     ))}
                 </tbody>
                 <tfoot className="border-t border-neutral-200">
                     <tr>
-                        <td colSpan="6" className="px-3 py-2 text-right font-medium">Subtotal:</td>
+                        <td colSpan={isAdmin && !isDraft ? 8 : 6} className="px-3 py-2 text-right font-medium">Subtotal:</td>
                         <td className="px-3 py-2 text-right font-medium tabular-nums">
                             {invoice.subtotal ? parseFloat(invoice.subtotal).toFixed(2) : '0.00'}
                         </td>
                     </tr>
                     <tr>
-                        <td colSpan="6" className="px-3 py-2 text-right font-medium">GST Total:</td>
+                        <td colSpan={isAdmin && !isDraft ? 8 : 6} className="px-3 py-2 text-right font-medium">GST Total:</td>
                         <td className="px-3 py-2 text-right font-medium tabular-nums">
                             {invoice.gst_total ? parseFloat(invoice.gst_total).toFixed(2) : '0.00'}
                         </td>
                     </tr>
                     <tr>
-                        <td colSpan="6" className="px-3 py-2 text-right font-medium">WHT Total:</td>
+                        <td colSpan={isAdmin && !isDraft ? 8 : 6} className="px-3 py-2 text-right font-medium">WHT Total:</td>
                         <td className="px-3 py-2 text-right font-medium tabular-nums">
                             {invoice.wht_total ? parseFloat(invoice.wht_total).toFixed(2) : '0.00'}
                         </td>
                     </tr>
                     <tr className="text-lg">
-                        <td colSpan="6" className="px-3 py-2 text-right font-bold">Grand Total:</td>
+                        <td colSpan={isAdmin && !isDraft ? 8 : 6} className="px-3 py-2 text-right font-bold">Grand Total:</td>
                         <td className="px-3 py-2 text-right font-bold text-primary-600 tabular-nums">
                             {invoice.grand_total ? parseFloat(invoice.grand_total).toFixed(2) : '0.00'}
                         </td>
                     </tr>
+                    {isAdmin && !isDraft && (
+                        <>
+                            <tr>
+                                <td colSpan={8} className="px-3 py-2 text-right font-medium text-neutral-600">Total COGS:</td>
+                                <td className="px-3 py-2 text-right font-medium tabular-nums text-neutral-600">
+                                    {invoice.total_cogs ? parseFloat(invoice.total_cogs).toFixed(2) : '0.00'}
+                                </td>
+                            </tr>
+                            <tr className="text-lg">
+                                <td colSpan={8} className="px-3 py-2 text-right font-bold text-success-700">Gross Profit:</td>
+                                <td className="px-3 py-2 text-right font-bold text-success-700 tabular-nums">
+                                    {invoice.gross_profit ? parseFloat(invoice.gross_profit).toFixed(2) : '0.00'}
+                                </td>
+                            </tr>
+                        </>
+                    )}
                 </tfoot>
             </table>
         </div>

@@ -8,6 +8,17 @@ from .models import (
 )
 
 
+def _is_staff_request(context) -> bool:
+    """
+    Admin/superuser check for hiding cost/profit fields from the API
+    response — same is_staff flag IsAdminOrSuperuser checks everywhere
+    else. Fails closed (hidden) when there's no request in context, e.g. a
+    serializer instantiated without one — better to under-show than leak.
+    """
+    request = context.get("request")
+    return bool(request and request.user and request.user.is_staff)
+
+
 # ---------------------------------------------------------------------------
 # Draft preview helper — pure read, zero DB writes
 # ---------------------------------------------------------------------------
@@ -255,6 +266,20 @@ class InvoiceItemReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    # Cost/margin fields are admin-and-superuser-only — a normal user
+    # legitimately needs selling_price/line_total to work an invoice, but
+    # cogs_per_unit/line_cogs/line_profit reveal exact supplier cost and
+    # profit margin. Stripped here (not just hidden in the frontend) so
+    # they never leave the server for a non-staff request.
+    _STAFF_ONLY_FIELDS = ("cogs_per_unit", "line_cogs", "line_profit")
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not _is_staff_request(self.context):
+            for field in self._STAFF_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
+
 
 class InvoiceItemWriteSerializer(serializers.Serializer):
     """Used inside invoice create/update — not a standalone endpoint."""
@@ -306,6 +331,15 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
             "created_at", "updated_at", "deleted_at",
         ]
         read_only_fields = fields
+
+    _STAFF_ONLY_FIELDS = ("total_cogs", "gross_profit")
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not _is_staff_request(self.context):
+            for field in self._STAFF_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
 
     def get_draft_preview(self, obj):
         return _build_draft_preview(obj)
@@ -454,6 +488,15 @@ class ReturnItemReadSerializer(serializers.ModelSerializer):
         ]
         read_only_fields = fields
 
+    _STAFF_ONLY_FIELDS = ("cogs_per_unit", "line_cogs")
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not _is_staff_request(self.context):
+            for field in self._STAFF_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
+
 
 class ReturnReadSerializer(serializers.ModelSerializer):
     items               = ReturnItemReadSerializer(many=True, read_only=True)
@@ -472,6 +515,15 @@ class ReturnReadSerializer(serializers.ModelSerializer):
             "created_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
+
+    _STAFF_ONLY_FIELDS = ("total_return_cogs",)
+
+    def to_representation(self, instance):
+        data = super().to_representation(instance)
+        if not _is_staff_request(self.context):
+            for field in self._STAFF_ONLY_FIELDS:
+                data.pop(field, None)
+        return data
 
 
 # ---------------------------------------------------------------------------

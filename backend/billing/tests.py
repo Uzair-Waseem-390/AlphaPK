@@ -28,6 +28,7 @@ from .services import (
 from .views import (
     CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
     InvoiceConfirmView, InvoiceDueDateUpdateView, InvoiceListCreateView,
+    InvoiceRetrieveUpdateDestroyView, ReturnAcceptView, ReturnListCreateView,
     ReturnRetrieveUpdateDestroyView,
 )
 
@@ -418,6 +419,144 @@ class ReturnEditCancelTests(BillingTestBase):
             response = view(delete_request, pk=ret.id)
             self.assertEqual(response.status_code, 200)
         self.assertLess(len(ctx.captured_queries), 12)
+
+
+class ProfitFieldVisibilityTests(BillingTestBase):
+    """
+    cogs_per_unit/line_cogs/line_profit/total_cogs (invoices) and
+    cogs_per_unit/line_cogs/total_return_cogs (returns) must never reach a
+    non-staff response — checked directly on the API response, not the
+    service layer, since the leak is specifically an API-serialization
+    concern (a normal user with API access could otherwise read exact
+    supplier cost and profit margin straight out of the JSON regardless of
+    what the frontend chooses to render).
+    """
+
+    INVOICE_STAFF_ONLY = ("total_cogs", "gross_profit")
+    INVOICE_ITEM_STAFF_ONLY = ("cogs_per_unit", "line_cogs", "line_profit")
+    RETURN_STAFF_ONLY = ("total_return_cogs",)
+    RETURN_ITEM_STAFF_ONLY = ("cogs_per_unit", "line_cogs")
+
+    def _assert_invoice_fields(self, data, *, present):
+        for field in self.INVOICE_STAFF_ONLY:
+            self.assertEqual(field in data, present, f"{field} presence should be {present}")
+        for item in data.get("items", []):
+            for field in self.INVOICE_ITEM_STAFF_ONLY:
+                self.assertEqual(field in item, present, f"item.{field} presence should be {present}")
+
+    def _assert_return_fields(self, data, *, present):
+        for field in self.RETURN_STAFF_ONLY:
+            self.assertEqual(field in data, present, f"{field} presence should be {present}")
+        for item in data.get("items", []):
+            for field in self.RETURN_ITEM_STAFF_ONLY:
+                self.assertEqual(field in item, present, f"item.{field} presence should be {present}")
+
+    def test_invoice_detail_hides_cost_fields_from_normal_user(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        normal = make_normal_user()
+        view = InvoiceRetrieveUpdateDestroyView.as_view()
+
+        request = self.factory.get(f"/billing/invoices/{invoice.id}/")
+        force_authenticate(request, user=normal)
+        response = view(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 200)
+        self._assert_invoice_fields(response.data, present=False)
+
+    def test_invoice_detail_shows_cost_fields_to_admin(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        view = InvoiceRetrieveUpdateDestroyView.as_view()
+
+        request = self.factory.get(f"/billing/invoices/{invoice.id}/")
+        force_authenticate(request, user=self.admin)
+        response = view(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 200)
+        self._assert_invoice_fields(response.data, present=True)
+        self.assertEqual(Decimal(response.data["total_cogs"]), Decimal("200"))
+        self.assertEqual(Decimal(response.data["gross_profit"]), Decimal("200"))
+
+    def test_invoice_create_response_hides_cost_fields_from_normal_user(self):
+        product = self.make_stocked_product(stock=10)
+        normal = make_normal_user()
+        view = InvoiceListCreateView.as_view()
+
+        request = self.factory.post("/billing/invoices/", {
+            "customer_id": self.customer.id,
+            "items": [{"product_id": product.id, "quantity": 2}],
+        }, format="json")
+        force_authenticate(request, user=normal)
+        response = view(request)
+        self.assertEqual(response.status_code, 201)
+        self._assert_invoice_fields(response.data, present=False)
+
+    def test_invoice_confirm_response_shows_cost_fields_to_admin(self):
+        # Regression check for the missing-context bug: confirm_invoice's
+        # response is built by manually instantiating InvoiceReadSerializer
+        # — without context={"request": request} it would silently hide
+        # these fields even from the admin who just confirmed the invoice.
+        product = self.make_stocked_product(stock=10)
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 2}],
+            user=self.admin,
+        )
+        self.allocate_invoice_items(invoice)
+        view = InvoiceConfirmView.as_view()
+
+        request = self.factory.post(f"/billing/invoices/{invoice.id}/confirm/")
+        force_authenticate(request, user=self.admin)
+        response = view(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 200)
+        self._assert_invoice_fields(response.data, present=True)
+
+    def test_return_detail_hides_cost_fields_from_normal_user(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+        normal = make_normal_user()
+        view = ReturnRetrieveUpdateDestroyView.as_view()
+
+        request = self.factory.get(f"/billing/returns/{ret.id}/")
+        force_authenticate(request, user=normal)
+        response = view(request, pk=ret.id)
+        self.assertEqual(response.status_code, 200)
+        self._assert_return_fields(response.data, present=False)
+
+    def test_return_create_response_hides_cost_fields_from_normal_user(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        normal = make_normal_user()
+        view = ReturnListCreateView.as_view()
+
+        request = self.factory.post(f"/billing/invoices/{invoice.id}/returns/", {
+            "invoice_id": invoice.id,
+            "items": [{"invoice_item_id": item.id, "quantity": 1}],
+        }, format="json")
+        force_authenticate(request, user=normal)
+        response = view(request, invoice_id=invoice.id)
+        self.assertEqual(response.status_code, 201)
+        self._assert_return_fields(response.data, present=False)
+
+    def test_return_accept_response_shows_cost_fields_to_admin(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        item = invoice.items.first()
+        ret = create_return(invoice_id=invoice.id,
+                             items=[{"invoice_item_id": item.id, "quantity": 2}],
+                             user=self.admin)
+        self.allocate_return_items(ret)
+        view = ReturnAcceptView.as_view()
+
+        request = self.factory.post(f"/billing/returns/{ret.id}/accept/")
+        force_authenticate(request, user=self.admin)
+        response = view(request, pk=ret.id)
+        self.assertEqual(response.status_code, 200)
+        self._assert_return_fields(response.data, present=True)
 
 
 class PaymentAtomicityTests(BillingTestBase):

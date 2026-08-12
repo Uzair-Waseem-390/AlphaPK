@@ -162,7 +162,7 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
         # the bare instance create_invoice() built has no prefetch cache,
         # which would N+1 (product + shelf_allocations per item) here.
         invoice = get_invoice_by_id(invoice.id)
-        return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_201_CREATED)
+        return Response(InvoiceReadSerializer(invoice, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 # ---------------------------------------------------------------------------
@@ -254,7 +254,7 @@ class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             payment_due_date=serializer.validated_data.get("payment_due_date"),
             user=request.user,
         )
-        return Response(InvoiceReadSerializer(invoice).data)
+        return Response(InvoiceReadSerializer(invoice, context={"request": request}).data)
 
     def destroy(self, request, *args, **kwargs):
         delete_invoice(invoice_id=self.kwargs["pk"], user=request.user)
@@ -278,7 +278,7 @@ class InvoiceDueDateUpdateView(generics.GenericAPIView):
             new_due_date=serializer.validated_data["payment_due_date"],
             user=request.user,
         )
-        return Response(InvoiceReadSerializer(invoice).data)
+        return Response(InvoiceReadSerializer(invoice, context={"request": request}).data)
 
 
 # ---------------------------------------------------------------------------
@@ -296,7 +296,7 @@ class InvoiceConfirmView(generics.UpdateAPIView):
 
     def post(self, request, *args, **kwargs):
         invoice = confirm_invoice(invoice_id=self.kwargs["pk"], user=request.user)
-        return Response(InvoiceReadSerializer(invoice).data, status=status.HTTP_200_OK)
+        return Response(InvoiceReadSerializer(invoice, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 # ---------------------------------------------------------------------------
@@ -376,7 +376,7 @@ class ReturnListCreateView(generics.ListCreateAPIView):
         # Same reasoning as InvoiceListCreateView.create — re-fetch through
         # the selector that prefetches shelf_allocations before serializing.
         return_record = get_return_by_id(return_record.id)
-        return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_201_CREATED)
+        return Response(ReturnReadSerializer(return_record, context={"request": request}).data, status=status.HTTP_201_CREATED)
 
 
 class ReturnAcceptView(generics.UpdateAPIView):
@@ -390,7 +390,7 @@ class ReturnAcceptView(generics.UpdateAPIView):
 
     def post(self, request, *args, **kwargs):
         return_record = accept_return(return_id=self.kwargs["pk"], user=request.user)
-        return Response(ReturnReadSerializer(return_record).data, status=status.HTTP_200_OK)
+        return Response(ReturnReadSerializer(return_record, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class ReturnRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
@@ -421,7 +421,7 @@ class ReturnRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             note=d.get("note"),
             user=request.user,
         )
-        return Response(ReturnReadSerializer(return_record).data)
+        return Response(ReturnReadSerializer(return_record, context={"request": request}).data)
 
     def destroy(self, request, *args, **kwargs):
         cancel_return(return_id=self.kwargs["pk"], user=request.user)
@@ -827,7 +827,7 @@ class SetInvoiceItemShelfAllocationsView(APIView):
             user=request.user,
         )
         invoice_item = get_invoice_item_with_allocations_by_id(pk)
-        return Response(InvoiceItemReadSerializer(invoice_item).data, status=status.HTTP_200_OK)
+        return Response(InvoiceItemReadSerializer(invoice_item, context={"request": request}).data, status=status.HTTP_200_OK)
 
 
 class SetReturnItemShelfAllocationsView(APIView):
@@ -852,4 +852,4 @@ class SetReturnItemShelfAllocationsView(APIView):
             user=request.user,
         )
         return_item = get_return_item_by_id(pk)
-        return Response(ReturnItemReadSerializer(return_item).data, status=status.HTTP_200_OK)
+        return Response(ReturnItemReadSerializer(return_item, context={"request": request}).data, status=status.HTTP_200_OK)

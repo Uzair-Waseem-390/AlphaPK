@@ -209,6 +209,17 @@ const ReturnDetailPage = () => {
             : (returnItem.items || []).reduce((sum, item) => sum + (parseFloat(item.line_total) || 0), 0)
     );
 
+    // cogs_per_unit/line_cogs are only present in the API response for
+    // admin/superuser (stripped server-side for everyone else) — total_cogs
+    // is snapshotted per item at creation, unlike total_return_amount which
+    // is only computed at accept time, so this doesn't need the pending/
+    // accepted branch displayReturnTotal needs.
+    const displayReturnCogs = () => (
+        returnItem.status === 'accepted'
+            ? (parseFloat(returnItem.total_return_cogs) || 0)
+            : (returnItem.items || []).reduce((sum, item) => sum + (parseFloat(item.line_cogs) || 0), 0)
+    );
+
     const getStatusBadge = (status) => {
         const variants = {
             pending: 'pending',
@@ -342,6 +353,12 @@ const ReturnDetailPage = () => {
                                     <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Quantity</th>
                                     <th className="px-3 py-2 text-left text-xs font-medium text-neutral-500 uppercase tracking-wider">Unit Price</th>
                                     <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider">Total</th>
+                                    {isAdmin && (
+                                        <>
+                                            <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider">COGS</th>
+                                            <th className="px-3 py-2 text-right text-xs font-medium text-neutral-500 uppercase tracking-wider">Profit Reversed</th>
+                                        </>
+                                    )}
                                 </tr>
                             </thead>
                             <tbody className="divide-y divide-neutral-100">
@@ -355,16 +372,42 @@ const ReturnDetailPage = () => {
                                         <td className="px-3 py-2.5 text-sm text-right font-medium">
                                             {parseFloat(item.line_total || 0).toFixed(2)}
                                         </td>
+                                        {isAdmin && (
+                                            <>
+                                                <td className="px-3 py-2.5 text-sm text-right text-neutral-600">
+                                                    {parseFloat(item.line_cogs || 0).toFixed(2)}
+                                                </td>
+                                                <td className="px-3 py-2.5 text-sm text-right font-medium text-error-600">
+                                                    -{(parseFloat(item.line_total || 0) - parseFloat(item.line_cogs || 0)).toFixed(2)}
+                                                </td>
+                                            </>
+                                        )}
                                     </tr>
                                 ))}
                             </tbody>
                             <tfoot className="border-t border-neutral-200">
                                 <tr className="text-base">
-                                    <td colSpan="3" className="px-3 py-3 text-right font-bold">Total Return Amount:</td>
+                                    <td colSpan={isAdmin ? 5 : 3} className="px-3 py-3 text-right font-bold">Total Return Amount:</td>
                                     <td className="px-3 py-3 text-right font-bold text-primary-600">
                                         {displayReturnTotal().toFixed(2)}
                                     </td>
                                 </tr>
+                                {isAdmin && (
+                                    <>
+                                        <tr>
+                                            <td colSpan={5} className="px-3 py-2 text-right font-medium text-neutral-600">Total COGS:</td>
+                                            <td className="px-3 py-2 text-right font-medium text-neutral-600">
+                                                {displayReturnCogs().toFixed(2)}
+                                            </td>
+                                        </tr>
+                                        <tr className="text-base">
+                                            <td colSpan={5} className="px-3 py-2 text-right font-bold text-error-700">Profit Reversed:</td>
+                                            <td className="px-3 py-2 text-right font-bold text-error-700">
+                                                -{(displayReturnTotal() - displayReturnCogs()).toFixed(2)}
+                                            </td>
+                                        </tr>
+                                    </>
+                                )}
                             </tfoot>
                         </table>
                     </div>
