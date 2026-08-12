@@ -51,6 +51,7 @@ EXTERNAL_APPS = [
     'profits',
     'backups',
     'credit_score',
+    'activity_log',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS
@@ -62,6 +63,7 @@ MIDDLEWARE = [
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
+    'activity_log.middleware.CurrentUserMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
 ]

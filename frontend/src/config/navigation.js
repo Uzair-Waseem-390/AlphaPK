@@ -6,7 +6,7 @@ import {
     ClipboardList, Wallet, Undo2, BarChart3, FileText, Clock, TrendingUp,
     Repeat, Tag, Send, Calendar, Receipt, Banknote, PackageX, RotateCcw,
     LineChart, TrendingDown, IdCard, ArrowDownCircle, Handshake, Trash2,
-    Gem, Archive, CreditCard,
+    Gem, Archive, CreditCard, History,
 } from 'lucide-react';
 
 export const mainNavigation = [
@@ -154,4 +154,6 @@ export const standaloneLinks = [
     // Listing all users is superuser-only (see users app permission matrix)
     { name: 'Users', path: '/users', icon: Users, superuserOnly: true },
     { name: 'Backups', path: '/backups', icon: Archive, adminOnly: true },
+    // System-wide audit trail — superuser only
+    { name: 'Activity Log', path: '/activity-log', icon: History, superuserOnly: true },
 ];

@@ -1865,6 +1865,24 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, shelf_allocat
     # Stock Movement Report
     _adjust_stock_movement(product_id=lost_item.product_id, found_delta=quantity)
 
+    # activity_log tracks LostInventoryRecord (the headline object) via
+    # signal, but this action only ever saves LostInventoryItem
+    # (deliberately untracked — same "child line item" exclusion as
+    # PurchaseItem, see activity_log.tracking's docstring) and never
+    # re-saves the parent record, so nothing would otherwise fire here —
+    # one explicit call, not a reversion to per-function instrumentation.
+    from activity_log.services import record_activity
+    record_activity(
+        action="state_change",
+        instance=lost_item.record,
+        description=(
+            f"Marked {quantity} unit(s) of '{lost_item.product.name}' as found "
+            f"for {lost_item.record.reference_number}"
+        ),
+        object_repr=lost_item.record.reference_number,
+        changed_fields=["found_quantity"],
+    )
+
     recovered_amount = lost_item.unit_cost * Decimal(str(quantity))
     from cash_flow.services import sync_lost_inventory_found
     sync_lost_inventory_found(amount=recovered_amount, user=user)

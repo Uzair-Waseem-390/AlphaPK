@@ -127,6 +127,9 @@ import RecurringExpenseMonthlyStatsPage from './pages/recurringExpenses/Recurrin
 // Data Entry (superuser-only bootstrap tool)
 import DataEntryPage from './pages/dataentry/DataEntryPage';
 
+// Activity Log (superuser-only, system-wide audit trail)
+import ActivityLogPage from './pages/ActivityLogPage';
+
 // Cash Calculator (frontend-only utility, all roles)
 import CashCalculatorPage from './pages/cashCalculator/CashCalculatorPage';
 
@@ -930,6 +933,15 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <DataEntryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Activity Log (superuser-only; page self-guards + backend enforces) */}
+        <Route path="/activity-log" element={
+          <ProtectedRoute>
+            <Layout>
+              <ActivityLogPage />
             </Layout>
           </ProtectedRoute>
         } />
