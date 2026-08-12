@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { useRecurringExpensePayments } from '../../hooks/useRecurringExpenses';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
@@ -51,7 +52,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
 
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
-        amount: '', payment_date: new Date().toISOString().split('T')[0], note: '',
+        amount: '', payment_date: todayLocalDate(), note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -75,7 +76,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
     };
 
     const resetForm = () => {
-        setFormData({ amount: '', payment_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormData({ amount: '', payment_date: todayLocalDate(), note: '' });
         setFormError('');
     };
 

@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useTaxesStats, useTaxPayments } from '../../hooks/useTaxes';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
@@ -38,7 +39,7 @@ const TaxPaymentsPage = () => {
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
         amount: '',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayLocalDate(),
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -50,7 +51,7 @@ const TaxPaymentsPage = () => {
     const [filterValues, setFilterValues] = useState({});
 
     const resetForm = () => {
-        setFormData({ amount: '', payment_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormData({ amount: '', payment_date: todayLocalDate(), note: '' });
         setFormErrors({});
     };
 

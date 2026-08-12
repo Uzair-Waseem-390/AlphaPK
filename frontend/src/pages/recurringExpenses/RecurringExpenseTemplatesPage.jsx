@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useRecurringExpenseTemplates } from '../../hooks/useRecurringExpenses';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
@@ -24,7 +25,7 @@ const fmt = (value) => {
     return isNaN(num) ? '0.00' : num.toFixed(2);
 };
 
-const emptyForm = { name: '', category: '', amount: '', start_date: new Date().toISOString().split('T')[0], note: '' };
+const emptyForm = { name: '', category: '', amount: '', start_date: todayLocalDate(), note: '' };
 
 const RecurringExpenseTemplatesPage = () => {
     const { user } = useAuth();

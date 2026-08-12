@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useCashManagementStats, useOwnerTransactions } from '../../hooks/useCashManagement';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -48,7 +49,7 @@ const OwnerTransactionsPage = () => {
     const [formData, setFormData] = useState({
         transaction_type: 'contribution',
         amount: '',
-        transaction_date: new Date().toISOString().split('T')[0],
+        transaction_date: todayLocalDate(),
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -60,7 +61,7 @@ const OwnerTransactionsPage = () => {
     const resetForm = () => {
         setFormData({
             transaction_type: 'contribution', amount: '',
-            transaction_date: new Date().toISOString().split('T')[0], note: '',
+            transaction_date: todayLocalDate(), note: '',
         });
         setFormError('');
     };

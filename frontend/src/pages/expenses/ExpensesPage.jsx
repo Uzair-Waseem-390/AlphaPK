@@ -8,6 +8,7 @@ import {
 import { useExpenses, useAllExpenseCategories, useCashFlowStats } from '../../hooks/useCashFlow';
 import { useToast } from '../../context/ToastContext';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -55,7 +56,7 @@ const emptyForm = () => ({
     name: '',
     category: '',
     amount: '',
-    expense_date: new Date().toISOString().split('T')[0],
+    expense_date: todayLocalDate(),
     description: '',
 });
 
@@ -129,7 +130,7 @@ const ExpensesPage = () => {
             name: expense.name || '',
             category: expense.category?.id || '',
             amount: expense.amount || '',
-            expense_date: expense.expense_date || new Date().toISOString().split('T')[0],
+            expense_date: expense.expense_date || todayLocalDate(),
             description: expense.description || '',
         });
         setShowModal(true);

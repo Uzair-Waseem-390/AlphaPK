@@ -5,6 +5,7 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import InlineAlert from '../ui/InlineAlert';
+import { todayLocalDate } from '../../utils/helpers';
 
 // `apiErrors` carries field-specific backend validation errors (e.g. the
 // over-payment check keys its message under "amount"), while `apiError`
@@ -16,7 +17,7 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount, apiErrors, apiErr
     const [formData, setFormData] = useState({
         amount: '',
         method: 'cash',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayLocalDate(),
         note: '',
     });
     const [error, setError] = useState('');

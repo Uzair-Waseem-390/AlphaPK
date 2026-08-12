@@ -8,6 +8,7 @@ import { useToast } from '../../context/ToastContext';
 import { assetsApi } from '../../services/assetsApi';
 import { useAssetValuationEntries, useAssetStats } from '../../hooks/useAssets';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -49,7 +50,7 @@ const AssetDetailPage = () => {
 
     const [showRevalueModal, setShowRevalueModal] = useState(false);
     const [revalueForm, setRevalueForm] = useState({
-        new_worth: '', revaluation_date: new Date().toISOString().split('T')[0], note: '',
+        new_worth: '', revaluation_date: todayLocalDate(), note: '',
     });
     const [revalueLoading, setRevalueLoading] = useState(false);
     const [revalueError, setRevalueError] = useState('');
@@ -57,7 +58,7 @@ const AssetDetailPage = () => {
 
     const [showDisposeModal, setShowDisposeModal] = useState(false);
     const [disposeForm, setDisposeForm] = useState({
-        disposal_type: 'scrapped', disposal_date: new Date().toISOString().split('T')[0],
+        disposal_type: 'scrapped', disposal_date: todayLocalDate(),
         sale_amount: '', reason: '',
     });
     const [disposeLoading, setDisposeLoading] = useState(false);
@@ -102,7 +103,7 @@ const AssetDetailPage = () => {
         try {
             await assetsApi.items.revalue(id, { ...revalueForm, new_worth: parseFloat(revalueForm.new_worth) });
             setShowRevalueModal(false);
-            setRevalueForm({ new_worth: '', revaluation_date: new Date().toISOString().split('T')[0], note: '' });
+            setRevalueForm({ new_worth: '', revaluation_date: todayLocalDate(), note: '' });
             toast.success('Asset revalued successfully');
             await Promise.all([fetchAsset(), refetchEntries(), refetchStats()]);
         } catch (error) {

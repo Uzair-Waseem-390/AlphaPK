@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useCashManagementStats, useCashAdjustments } from '../../hooks/useCashManagement';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -40,7 +41,7 @@ const CashAdjustmentsPage = () => {
     const [formData, setFormData] = useState({
         amount: '',
         adjustment_type: 'lost',
-        adjustment_date: new Date().toISOString().split('T')[0],
+        adjustment_date: todayLocalDate(),
         reason: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -52,7 +53,7 @@ const CashAdjustmentsPage = () => {
     const resetForm = () => {
         setFormData({
             amount: '', adjustment_type: 'lost',
-            adjustment_date: new Date().toISOString().split('T')[0], reason: '',
+            adjustment_date: todayLocalDate(), reason: '',
         });
         setFormError('');
     };

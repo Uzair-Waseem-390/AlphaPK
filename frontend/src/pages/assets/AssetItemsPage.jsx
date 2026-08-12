@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useAssets, useAssetStats } from '../../hooks/useAssets';
 import { assetsApi } from '../../services/assetsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -46,7 +47,7 @@ const AssetItemsPage = () => {
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
         name: '', category: '', acquisition_type: 'existing',
-        cost: '', acquisition_date: new Date().toISOString().split('T')[0], note: '',
+        cost: '', acquisition_date: todayLocalDate(), note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -71,7 +72,7 @@ const AssetItemsPage = () => {
     const resetForm = () => {
         setFormData({
             name: '', category: '', acquisition_type: 'existing',
-            cost: '', acquisition_date: new Date().toISOString().split('T')[0], note: '',
+            cost: '', acquisition_date: todayLocalDate(), note: '',
         });
         setFormError('');
         setFieldErrors(emptyFieldErrors);

@@ -3,6 +3,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
@@ -35,7 +36,7 @@ const PaymentsPage = () => {
     const [formData, setFormData] = useState({
         amount: '',
         method: 'cash',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayLocalDate(),
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -126,7 +127,7 @@ const PaymentsPage = () => {
         setFormData({
             amount: '',
             method: 'cash',
-            payment_date: new Date().toISOString().split('T')[0],
+            payment_date: todayLocalDate(),
             note: '',
         });
         setFormError('');

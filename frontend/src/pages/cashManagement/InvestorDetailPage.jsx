@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { useInvestorTransactions } from '../../hooks/useCashManagement';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -46,7 +47,7 @@ const InvestorDetailPage = () => {
     const [formData, setFormData] = useState({
         transaction_type: 'investment',
         amount: '',
-        transaction_date: new Date().toISOString().split('T')[0],
+        transaction_date: todayLocalDate(),
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -80,7 +81,7 @@ const InvestorDetailPage = () => {
     const resetForm = () => {
         setFormData({
             transaction_type: 'investment', amount: '',
-            transaction_date: new Date().toISOString().split('T')[0], note: '',
+            transaction_date: todayLocalDate(), note: '',
         });
         setFormError('');
     };

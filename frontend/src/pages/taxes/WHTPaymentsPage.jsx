@@ -5,6 +5,7 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useTaxesStats, useWHTPayments } from '../../hooks/useTaxes';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -38,7 +39,7 @@ const WHTPaymentsPage = () => {
     const [showModal, setShowModal] = useState(false);
     const [formData, setFormData] = useState({
         amount: '',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayLocalDate(),
         note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
@@ -50,7 +51,7 @@ const WHTPaymentsPage = () => {
     const [filterValues, setFilterValues] = useState({});
 
     const resetForm = () => {
-        setFormData({ amount: '', payment_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormData({ amount: '', payment_date: todayLocalDate(), note: '' });
         setFormErrors({});
     };
 

@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useMonthlyProfitDetail, useCurrentMonthProfit } from '../../hooks/useProfits';
 import { profitsApi } from '../../services/profitsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -82,7 +83,7 @@ const MonthlyProfitDetailPage = () => {
     const [settleShare, setSettleShare] = useState(null);
     const [settleType, setSettleType] = useState('investor');
     const [formData, setFormData] = useState({
-        amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '',
+        amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -92,7 +93,7 @@ const MonthlyProfitDetailPage = () => {
     const [deleteLoading, setDeleteLoading] = useState(false);
 
     const resetForm = () => {
-        setFormData({ amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormData({ amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '' });
         setFormError('');
         setAmountError('');
     };

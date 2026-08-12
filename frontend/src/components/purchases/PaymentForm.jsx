@@ -5,12 +5,13 @@ import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
 import InlineAlert from '../ui/InlineAlert';
+import { todayLocalDate } from '../../utils/helpers';
 
 const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
     const [formData, setFormData] = useState({
         amount: '',
         method: 'cash',
-        payment_date: new Date().toISOString().split('T')[0],
+        payment_date: todayLocalDate(),
         note: '',
     });
     const [error, setError] = useState('');

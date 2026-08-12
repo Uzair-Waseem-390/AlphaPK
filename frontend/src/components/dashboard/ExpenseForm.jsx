@@ -5,6 +5,7 @@ import { AlertTriangle, Info } from 'lucide-react';
 import Input from '../ui/Input';
 import Select from '../ui/Select';
 import Button from '../ui/Button';
+import { todayLocalDate } from '../../utils/helpers';
 
 // `serverErrors` lets a caller feed DRF field-validation errors (e.g. from a
 // failed onSubmit) back into the form's inline field errors, in addition to
@@ -14,7 +15,7 @@ const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading, ser
         name: '',
         category: '',
         amount: '',
-        expense_date: new Date().toISOString().split('T')[0],
+        expense_date: todayLocalDate(),
         description: '',
     });
     const [errors, setErrors] = useState({});
@@ -25,7 +26,7 @@ const ExpenseForm = ({ initialData, categories, onSubmit, onCancel, loading, ser
                 name: initialData.name || '',
                 category: initialData.category?.id || '',
                 amount: initialData.amount || '',
-                expense_date: initialData.expense_date || new Date().toISOString().split('T')[0],
+                expense_date: initialData.expense_date || todayLocalDate(),
                 description: initialData.description || '',
             });
         }

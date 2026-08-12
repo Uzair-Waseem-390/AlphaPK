@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { profitsApi } from '../../services/profitsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { todayLocalDate } from '../../utils/helpers';
 import { useInvestorMonthlyShares } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
@@ -50,7 +51,7 @@ const ProfitInvestorDetailPage = () => {
 
     const [settleShare, setSettleShare] = useState(null);
     const [formData, setFormData] = useState({
-        amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '',
+        amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '',
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
@@ -70,7 +71,7 @@ const ProfitInvestorDetailPage = () => {
     }, [fetchInvestor]);
 
     const resetForm = () => {
-        setFormData({ amount: '', action_type: 'payout', payout_date: new Date().toISOString().split('T')[0], note: '' });
+        setFormData({ amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '' });
         setFormError('');
         setAmountError('');
     };
