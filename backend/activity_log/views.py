@@ -1,10 +1,13 @@
-from rest_framework import generics
+from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import IsSuperuserOnly
 from .selectors import get_activity_events, get_activity_stats
-from .serializers import ActivityEventReadSerializer, ActivityStatsSerializer
+from .serializers import (
+    ActivityEventReadSerializer, ActivityStatsSerializer, ToggleTrackingRequestSerializer,
+)
+from .services import set_tracking_enabled
 
 
 class ActivityEventListView(generics.ListAPIView):
@@ -37,3 +40,22 @@ class ActivityStatsView(APIView):
     def get(self, request):
         stats = get_activity_stats()
         return Response(ActivityStatsSerializer(stats).data)
+
+
+class ActivityTrackingToggleView(APIView):
+    """
+    PATCH /activity-log/toggle/ — flips the global on/off switch.
+    Body: {"enabled": true|false}. Superuser only.
+
+    The toggle itself is always recorded as its own event, whether turning
+    tracking on OR off — see services.set_tracking_enabled.
+    """
+    permission_classes = [IsSuperuserOnly]
+
+    def patch(self, request):
+        serializer = ToggleTrackingRequestSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        stats = set_tracking_enabled(
+            enabled=serializer.validated_data["enabled"], user=request.user,
+        )
+        return Response(ActivityStatsSerializer(stats).data, status=status.HTTP_200_OK)

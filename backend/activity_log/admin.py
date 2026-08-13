@@ -22,7 +22,7 @@ class ActivityEventAdmin(admin.ModelAdmin):
 
 @admin.register(ActivityStatsFlow)
 class ActivityStatsFlowAdmin(admin.ModelAdmin):
-    list_display = ["total_events", "total_creates", "total_updates", "total_deletes", "total_state_changes", "last_event_at"]
+    list_display = ["total_events", "total_creates", "total_updates", "total_deletes", "total_state_changes", "last_event_at", "is_enabled"]
     readonly_fields = [f.name for f in ActivityStatsFlow._meta.fields]
 
     def has_add_permission(self, request):

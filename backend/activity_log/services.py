@@ -35,8 +35,56 @@ def _increment_stats(action: str) -> None:
         )
 
 
+def is_tracking_enabled() -> bool:
+    """
+    O(1) — single indexed PK read, checked before any tracked write does
+    real work. Cheaper by far than the INSERT + counter UPDATE it gates, so
+    this check never becomes the cost it's protecting against. No row yet
+    (brand-new install) means enabled — same "missing singleton = default
+    state" convention as every other Flow row in this codebase.
+    """
+    value = ActivityStatsFlow.objects.filter(pk=1).values_list("is_enabled", flat=True).first()
+    return value is not False
+
+
+def set_tracking_enabled(*, enabled: bool, user) -> ActivityStatsFlow:
+    """
+    Flips the global on/off switch (superuser only, enforced at the view).
+
+    Unlike every other write in this app, this call ALWAYS records its own
+    ActivityEvent — it does NOT go through is_tracking_enabled()'s gate.
+    A superuser silently disabling the audit trail with zero record of
+    having done so would defeat the entire point of having one.
+    """
+    from django.db.models import F
+
+    ActivityStatsFlow.objects.get_or_create(pk=1)
+    actor = user if getattr(user, "is_authenticated", False) else None
+
+    with transaction.atomic():
+        ActivityEvent.objects.create(
+            user=actor,
+            action=ActivityEvent.Action.STATE_CHANGE,
+            app_label="activity_log",
+            model_name="activitystatsflow",
+            object_id="1",
+            object_repr="Activity Tracking",
+            description=f"{'Enabled' if enabled else 'Disabled'} activity tracking",
+            changed_fields=["is_enabled"],
+        )
+        ActivityStatsFlow.objects.filter(pk=1).update(
+            is_enabled=enabled,
+            enabled_toggled_by=actor,
+            enabled_toggled_at=timezone.now(),
+            total_events=F("total_events") + 1,
+            total_state_changes=F("total_state_changes") + 1,
+            last_event_at=timezone.now(),
+        )
+    return ActivityStatsFlow.get_instance()
+
+
 def record_activity(*, action: str, instance, description: str, object_repr: str = "",
-                     changed_fields=None, metadata=None) -> ActivityEvent:
+                     changed_fields=None, metadata=None) -> ActivityEvent | None:
     """
     THE single writer for ActivityEvent — called from activity_log.tracking's
     signal receivers (the normal path) or directly, if ever needed. Costs
@@ -57,6 +105,9 @@ def record_activity(*, action: str, instance, description: str, object_repr: str
     (including the outer COMMIT) would fail too, even though the Python
     exception was "handled."
     """
+    if not is_tracking_enabled():
+        return None
+
     user = get_current_user()
     user = user if getattr(user, "is_authenticated", False) else None
 

@@ -5,7 +5,10 @@ import {
     PlusCircle, PencilLine, Trash2, RefreshCw, AlertOctagon,
 } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
+import { useToast } from '../context/ToastContext';
 import { usersApi } from '../utils/api';
+import { activityLogApi } from '../services/activityLogApi';
+import { extractErrorMessage } from '../utils/errorMessage';
 import { useActivityLogEvents, useActivityLogStats } from '../hooks/useActivityLog';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
@@ -17,6 +20,8 @@ import Pagination from '../components/ui/Pagination';
 import LoadingSpinner from '../components/ui/LoadingSpinner';
 import InlineAlert from '../components/ui/InlineAlert';
 import EmptyState from '../components/ui/EmptyState';
+import ConfirmDialog from '../components/ui/ConfirmDialog';
+import Switch from '../components/ui/Switch';
 
 const ACTION_META = {
     create: { label: 'Create', variant: 'success', icon: PlusCircle },
@@ -72,11 +77,14 @@ const ActionBadge = ({ action, actionDisplay }) => {
 
 const ActivityLogPage = () => {
     const { user } = useAuth();
+    const { toast } = useToast();
 
     const [searchTerm, setSearchTerm] = useState('');
     const [highRisk, setHighRisk] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
     const [users, setUsers] = useState([]);
+    const [showDisableConfirm, setShowDisableConfirm] = useState(false);
+    const [togglingTracking, setTogglingTracking] = useState(false);
 
     const {
         data: events, meta, page, setPage, loading, initialLoading, error: listError,
@@ -126,6 +134,31 @@ const ActivityLogPage = () => {
     const toggleHighRisk = () => {
         setHighRisk((prev) => !prev);
         setPage(1);
+    };
+
+    // Turning tracking OFF stops every future write to the audit trail —
+    // confirm first. Turning it back ON has no downside, so it fires
+    // immediately with no confirmation step.
+    const applyTrackingToggle = async (enabled) => {
+        setTogglingTracking(true);
+        try {
+            await activityLogApi.tracking.setEnabled(enabled);
+            toast.success(enabled ? 'Activity tracking enabled.' : 'Activity tracking disabled.');
+            setShowDisableConfirm(false);
+            await refetchStats();
+        } catch (error) {
+            toast.error(extractErrorMessage(error, 'Failed to update activity tracking.'));
+        } finally {
+            setTogglingTracking(false);
+        }
+    };
+
+    const handleTrackingToggleClick = () => {
+        if (stats?.is_enabled === false) {
+            applyTrackingToggle(true);
+        } else {
+            setShowDisableConfirm(true);
+        }
     };
 
     const hasActiveFilters = Object.keys(filters).length > 0 || !!searchTerm || highRisk;
@@ -206,16 +239,31 @@ const ActivityLogPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
-                    <History className="w-5 h-5 text-white" />
+            <div className="flex items-start justify-between gap-3 flex-wrap">
+                <div className="flex items-center gap-3">
+                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
+                        <History className="w-5 h-5 text-white" />
+                    </div>
+                    <div>
+                        <h1 className="text-3xl font-bold text-neutral-900">Activity Log</h1>
+                        <p className="text-neutral-500 mt-0.5">
+                            System-wide audit trail of every create, update, delete, and status change.
+                        </p>
+                    </div>
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Activity Log</h1>
-                    <p className="text-neutral-500 mt-0.5">
-                        System-wide audit trail of every create, update, delete, and status change.
-                    </p>
-                </div>
+
+                {!statsLoading && !statsError && (
+                    <div className="flex items-center gap-2.5">
+                        <span className={`text-sm font-medium ${stats?.is_enabled === false ? 'text-neutral-500' : 'text-success-600'}`}>
+                            Tracking: {stats?.is_enabled === false ? 'Off' : 'On'}
+                        </span>
+                        <Switch
+                            checked={stats?.is_enabled !== false}
+                            onChange={handleTrackingToggleClick}
+                            loading={togglingTracking}
+                        />
+                    </div>
+                )}
             </div>
 
             {/* Lifetime stats */}
@@ -328,6 +376,17 @@ const ActivityLogPage = () => {
                     onPageChange={setPage}
                 />
             )}
+
+            <ConfirmDialog
+                isOpen={showDisableConfirm}
+                onClose={() => { if (!togglingTracking) setShowDisableConfirm(false); }}
+                onConfirm={() => applyTrackingToggle(false)}
+                loading={togglingTracking}
+                title="Disable Activity Tracking"
+                message="While tracking is off, nothing gets recorded — no creates, updates, deletes, or status changes will appear here until you turn it back on. Turning it off and back on is itself always recorded, so this action stays visible."
+                confirmText="Disable Tracking"
+                variant="danger"
+            />
         </div>
     );
 };

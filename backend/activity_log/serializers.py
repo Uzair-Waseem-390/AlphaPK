@@ -19,10 +19,17 @@ class ActivityEventReadSerializer(serializers.ModelSerializer):
 
 
 class ActivityStatsSerializer(serializers.ModelSerializer):
+    enabled_toggled_by_email = serializers.CharField(source="enabled_toggled_by.email", read_only=True, default=None)
+
     class Meta:
         model = ActivityStatsFlow
         fields = [
             "total_events", "total_creates", "total_updates",
             "total_deletes", "total_state_changes", "last_event_at",
+            "is_enabled", "enabled_toggled_by_email", "enabled_toggled_at",
         ]
         read_only_fields = fields
+
+
+class ToggleTrackingRequestSerializer(serializers.Serializer):
+    enabled = serializers.BooleanField()

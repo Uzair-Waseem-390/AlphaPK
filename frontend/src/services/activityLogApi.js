@@ -12,4 +12,7 @@ export const activityLogApi = {
     stats: {
         get: () => api.get('/activity-log/stats/'),
     },
+    tracking: {
+        setEnabled: (enabled) => api.patch('/activity-log/toggle/', { enabled }),
+    },
 };

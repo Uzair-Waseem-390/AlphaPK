@@ -72,6 +72,18 @@ class ActivityStatsFlow(models.Model):
     total_state_changes      = models.PositiveIntegerField(default=0)
     last_event_at        = models.DateTimeField(null=True, blank=True)
 
+    # Global on/off switch, checked (one indexed PK read) before any tracked
+    # write does real work — see services.is_tracking_enabled(). Toggling
+    # this ALWAYS writes its own ActivityEvent (services.set_tracking_enabled),
+    # bypassing the switch itself, so there's never a silent gap in who
+    # turned auditing off/on.
+    is_enabled          = models.BooleanField(default=True)
+    enabled_toggled_by  = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, blank=True, on_delete=models.SET_NULL,
+        related_name="+",
+    )
+    enabled_toggled_at  = models.DateTimeField(null=True, blank=True)
+
     class Meta:
         verbose_name        = "Activity Stats Flow"
         verbose_name_plural  = "Activity Stats Flow"
