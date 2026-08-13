@@ -27,7 +27,8 @@ from .services import (
 )
 from .views import (
     CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
-    InvoiceConfirmView, InvoiceDueDateUpdateView, InvoiceListCreateView,
+    InvoiceAutoAllocateShelvesView, InvoiceConfirmView,
+    InvoiceDueDateUpdateView, InvoiceListCreateView,
     InvoiceRetrieveUpdateDestroyView, ReturnAcceptView, ReturnListCreateView,
     ReturnRetrieveUpdateDestroyView,
 )
@@ -411,7 +412,11 @@ class ReturnEditCancelTests(BillingTestBase):
             force_authenticate(patch_request, user=self.admin)
             response = view(patch_request, pk=ret.id)
             self.assertEqual(response.status_code, 200)
-        self.assertLess(len(ctx.captured_queries), 20)
+        # +1 from activity_log's is_tracking_enabled() check, added when the
+        # audit-log on/off toggle shipped — one fixed extra SELECT per
+        # tracked write (Return), not a scaling N+1. Same pattern as
+        # purchases.tests.PurchaseReturnEditCancelTests.
+        self.assertLessEqual(len(ctx.captured_queries), 20)
 
         with CaptureQueriesContext(connection) as ctx:
             delete_request = self.factory.delete(f"/billing/returns/{ret.id}/")
@@ -1025,3 +1030,26 @@ class CustomerTierFilterTests(BillingTestBase):
         codes = {c["code"] for c in response.data["results"]}
 
         self.assertIn(self.customer.code, codes)
+
+
+class InvoiceAutoAllocateShelvesViewTests(BillingTestBase):
+    """
+    Regression coverage for a real bug the performance audit caught: this
+    billing pass-through view's response serializer had two stray leftover
+    fields (name/available_quantity, copy-pasted from CandidateShelfSerializer
+    nearby) that don't exist on compute_auto_shelf_allocation's actual
+    return shape — every call 500'd. No test exercised this view at all,
+    which is exactly how it slipped through; this closes that gap.
+    """
+    def test_returns_allocation_without_serializer_error(self):
+        product = self.make_stocked_product(stock=20)
+        request = self.factory.post(
+            "/api/billing/shelves/auto-allocate/",
+            {"product_id": product.id, "quantity": 5}, format="json",
+        )
+        force_authenticate(request, user=self.admin)
+        response = InvoiceAutoAllocateShelvesView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["allocations"][0]["shelf_id"], self.shelf.id)
+        self.assertEqual(response.data["allocations"][0]["quantity"], 5)
+        self.assertEqual(response.data["shortfall"], 0)

@@ -17,6 +17,7 @@ from .selectors import (
     get_all_returns,
 )
 from .serializers import (
+    AutoAllocateShelvesRequestSerializer, AutoAllocateShelvesResponseSerializer,
     CandidateShelfSerializer,
     CustomerReadSerializer,
     CustomerWriteSerializer,
@@ -804,6 +805,26 @@ class InvoiceCandidateShelvesView(generics.ListAPIView):
         return get_candidate_shelves_for_product(
             int(product_id), search=self.request.query_params.get("search"),
         )
+
+
+class InvoiceAutoAllocateShelvesView(APIView):
+    """
+    POST /billing/shelves/auto-allocate/
+    Thin pass-through to purchases.selectors.compute_auto_shelf_allocation —
+    same shared implementation as the purchases app's own
+    /purchases/shelves/auto-allocate/, just namespaced under /billing/ so
+    the invoice-items frontend never has to reach into another app's URLs
+    (mirrors InvoiceCandidateShelvesView above).
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        from purchases.selectors import compute_auto_shelf_allocation
+
+        req = AutoAllocateShelvesRequestSerializer(data=request.data)
+        req.is_valid(raise_exception=True)
+        result = compute_auto_shelf_allocation(**req.validated_data)
+        return Response(AutoAllocateShelvesResponseSerializer(result).data)
 
 
 class SetInvoiceItemShelfAllocationsView(APIView):

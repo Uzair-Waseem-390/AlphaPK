@@ -1,7 +1,10 @@
+import { useState } from 'react';
 import Select from '../ui/Select';
 import SearchableSelect from '../ui/SearchableSelect';
 import Input from '../ui/Input';
 import Button from '../ui/Button';
+import { useToast } from '../../context/ToastContext';
+import { extractErrorMessage } from '../../utils/errorMessage';
 
 /**
  * Reusable multi-shelf allocation row editor.
@@ -22,6 +25,12 @@ import Button from '../ui/Button';
  * shelves: [{ id, name, available_quantity? }] — consumption mode only, the prefetched candidate list.
  * onSearchShelves(query): async (query) => [{ value, label, name?, available_quantity? }] — putaway mode only.
  * requiredQuantity: the number `value`'s quantities must sum to exactly.
+ * productId: consumption mode only, needed to call `autoAllocateApi`.
+ * autoAllocateApi: consumption mode only — async (productId, quantity, excludeShelfIds) =>
+ *        { allocations: [{ shelf_id, shelf_name, quantity }], shortfall } — parent-injected
+ *        network call (same precedent as `onSearchShelves`), one of
+ *        `purchasesApi.shelves.autoAllocate` / `billingApi.shelves.autoAllocate` depending on
+ *        which app's endpoint the page belongs to. When omitted, no Auto-Allocate button is shown.
  */
 const ShelfAllocationEditor = ({
     value = [],
@@ -31,7 +40,11 @@ const ShelfAllocationEditor = ({
     requiredQuantity = 0,
     mode = 'putaway',
     disabled = false,
+    productId,
+    autoAllocateApi,
 }) => {
+    const { toast } = useToast();
+    const [autoAllocating, setAutoAllocating] = useState(false);
     const allocations = value;
     const allocatedTotal = allocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
     const remaining = requiredQuantity - allocatedTotal;
@@ -47,6 +60,30 @@ const ShelfAllocationEditor = ({
 
     const handleRemoveRow = (index) => {
         onChange(allocations.filter((_, i) => i !== index));
+    };
+
+    // Fills the remaining gap from OTHER shelves — never touches rows the
+    // user already has. Existing rows are excluded from the candidate set
+    // the backend picks from, and the response is appended, not merged.
+    const handleAutoAllocate = async () => {
+        if (remaining <= 0 || !autoAllocateApi) return;
+        setAutoAllocating(true);
+        try {
+            const excludeShelfIds = allocations.map((a) => a.shelf_id).filter(Boolean);
+            const data = await autoAllocateApi(productId, remaining, excludeShelfIds);
+            const newRows = (data?.allocations || []).map((a) => ({
+                shelf_id: a.shelf_id,
+                quantity: a.quantity,
+                shelf_name: a.shelf_name || '',
+            }));
+            if (newRows.length > 0) {
+                onChange([...allocations, ...newRows]);
+            }
+        } catch (error) {
+            toast.error(extractErrorMessage(error, 'Failed to auto-allocate shelves'));
+        } finally {
+            setAutoAllocating(false);
+        }
     };
 
     // A shelf already picked on another row of this same allocation can't
@@ -125,15 +162,29 @@ const ShelfAllocationEditor = ({
             ))}
 
             <div className="flex items-center justify-between gap-3">
-                <Button
-                    type="button"
-                    variant="secondary"
-                    size="sm"
-                    onClick={handleAddRow}
-                    disabled={disabled || allRowsUsed}
-                >
-                    + Add Shelf
-                </Button>
+                <div className="flex items-center gap-2">
+                    <Button
+                        type="button"
+                        variant="secondary"
+                        size="sm"
+                        onClick={handleAddRow}
+                        disabled={disabled || allRowsUsed}
+                    >
+                        + Add Shelf
+                    </Button>
+                    {mode === 'consumption' && autoAllocateApi && (
+                        <Button
+                            type="button"
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleAutoAllocate}
+                            disabled={disabled || remaining <= 0}
+                            loading={autoAllocating}
+                        >
+                            Auto-Allocate
+                        </Button>
+                    )}
+                </div>
                 <span
                     className={`text-sm font-medium ${
                         remaining === 0

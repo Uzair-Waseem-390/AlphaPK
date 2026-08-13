@@ -728,6 +728,8 @@ const InvoiceDetailPage = () => {
                                             requiredQuantity={item.quantity}
                                             mode="consumption"
                                             disabled={state.saving}
+                                            productId={item.product}
+                                            autoAllocateApi={billingApi.shelves.autoAllocate}
                                         />
                                         {state.error && (
                                             <p className="text-sm text-error-600 mt-2">{state.error}</p>

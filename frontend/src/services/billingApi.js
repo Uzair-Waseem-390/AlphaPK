@@ -69,6 +69,17 @@ export const billingApi = {
             if (search) query.set('search', search);
             return api.get(`/billing/shelves/candidates/?${query.toString()}`);
         },
+        // Auto-allocate `quantity` units of a product across shelves that
+        // currently hold stock, skipping `excludeShelfIds` (shelves the
+        // caller already has manual rows for). Returns whatever it could
+        // allocate plus a `shortfall` if total remaining stock fell short —
+        // caller applies the allocations as-is either way.
+        autoAllocate: (productId, quantity, excludeShelfIds = []) =>
+            api.post('/billing/shelves/auto-allocate/', {
+                product_id: productId,
+                quantity,
+                exclude_shelf_ids: excludeShelfIds,
+            }),
     },
 
     // Invoice Item shelf allocations (consumption plan while draft)

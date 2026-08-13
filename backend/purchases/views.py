@@ -12,6 +12,7 @@ from .pdf_service import (
 )
 from .permissions import IsAdminOrSuperuser, IsAdminOrSuperuserOrReadOnly
 from .selectors import (
+    compute_auto_shelf_allocation,
     get_all_categories, get_all_inventory, get_all_lost_inventory_records,
     get_all_products, get_all_purchase_orders, get_all_returns,
     get_all_shelves, get_all_suppliers, get_candidate_shelves_for_product,
@@ -29,6 +30,7 @@ from .selectors import (
     get_supplier_payment_by_id, get_suppliers_with_outstanding,
 )
 from .serializers import (
+    AutoAllocateShelvesRequestSerializer, AutoAllocateShelvesResponseSerializer,
     CandidateShelfSerializer,
     CategoryReadSerializer, CategoryWriteSerializer,
     InventoryReadSerializer, InventoryStatsSerializer,
@@ -188,6 +190,29 @@ class CandidateShelvesForProductView(generics.ListAPIView):
         return get_candidate_shelves_for_product(
             int(product_id), search=self.request.query_params.get("search"),
         )
+
+
+class AutoAllocateShelvesView(APIView):
+    """
+    POST /purchases/shelves/auto-allocate/
+    Body: {product_id, quantity, exclude_shelf_ids: [...]}
+
+    Greedily fills `quantity` of product_id across shelves currently
+    holding stock (largest available quantity first), skipping any shelf id
+    already in exclude_shelf_ids — so calling this after the user has
+    manually picked one or two shelves only fills the remaining gap and
+    never touches their existing rows. Shared by every consumption
+    allocation context (invoice items, purchase returns to supplier, lost
+    inventory) through compute_auto_shelf_allocation — one implementation.
+    Open to all authenticated users, matching CandidateShelvesForProductView.
+    """
+    permission_classes = [IsAuthenticated]
+
+    def post(self, request):
+        req = AutoAllocateShelvesRequestSerializer(data=request.data)
+        req.is_valid(raise_exception=True)
+        result = compute_auto_shelf_allocation(**req.validated_data)
+        return Response(AutoAllocateShelvesResponseSerializer(result).data)
 
 
 class MoveStockView(APIView):

@@ -13,9 +13,10 @@ from rest_framework.exceptions import ValidationError
 
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow, Product,
-    ProductStockMovement, PurchaseOrder, PurchaseReturn, Shelf,
+    ProductStockMovement, PurchaseOrder, PurchaseReturn, Shelf, ShelfStock,
     StockMovementFlow, Supplier,
 )
+from .selectors import compute_auto_shelf_allocation
 from .services import (
     accept_purchase_return, cancel_purchase_return, confirm_purchase_order,
     create_lost_inventory_record, create_purchase_order, create_purchase_return,
@@ -26,8 +27,8 @@ from .services import (
     update_purchase_return_items,
 )
 from .views import (
-    DraftPurchaseOrderListView, InventoryListView, InventoryStatsView,
-    LowStockInventoryListView, OutOfStockInventoryListView,
+    AutoAllocateShelvesView, DraftPurchaseOrderListView, InventoryListView,
+    InventoryStatsView, LowStockInventoryListView, OutOfStockInventoryListView,
     PurchaseOrderListCreateView,
 )
 
@@ -418,11 +419,10 @@ class PurchaseReturnRemainingQuantityTests(PurchasesTestBase):
 
         # Sell 8 of the 10 (drops remaining_quantity to 2) via a confirmed
         # invoice — mirrors how stock actually leaves in production.
-        from billing.services import confirm_invoice, create_invoice, set_invoice_item_shelf_allocations
+        from billing.services import confirm_invoice, create_customer, create_invoice, set_invoice_item_shelf_allocations
         from rates.services import create_rate
         create_rate(product_id=product.id, selling_price=Decimal("150"), user=self.admin)
-        from billing.models import Customer
-        customer = Customer.objects.create(name="Cust A", code="CUSTA", address="x")
+        customer = create_customer(name="Cust A", code="CUSTA", address="x", user=self.admin)
         invoice = create_invoice(
             customer_id=customer.id,
             items=[{"product_id": product.id, "quantity": 8}],
@@ -653,7 +653,10 @@ class PurchaseReturnEditCancelTests(PurchasesTestBase):
             force_authenticate(patch_request, user=self.admin)
             response = view(patch_request, pk=ret.id)
             self.assertEqual(response.status_code, 200)
-        self.assertLess(len(ctx.captured_queries), 20)
+        # +1 from activity_log's is_tracking_enabled() check, added when the
+        # audit-log on/off toggle shipped — one fixed extra SELECT per
+        # tracked write (PurchaseReturn), not a scaling N+1.
+        self.assertLessEqual(len(ctx.captured_queries), 21)
 
         with CaptureQueriesContext(connection) as ctx:
             delete_request = self.factory.delete(f"/purchases/returns/{ret.id}/")
@@ -716,3 +719,96 @@ class OrderDateFilterTests(PurchasesTestBase):
     def test_exact_date_filter(self):
         today = timezone.localtime(timezone.now()).date().isoformat()
         self.assertEqual(self.order_numbers(date=today), {self.o_new.order_number})
+
+
+class AutoShelfAllocationSelectorTests(PurchasesTestBase):
+    """
+    Covers compute_auto_shelf_allocation — the single shared implementation
+    behind every consumption allocation context (invoice items, purchase
+    returns to supplier, lost inventory).
+    """
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product()
+        self.shelf_b = Shelf.objects.create(name="B - Large Stock")
+        self.shelf_c = Shelf.objects.create(name="C - Empty")
+        ShelfStock.objects.create(shelf=self.shelf, product=self.product, quantity=10)
+        ShelfStock.objects.create(shelf=self.shelf_b, product=self.product, quantity=50)
+        ShelfStock.objects.create(shelf=self.shelf_c, product=self.product, quantity=0)
+
+    def test_fills_largest_quantity_shelf_first(self):
+        result = compute_auto_shelf_allocation(product_id=self.product.id, quantity=15)
+        self.assertEqual(result["allocations"][0]["shelf_id"], self.shelf_b.id)
+        self.assertEqual(result["allocations"][0]["quantity"], 15)
+        self.assertEqual(result["shortfall"], 0)
+
+    def test_spills_over_to_second_shelf_when_first_isnt_enough(self):
+        result = compute_auto_shelf_allocation(product_id=self.product.id, quantity=55)
+        totals = {a["shelf_id"]: a["quantity"] for a in result["allocations"]}
+        self.assertEqual(totals[self.shelf_b.id], 50)
+        self.assertEqual(totals[self.shelf.id], 5)
+        self.assertEqual(result["shortfall"], 0)
+
+    def test_reports_shortfall_when_total_stock_insufficient(self):
+        result = compute_auto_shelf_allocation(product_id=self.product.id, quantity=1000)
+        allocated = sum(a["quantity"] for a in result["allocations"])
+        self.assertEqual(allocated, 60)  # everything available across both stocked shelves
+        self.assertEqual(result["shortfall"], 940)
+
+    def test_excludes_shelves_the_user_already_manually_picked(self):
+        # User already has a manual row on shelf_b — auto-allocate must not
+        # touch it, only fill the remaining gap from other shelves.
+        result = compute_auto_shelf_allocation(
+            product_id=self.product.id, quantity=8, exclude_shelf_ids=[self.shelf_b.id],
+        )
+        self.assertEqual(len(result["allocations"]), 1)
+        self.assertEqual(result["allocations"][0]["shelf_id"], self.shelf.id)
+        self.assertEqual(result["allocations"][0]["quantity"], 8)
+
+    def test_empty_shelf_never_offered(self):
+        result = compute_auto_shelf_allocation(product_id=self.product.id, quantity=1000)
+        shelf_ids = {a["shelf_id"] for a in result["allocations"]}
+        self.assertNotIn(self.shelf_c.id, shelf_ids)
+
+    def test_soft_deleted_shelf_never_offered(self):
+        self.shelf_b.is_deleted = True
+        self.shelf_b.save(update_fields=["is_deleted"])
+        result = compute_auto_shelf_allocation(product_id=self.product.id, quantity=5)
+        shelf_ids = {a["shelf_id"] for a in result["allocations"]}
+        self.assertNotIn(self.shelf_b.id, shelf_ids)
+
+
+class AutoAllocateShelvesViewTests(PurchasesTestBase):
+    def setUp(self):
+        super().setUp()
+        self.product = self.make_product()
+        ShelfStock.objects.create(shelf=self.shelf, product=self.product, quantity=20)
+
+    def test_authenticated_user_gets_allocation(self):
+        request = self.factory.post(
+            "/api/purchases/shelves/auto-allocate/",
+            {"product_id": self.product.id, "quantity": 5}, format="json",
+        )
+        force_authenticate(request, user=self.admin)
+        response = AutoAllocateShelvesView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["allocations"][0]["shelf_id"], self.shelf.id)
+        self.assertEqual(response.data["allocations"][0]["quantity"], 5)
+        self.assertEqual(response.data["shortfall"], 0)
+
+    def test_anonymous_forbidden(self):
+        request = self.factory.post(
+            "/api/purchases/shelves/auto-allocate/",
+            {"product_id": self.product.id, "quantity": 5}, format="json",
+        )
+        response = AutoAllocateShelvesView.as_view()(request)
+        self.assertEqual(response.status_code, 401)
+
+    def test_zero_quantity_rejected(self):
+        request = self.factory.post(
+            "/api/purchases/shelves/auto-allocate/",
+            {"product_id": self.product.id, "quantity": 0}, format="json",
+        )
+        force_authenticate(request, user=self.admin)
+        response = AutoAllocateShelvesView.as_view()(request)
+        self.assertEqual(response.status_code, 400)

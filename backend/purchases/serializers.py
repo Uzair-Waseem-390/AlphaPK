@@ -87,6 +87,23 @@ class CandidateShelfSerializer(serializers.ModelSerializer):
         fields = ["id", "name", "available_quantity"]
 
 
+class AutoAllocateShelvesRequestSerializer(serializers.Serializer):
+    product_id        = serializers.IntegerField()
+    quantity          = serializers.IntegerField(min_value=1)
+    exclude_shelf_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+
+
+class AutoAllocatedShelfSerializer(serializers.Serializer):
+    shelf_id   = serializers.IntegerField()
+    shelf_name = serializers.CharField()
+    quantity   = serializers.IntegerField()
+
+
+class AutoAllocateShelvesResponseSerializer(serializers.Serializer):
+    allocations = AutoAllocatedShelfSerializer(many=True)
+    shortfall   = serializers.IntegerField()
+
+
 class ShelfAllocationInputSerializer(serializers.Serializer):
     """Reusable input row for every 'set shelf allocations' request body."""
     shelf_id = serializers.IntegerField()

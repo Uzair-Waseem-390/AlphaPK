@@ -433,6 +433,8 @@ const PurchaseReturnDetailPage = () => {
                                     requiredQuantity={item.quantity}
                                     mode="consumption"
                                     disabled={savingAllocationFor === item.id}
+                                    productId={order?.items?.find((oi) => oi.product_code === item.product_code)?.product}
+                                    autoAllocateApi={purchasesApi.shelves.autoAllocate}
                                 />
                                 <div className="flex justify-end mt-3">
                                     <Button

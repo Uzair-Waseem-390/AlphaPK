@@ -124,6 +124,49 @@ def get_candidate_shelves_for_product(product_id: int, *, search: str = None) ->
     ).order_by("name")
 
 
+def compute_auto_shelf_allocation(*, product_id: int, quantity: int, exclude_shelf_ids: list = None) -> dict:
+    """
+    THE single implementation of shelf auto-allocation — shared by every
+    consumption context (invoice items, purchase returns to supplier, lost
+    inventory) through each app's own thin view, same as
+    get_candidate_shelves_for_product above.
+
+    Greedily fills `quantity` units of product_id across shelves that
+    currently hold stock, largest available quantity first — minimizes how
+    many shelves a single pick touches. `exclude_shelf_ids` skips shelves
+    the caller already has a manual row for, so calling this again after
+    the user has hand-picked one or two shelves only fills the remaining
+    gap and never touches their existing rows.
+
+    Deliberately does NOT select_for_update() — this is an advisory
+    computation, not a write path. The actual concurrency-safety guarantee
+    comes from validate_shelf_consumption's locked re-check at save/confirm
+    time (same as get_candidate_shelves_for_product's dropdown, which is
+    equally a snapshot). A stale suggestion here just means the user (or a
+    second auto-allocate click) adjusts before saving — it can never result
+    in an over-committed shelf actually being persisted.
+    """
+    exclude_shelf_ids = set(exclude_shelf_ids or [])
+    rows = (
+        ShelfStock.objects
+        .select_related("shelf")
+        .filter(product_id=product_id, quantity__gt=0, shelf__is_deleted=False)
+        .exclude(shelf_id__in=exclude_shelf_ids)
+        .order_by("-quantity", "shelf__name")
+    )
+
+    remaining = quantity
+    allocations = []
+    for row in rows:
+        if remaining <= 0:
+            break
+        take = min(row.quantity, remaining)
+        allocations.append({"shelf_id": row.shelf_id, "shelf_name": row.shelf.name, "quantity": take})
+        remaining -= take
+
+    return {"allocations": allocations, "shortfall": max(remaining, 0)}
+
+
 # ---------------------------------------------------------------------------
 # Supplier
 # ---------------------------------------------------------------------------

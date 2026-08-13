@@ -12,6 +12,7 @@ from .views import (
     DueInvoiceListView,
     InvoiceConfirmView,
     InvoiceCandidateShelvesView,
+    InvoiceAutoAllocateShelvesView,
     InvoiceDueDateUpdateView,
     InvoiceFilteredListView,
     InvoiceListCreateView,
@@ -79,6 +80,7 @@ urlpatterns = [
 
     # Shelf allocations — sale line consumption / return line put-away
     path("shelves/candidates/", InvoiceCandidateShelvesView.as_view(), name="invoice-candidate-shelves"),
+    path("shelves/auto-allocate/", InvoiceAutoAllocateShelvesView.as_view(), name="invoice-shelf-auto-allocate"),
     path("invoice-items/<int:pk>/shelf-allocations/", SetInvoiceItemShelfAllocationsView.as_view(), name="invoice-item-shelf-allocations"),
     path("return-items/<int:pk>/shelf-allocations/", SetReturnItemShelfAllocationsView.as_view(), name="return-item-shelf-allocations"),
 ]

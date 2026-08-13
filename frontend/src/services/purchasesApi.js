@@ -37,6 +37,17 @@ export const purchasesApi = {
             return api.get(`/shelves/candidates/?${query.toString()}`);
         },
         moveStock: (data) => api.post('/shelves/move/', data),
+        // Auto-allocate `quantity` units of a product across shelves that
+        // currently hold stock, skipping `excludeShelfIds` (shelves the
+        // caller already has manual rows for). Returns whatever it could
+        // allocate plus a `shortfall` if total remaining stock fell short —
+        // caller applies the allocations as-is either way.
+        autoAllocate: (productId, quantity, excludeShelfIds = []) =>
+            api.post('/purchases/shelves/auto-allocate/', {
+                product_id: productId,
+                quantity,
+                exclude_shelf_ids: excludeShelfIds,
+            }),
     },
 
     // Suppliers

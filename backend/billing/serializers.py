@@ -203,6 +203,28 @@ class CandidateShelfSerializer(serializers.Serializer):
     available_quantity = serializers.IntegerField()
 
 
+class AutoAllocateShelvesRequestSerializer(serializers.Serializer):
+    """
+    Body for POST /billing/shelves/auto-allocate/ — thin pass-through to
+    purchases.selectors.compute_auto_shelf_allocation, same pattern as
+    CandidateShelfSerializer above (own copy, same shared backend function).
+    """
+    product_id        = serializers.IntegerField()
+    quantity          = serializers.IntegerField(min_value=1)
+    exclude_shelf_ids = serializers.ListField(child=serializers.IntegerField(), required=False, default=list)
+
+
+class AutoAllocatedShelfSerializer(serializers.Serializer):
+    shelf_id   = serializers.IntegerField()
+    shelf_name = serializers.CharField()
+    quantity   = serializers.IntegerField()
+
+
+class AutoAllocateShelvesResponseSerializer(serializers.Serializer):
+    allocations = AutoAllocatedShelfSerializer(many=True)
+    shortfall   = serializers.IntegerField()
+
+
 class ShelfAllocationInputSerializer(serializers.Serializer):
     shelf_id = serializers.IntegerField()
     quantity = serializers.IntegerField(min_value=1)

@@ -8,6 +8,7 @@ from .views import (
     ShelfRetrieveUpdateDestroyView,
     ShelfStockListView,
     CandidateShelvesForProductView,
+    AutoAllocateShelvesView,
     MoveStockView,
 
     # Supplier
@@ -77,6 +78,7 @@ urlpatterns = [
 
     # static paths (candidates/, move/) BEFORE dynamic <int:pk> paths
     path("shelves/candidates/",  CandidateShelvesForProductView.as_view(),     name="shelf-candidates"),
+    path("shelves/auto-allocate/", AutoAllocateShelvesView.as_view(),          name="shelf-auto-allocate"),
     path("shelves/move/",        MoveStockView.as_view(),                      name="shelf-move-stock"),
 
     path("shelves/<int:pk>/",    ShelfRetrieveUpdateDestroyView.as_view(),     name="shelf-detail"),

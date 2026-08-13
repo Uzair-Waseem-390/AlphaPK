@@ -322,6 +322,8 @@ const LostInventoryPage = () => {
                                         onChange={(next) => handleUpdateLine(index, 'shelf_allocations', next)}
                                         shelves={shelfCandidatesByProduct[line.product_id] || []}
                                         requiredQuantity={Number(line.quantity) || 0}
+                                        productId={line.product_id}
+                                        autoAllocateApi={purchasesApi.shelves.autoAllocate}
                                     />
                                 </div>
                             </div>
