@@ -113,8 +113,12 @@ const InvoiceDetailPage = () => {
     const [actionLoading, setActionLoading] = useState(false);
 
     // Per invoice-item shelf allocation UI state, keyed by invoice item id:
-    // { candidates: [{id, name, available_quantity}], allocations: [{shelf_id, quantity}], saving: bool, error: string }
+    // { candidates: [{id, name, available_quantity}], allocations: [{shelf_id, quantity}], error: string }
     const [shelfState, setShelfState] = useState({});
+    // Bulk auto-allocate/save cover every item at once — one click each,
+    // instead of per-item buttons. Editors stay fully editable either way.
+    const [bulkAutoAllocating, setBulkAutoAllocating] = useState(false);
+    const [bulkSaving, setBulkSaving] = useState(false);
 
     const fetchInvoiceCore = useCallback(async () => {
         const [invoiceData, summaryData] = await Promise.all([
@@ -226,26 +230,81 @@ const InvoiceDetailPage = () => {
         }));
     };
 
-    const handleSaveAllocations = async (itemId) => {
-        setShelfState((prev) => ({
-            ...prev,
-            [itemId]: { ...prev[itemId], saving: true, error: '' },
+    // One click auto-allocates every item at once — fills only each item's
+    // remaining gap, never touches rows already present (same rule
+    // ShelfAllocationEditor's own per-item button follows).
+    const handleAutoAllocateAll = async () => {
+        if (!invoice?.items?.length) return;
+        setBulkAutoAllocating(true);
+        let failedCount = 0;
+        await Promise.all(invoice.items.map(async (item) => {
+            const state = shelfState[item.id] || { allocations: [] };
+            const allocatedTotal = state.allocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
+            const remaining = item.quantity - allocatedTotal;
+            if (remaining <= 0) return;
+            try {
+                const excludeShelfIds = state.allocations.map((a) => a.shelf_id).filter(Boolean);
+                const data = await billingApi.shelves.autoAllocate(item.product, remaining, excludeShelfIds);
+                const newRows = (data?.allocations || []).map((a) => ({
+                    shelf_id: a.shelf_id, quantity: a.quantity, shelf_name: a.shelf_name || '',
+                }));
+                if (newRows.length > 0) {
+                    setShelfState((prev) => ({
+                        ...prev,
+                        [item.id]: { ...prev[item.id], allocations: [...(prev[item.id]?.allocations || []), ...newRows] },
+                    }));
+                }
+            } catch (error) {
+                console.error(`Failed to auto-allocate item ${item.id}:`, error);
+                failedCount += 1;
+            }
         }));
-        try {
-            const allocations = (shelfState[itemId]?.allocations || [])
-                .filter((a) => a.shelf_id !== '' && a.quantity !== '')
-                .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
-            await billingApi.invoiceItems.setShelfAllocations(itemId, allocations);
-            toast.success('Shelf allocations saved.');
-            await fetchInvoiceCore();
-        } catch (error) {
-            console.error('Failed to save shelf allocations:', error);
-            const message = extractErrorMessage(error, 'Failed to save shelf allocations.');
-            setShelfState((prev) => ({
-                ...prev,
-                [itemId]: { ...prev[itemId], saving: false, error: message },
-            }));
+        setBulkAutoAllocating(false);
+        if (failedCount > 0) {
+            toast.error(`Auto-allocate failed for ${failedCount} item(s) — you can still allocate them manually.`);
+        } else {
+            toast.success('Auto-allocated shelves for all items.');
         }
+    };
+
+    // One click saves every item's current allocation rows at once —
+    // whether they came from auto-allocate, manual edits, or both.
+    const handleSaveAllocationsAll = async () => {
+        if (!invoice?.items?.length) return;
+        setBulkSaving(true);
+        setShelfState((prev) => {
+            const next = {};
+            Object.keys(prev).forEach((id) => { next[id] = { ...prev[id], error: '' }; });
+            return next;
+        });
+        let failedCount = 0;
+        // Sequential, not Promise.all — each save is a real DB write, and
+        // firing them concurrently against SQLite (single-writer) causes
+        // "database is locked" 500s. One at a time is the correct fix
+        // regardless of backend, not just a SQLite workaround.
+        for (const item of invoice.items) {
+            try {
+                const allocations = (shelfState[item.id]?.allocations || [])
+                    .filter((a) => a.shelf_id !== '' && a.quantity !== '')
+                    .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
+                await billingApi.invoiceItems.setShelfAllocations(item.id, allocations);
+            } catch (error) {
+                console.error(`Failed to save shelf allocations for item ${item.id}:`, error);
+                failedCount += 1;
+                const message = extractErrorMessage(error, 'Failed to save shelf allocations.');
+                setShelfState((prev) => ({
+                    ...prev,
+                    [item.id]: { ...prev[item.id], error: message },
+                }));
+            }
+        }
+        setBulkSaving(false);
+        if (failedCount > 0) {
+            toast.error(`Failed to save allocations for ${failedCount} item(s) — see details below.`);
+        } else {
+            toast.success('All shelf allocations saved.');
+        }
+        await fetchInvoiceCore();
     };
 
     const handlePrint = async () => {
@@ -702,11 +761,32 @@ const InvoiceDetailPage = () => {
 
                     {/* Shelf Allocation - editable while draft */}
                     <Card className="p-6">
-                        <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
+                        <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                            <h3 className="font-semibold text-neutral-900">Shelf Allocation</h3>
+                            <div className="flex gap-2">
+                                <Button
+                                    size="sm"
+                                    variant="secondary"
+                                    onClick={handleAutoAllocateAll}
+                                    loading={bulkAutoAllocating}
+                                    disabled={bulkSaving}
+                                >
+                                    Auto-Allocate All
+                                </Button>
+                                <Button
+                                    size="sm"
+                                    onClick={handleSaveAllocationsAll}
+                                    loading={bulkSaving}
+                                    disabled={bulkAutoAllocating}
+                                >
+                                    Save All Allocations
+                                </Button>
+                            </div>
+                        </div>
                         <div className="space-y-4">
                             {invoice.items?.map((item) => {
                                 const state = shelfState[item.id] || {
-                                    candidates: [], allocations: [], saving: false, error: '',
+                                    candidates: [], allocations: [], error: '',
                                 };
                                 return (
                                     <div key={item.id} className="border border-neutral-200 rounded-xl p-4">
@@ -727,22 +807,13 @@ const InvoiceDetailPage = () => {
                                             shelves={state.candidates}
                                             requiredQuantity={item.quantity}
                                             mode="consumption"
-                                            disabled={state.saving}
+                                            disabled={bulkSaving || bulkAutoAllocating}
                                             productId={item.product}
                                             autoAllocateApi={billingApi.shelves.autoAllocate}
                                         />
                                         {state.error && (
                                             <p className="text-sm text-error-600 mt-2">{state.error}</p>
                                         )}
-                                        <div className="flex justify-end mt-3">
-                                            <Button
-                                                size="sm"
-                                                onClick={() => handleSaveAllocations(item.id)}
-                                                loading={state.saving}
-                                            >
-                                                Save Allocations
-                                            </Button>
-                                        </div>
                                     </div>
                                 );
                             })}

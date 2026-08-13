@@ -43,7 +43,7 @@ export const purchasesApi = {
         // allocate plus a `shortfall` if total remaining stock fell short —
         // caller applies the allocations as-is either way.
         autoAllocate: (productId, quantity, excludeShelfIds = []) =>
-            api.post('/purchases/shelves/auto-allocate/', {
+            api.post('/shelves/auto-allocate/', {
                 product_id: productId,
                 quantity,
                 exclude_shelf_ids: excludeShelfIds,

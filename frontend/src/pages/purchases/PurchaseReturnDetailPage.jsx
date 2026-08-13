@@ -31,8 +31,11 @@ const PurchaseReturnDetailPage = () => {
     const [loadError, setLoadError] = useState('');
     const [candidateShelves, setCandidateShelves] = useState({});
     const [allocationDrafts, setAllocationDrafts] = useState({});
-    const [savingAllocationFor, setSavingAllocationFor] = useState(null);
     const [allocationError, setAllocationError] = useState('');
+    // Bulk auto-allocate/save cover every item at once — one click each,
+    // instead of per-item buttons. Editors stay fully editable either way.
+    const [bulkAutoAllocating, setBulkAutoAllocating] = useState(false);
+    const [bulkSaving, setBulkSaving] = useState(false);
     const [acceptError, setAcceptError] = useState('');
     const [showEditForm, setShowEditForm] = useState(false);
     const [formLoading, setFormLoading] = useState(false);
@@ -79,22 +82,74 @@ const PurchaseReturnDetailPage = () => {
         });
     }, [returnItem, order]);
 
-    const handleSaveAllocations = async (itemId) => {
-        const allocations = (allocationDrafts[itemId] || [])
-            .filter((a) => a.shelf_id && a.quantity)
-            .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
-        setSavingAllocationFor(itemId);
+    const getItemProductId = (item) => order?.items?.find((oi) => oi.product_code === item.product_code)?.product;
+
+    // One click auto-allocates every item at once — fills only each item's
+    // remaining gap, never touches rows already present.
+    const handleAutoAllocateAll = async () => {
+        if (!returnItem?.items?.length) return;
+        setBulkAutoAllocating(true);
         setAllocationError('');
-        try {
-            await purchasesApi.purchaseReturnItems.setShelfAllocations(itemId, allocations);
-            await fetchReturnDetails();
-            toast.success('Shelf allocations saved.');
-        } catch (error) {
-            console.error('Failed to save shelf allocations:', error);
-            setAllocationError(extractErrorMessage(error, 'Failed to save shelf allocations.'));
-        } finally {
-            setSavingAllocationFor(null);
+        let failedCount = 0;
+        await Promise.all(returnItem.items.map(async (item) => {
+            const productId = getItemProductId(item);
+            if (!productId) return;
+            const current = allocationDrafts[item.id] || [];
+            const allocatedTotal = current.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
+            const remaining = item.quantity - allocatedTotal;
+            if (remaining <= 0) return;
+            try {
+                const excludeShelfIds = current.map((a) => a.shelf_id).filter(Boolean);
+                const data = await purchasesApi.shelves.autoAllocate(productId, remaining, excludeShelfIds);
+                const newRows = (data?.allocations || []).map((a) => ({
+                    shelf_id: a.shelf_id, quantity: a.quantity, shelf_name: a.shelf_name || '',
+                }));
+                if (newRows.length > 0) {
+                    setAllocationDrafts((prev) => ({ ...prev, [item.id]: [...(prev[item.id] || []), ...newRows] }));
+                }
+            } catch (error) {
+                console.error(`Failed to auto-allocate item ${item.id}:`, error);
+                failedCount += 1;
+            }
+        }));
+        setBulkAutoAllocating(false);
+        if (failedCount > 0) {
+            toast.error(`Auto-allocate failed for ${failedCount} item(s) — you can still allocate them manually.`);
+        } else {
+            toast.success('Auto-allocated shelves for all items.');
         }
+    };
+
+    // One click saves every item's current allocation rows at once —
+    // whether they came from auto-allocate, manual edits, or both.
+    const handleSaveAllocationsAll = async () => {
+        if (!returnItem?.items?.length) return;
+        setBulkSaving(true);
+        setAllocationError('');
+        let failedCount = 0;
+        // Sequential, not Promise.all — each save is a real DB write, and
+        // firing them concurrently against SQLite (single-writer) causes
+        // "database is locked" 500s. One at a time is the correct fix
+        // regardless of backend, not just a SQLite workaround.
+        for (const item of returnItem.items) {
+            try {
+                const allocations = (allocationDrafts[item.id] || [])
+                    .filter((a) => a.shelf_id && a.quantity)
+                    .map((a) => ({ shelf_id: parseInt(a.shelf_id, 10), quantity: parseInt(a.quantity, 10) }));
+                await purchasesApi.purchaseReturnItems.setShelfAllocations(item.id, allocations);
+            } catch (error) {
+                console.error(`Failed to save shelf allocations for item ${item.id}:`, error);
+                failedCount += 1;
+            }
+        }
+        setBulkSaving(false);
+        if (failedCount > 0) {
+            setAllocationError(`Failed to save allocations for ${failedCount} item(s).`);
+            toast.error(`Failed to save allocations for ${failedCount} item(s).`);
+        } else {
+            toast.success('All shelf allocations saved.');
+        }
+        await fetchReturnDetails();
     };
 
     const fetchReturnDetails = async () => {
@@ -412,7 +467,29 @@ const PurchaseReturnDetailPage = () => {
             {/* Shelf Allocation — pending returns only, required before accept */}
             {returnItem.status === 'pending' && (
                 <Card className="p-6" hover={false}>
-                    <h3 className="font-semibold text-neutral-900 mb-3">Shelf Allocation</h3>
+                    <div className="flex items-center justify-between mb-3 flex-wrap gap-2">
+                        <h3 className="font-semibold text-neutral-900">Shelf Allocation</h3>
+                        <div className="flex gap-2">
+                            <Button
+                                size="sm"
+                                variant="secondary"
+                                onClick={handleAutoAllocateAll}
+                                loading={bulkAutoAllocating}
+                                disabled={bulkSaving}
+                            >
+                                Auto-Allocate All
+                            </Button>
+                            <Button
+                                size="sm"
+                                icon={Save}
+                                onClick={handleSaveAllocationsAll}
+                                loading={bulkSaving}
+                                disabled={bulkAutoAllocating}
+                            >
+                                Save All Allocations
+                            </Button>
+                        </div>
+                    </div>
                     <p className="text-sm text-neutral-500 mb-4">
                         Select which shelf(s) each returned item is being pulled from before accepting this return.
                     </p>
@@ -432,20 +509,10 @@ const PurchaseReturnDetailPage = () => {
                                     shelves={candidateShelves[item.id] || []}
                                     requiredQuantity={item.quantity}
                                     mode="consumption"
-                                    disabled={savingAllocationFor === item.id}
-                                    productId={order?.items?.find((oi) => oi.product_code === item.product_code)?.product}
+                                    disabled={bulkSaving || bulkAutoAllocating}
+                                    productId={getItemProductId(item)}
                                     autoAllocateApi={purchasesApi.shelves.autoAllocate}
                                 />
-                                <div className="flex justify-end mt-3">
-                                    <Button
-                                        size="sm"
-                                        icon={Save}
-                                        onClick={() => handleSaveAllocations(item.id)}
-                                        loading={savingAllocationFor === item.id}
-                                    >
-                                        Save Allocations
-                                    </Button>
-                                </div>
                             </div>
                         ))}
                     </div>

@@ -32,6 +32,7 @@ const LostInventoryPage = () => {
 
     const previewTimer = useRef(null);
     const [shelfCandidatesByProduct, setShelfCandidatesByProduct] = useState({});
+    const [bulkAutoAllocating, setBulkAutoAllocating] = useState(false);
 
     useEffect(() => {
         if (!searchTerm) {
@@ -139,6 +140,42 @@ const LostInventoryPage = () => {
 
     const handleRemoveLine = (index) => {
         setCart((prev) => prev.filter((_, i) => i !== index));
+    };
+
+    // One click auto-allocates every line in the batch at once — fills only
+    // each line's remaining gap, never touches rows already present. No
+    // separate save step here: the whole batch persists together on submit.
+    const handleAutoAllocateAllLines = async () => {
+        if (cart.length === 0) return;
+        setBulkAutoAllocating(true);
+        setError('');
+        let failedCount = 0;
+        await Promise.all(cart.map(async (line) => {
+            const allocatedTotal = lineAllocatedTotal(line);
+            const remaining = (Number(line.quantity) || 0) - allocatedTotal;
+            if (remaining <= 0) return;
+            try {
+                const excludeShelfIds = (line.shelf_allocations || []).map((a) => a.shelf_id).filter(Boolean);
+                const data = await purchasesApi.shelves.autoAllocate(line.product_id, remaining, excludeShelfIds);
+                const newRows = (data?.allocations || []).map((a) => ({
+                    shelf_id: a.shelf_id, quantity: a.quantity, shelf_name: a.shelf_name || '',
+                }));
+                if (newRows.length > 0) {
+                    setCart((prev) => prev.map((l) => (
+                        l.product_id === line.product_id
+                            ? { ...l, shelf_allocations: [...(l.shelf_allocations || []), ...newRows] }
+                            : l
+                    )));
+                }
+            } catch (err) {
+                console.error(`Failed to auto-allocate line ${line.product_id}:`, err);
+                failedCount += 1;
+            }
+        }));
+        setBulkAutoAllocating(false);
+        if (failedCount > 0) {
+            setError(`Auto-allocate failed for ${failedCount} item(s) — you can still allocate them manually.`);
+        }
     };
 
     const grandTotal = cart.reduce((sum, l) => sum + (parseFloat(l.total_cost) || 0), 0);
@@ -258,7 +295,19 @@ const LostInventoryPage = () => {
             </Card>
 
             <Card className="p-6 space-y-4">
-                <h3 className="font-semibold text-neutral-900">Lost Items Batch</h3>
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                    <h3 className="font-semibold text-neutral-900">Lost Items Batch</h3>
+                    {cart.length > 0 && (
+                        <Button
+                            variant="secondary"
+                            size="sm"
+                            onClick={handleAutoAllocateAllLines}
+                            loading={bulkAutoAllocating}
+                        >
+                            Auto-Allocate All
+                        </Button>
+                    )}
+                </div>
 
                 {cart.length === 0 ? (
                     <p className="text-center text-neutral-500 py-6">
@@ -324,6 +373,7 @@ const LostInventoryPage = () => {
                                         requiredQuantity={Number(line.quantity) || 0}
                                         productId={line.product_id}
                                         autoAllocateApi={purchasesApi.shelves.autoAllocate}
+                                        disabled={bulkAutoAllocating}
                                     />
                                 </div>
                             </div>
