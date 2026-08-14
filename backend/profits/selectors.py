@@ -168,11 +168,16 @@ def get_monthly_profit_by_period(period: str):
     )
 
 
-def get_current_month_profit() -> dict:
+def _compute_current_month_figures() -> dict:
     """
-    Live, provisional figures for the current, still-open month — never
-    stored, always recomputed, clearly flagged so the caller never confuses
-    it with a finalized MonthlyProfit row.
+    Everything about the current, still-open month EXCEPT the investor
+    ownership-split preview — split out so a caller that only needs
+    net_profit (accounting.selectors.get_balance_sheet_live) doesn't have to
+    pay for get_ownership_split()'s cross-app aggregation
+    (get_business_worth, which itself touches assets/cash_management/etc.)
+    just to get one number. get_current_month_profit() below still computes
+    the exact same public return value as before this split — pure
+    extraction, no behavior change.
     """
     from django.utils import timezone
     from .services import (
@@ -208,23 +213,6 @@ def get_current_month_profit() -> dict:
         - depreciation + disposal_gain_loss
     )
 
-    # Live preview only — informational, never stored, no settle actions
-    # possible against it. Applying today's ownership % to a still-moving
-    # net_profit would make any payout amount potentially wrong once the
-    # month actually finalizes, so this is read-only by design.
-    split = get_ownership_split()
-    investors_preview = [
-        {
-            "id"            : inv["id"],
-            "name"          : inv["name"],
-            "share_percent" : inv["share_percent"],
-            "share_amount"  : (net_profit * inv["share_percent"] / Decimal("100")).quantize(Decimal("0.0001")),
-        }
-        for inv in split["investors"]
-    ]
-    investor_preview_sum = sum((inv["share_amount"] for inv in investors_preview), Decimal("0"))
-    owner_preview_amount = net_profit - investor_preview_sum
-
     return {
         "period"                   : period,
         "is_provisional"           : True,
@@ -245,6 +233,47 @@ def get_current_month_profit() -> dict:
         "depreciation"                : depreciation,
         "disposal_gain_loss"          : disposal_gain_loss,
         "net_profit"                  : net_profit,
+    }
+
+
+def get_current_month_net_profit_only() -> dict:
+    """
+    Cheap subset of get_current_month_profit() — everything except the
+    investor ownership-split preview. Use this when only net_profit (or the
+    other headline figures) is needed and the investor preview would be
+    thrown away, e.g. accounting.selectors.get_balance_sheet_live.
+    """
+    return _compute_current_month_figures()
+
+
+def get_current_month_profit() -> dict:
+    """
+    Live, provisional figures for the current, still-open month — never
+    stored, always recomputed, clearly flagged so the caller never confuses
+    it with a finalized MonthlyProfit row.
+    """
+    figures = _compute_current_month_figures()
+    net_profit = figures["net_profit"]
+
+    # Live preview only — informational, never stored, no settle actions
+    # possible against it. Applying today's ownership % to a still-moving
+    # net_profit would make any payout amount potentially wrong once the
+    # month actually finalizes, so this is read-only by design.
+    split = get_ownership_split()
+    investors_preview = [
+        {
+            "id"            : inv["id"],
+            "name"          : inv["name"],
+            "share_percent" : inv["share_percent"],
+            "share_amount"  : (net_profit * inv["share_percent"] / Decimal("100")).quantize(Decimal("0.0001")),
+        }
+        for inv in split["investors"]
+    ]
+    investor_preview_sum = sum((inv["share_amount"] for inv in investors_preview), Decimal("0"))
+    owner_preview_amount = net_profit - investor_preview_sum
+
+    return {
+        **figures,
         "investors_preview"             : investors_preview,
         "owner_share_percent"           : split["owner_share_percent"],
         "owner_share_amount_preview"    : owner_preview_amount,

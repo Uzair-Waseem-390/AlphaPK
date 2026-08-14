@@ -69,6 +69,9 @@ import CustomerLedgerDetailPage from './pages/ledger/CustomerLedgerDetailPage';
 import ARAgingPage from './pages/accounting/ARAgingPage';
 import APAgingPage from './pages/accounting/APAgingPage';
 import FixedAssetRegisterPage from './pages/accounting/FixedAssetRegisterPage';
+import CashFlowStatementPage from './pages/accounting/CashFlowStatementPage';
+import IncomeStatementPage from './pages/accounting/IncomeStatementPage';
+import BalanceSheetPage from './pages/accounting/BalanceSheetPage';
 
 // Reports pages
 import ReportsHomePage from './pages/reports/ReportsHomePage';
@@ -587,6 +590,30 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <ExpensesReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/income-statement" element={
+          <ProtectedRoute>
+            <Layout>
+              <IncomeStatementPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/balance-sheet" element={
+          <ProtectedRoute>
+            <Layout>
+              <BalanceSheetPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/cash-flow-statement" element={
+          <ProtectedRoute>
+            <Layout>
+              <CashFlowStatementPage />
             </Layout>
           </ProtectedRoute>
         } />

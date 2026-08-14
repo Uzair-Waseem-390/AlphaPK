@@ -39,7 +39,7 @@ class TriggerAllCatchUpsView(APIView):
     pages/hooks happen to be wired up. Returns only a small confirmation
     object — no dashboard data lives here on purpose.
 
-    There are exactly five such mechanisms in the whole codebase (verified
+    There are exactly six such mechanisms in the whole codebase (verified
     by two independent sweeps across every app — nothing else uses this
     pattern; every other Flow singleton is kept current at write time,
     event-driven, and needs no trigger):
@@ -47,13 +47,20 @@ class TriggerAllCatchUpsView(APIView):
         1. assets      — depreciation catch-up, one entry per active asset
         2. cash_management — investor growth catch-up, one entry per investor
         3. profits     — monthly profit finalization catch-up (global)
-        4. credit_score — overdue-invoice credit score catch-up, one entry
+        4. accounting  — balance sheet snapshot catch-up, one entry for the
+                          single most-recently-finished month only (see
+                          accounting.services.catch_up_balance_sheet_snapshots
+                          for why it can't backfill further back than that)
+        5. credit_score — overdue-invoice credit score catch-up, one entry
                           per customer with a newly-overdue invoice
-        5. users       — expired JWT token flush (throttled to once/24h)
+        6. users       — expired JWT token flush (throttled to once/24h)
 
     Order matters: assets and investors run first because profits reads
     both of their outputs (asset depreciation for the deduction breakdown,
     investor current_worth for the ownership split) when finalizing a month.
+    accounting's balance sheet catch-up runs right after profits because it
+    reads the SAME live singletons profits' own finalization just settled
+    (asset/investor catch-ups already ran, so those figures are current too).
     credit_score depends only on billing data (always live-updated, no
     ordering dependency on the other catch-ups) so it can run anywhere
     after profits; the token flush is independent of everything and runs last.
@@ -69,6 +76,7 @@ class TriggerAllCatchUpsView(APIView):
         assets_processed, assets_error = self._run_asset_catchup()
         investors_processed, investors_error = self._run_investor_catchup()
         months_finalized, profits_error = self._run_profits_catchup(user=request.user)
+        balance_sheet_snapshots_created, balance_sheet_error = self._run_balance_sheet_catchup()
         credit_scores_recalculated, credit_score_error = self._run_credit_score_catchup(user=request.user)
         tokens_flushed, tokens_error = self._run_token_flush()
 
@@ -79,6 +87,8 @@ class TriggerAllCatchUpsView(APIView):
             "investors_error": investors_error,
             "months_finalized": months_finalized,
             "profits_error": profits_error,
+            "balance_sheet_snapshots_created": balance_sheet_snapshots_created,
+            "balance_sheet_error": balance_sheet_error,
             "credit_scores_recalculated": credit_scores_recalculated,
             "credit_score_error": credit_score_error,
             "tokens_flushed": tokens_flushed,
@@ -123,6 +133,18 @@ class TriggerAllCatchUpsView(APIView):
             catch_up_monthly_profits(user=user)
             after = ProfitFlow.get_instance().months_finalized_count
             return after - before, None
+        except Exception as exc:
+            return 0, str(exc)
+
+    def _run_balance_sheet_catchup(self):
+        """Depends on assets/investors/profits already being current — see
+        accounting.services.catch_up_balance_sheet_snapshots for why this
+        only ever freezes the single most-recently-finished month, never a
+        backlog of older ones."""
+        try:
+            from accounting.services import catch_up_balance_sheet_snapshots
+
+            return catch_up_balance_sheet_snapshots(), None
         except Exception as exc:
             return 0, str(exc)
 

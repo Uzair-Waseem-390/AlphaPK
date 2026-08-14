@@ -7,10 +7,15 @@ from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from billing.models import Invoice
-from billing.services import confirm_invoice, create_customer, create_invoice
+from billing.services import (
+    confirm_invoice, create_customer, create_invoice, set_invoice_item_shelf_allocations,
+)
 from cash_flow.models import CashFlow
 from purchases.models import Category, Product, Shelf
-from purchases.services import confirm_purchase_order, create_purchase_order, create_supplier
+from purchases.services import (
+    confirm_purchase_order, create_purchase_order, create_supplier,
+    set_purchase_item_shelf_allocations,
+)
 from rates.services import create_rate
 from users.models import User
 
@@ -42,13 +47,19 @@ class ProfitsTestBase(TestCase):
         supplier = create_supplier(name="Ali Traders", code="ALI", user=self.admin)
         customer = create_customer(name="Big Mart", code="BM", address="Main St", user=self.admin)
 
-        product = Product.objects.create(name="Product 1", code="P001", category=category, shelf=shelf)
+        product = Product.objects.create(name="Product 1", code="P001", category=category)
         create_rate(product_id=product.id, selling_price=Decimal("100"), user=self.admin)
         order = create_purchase_order(
             supplier_id=supplier.id,
             items=[{"product_id": product.id, "quantity": 10, "unit_price": Decimal("50")}],
             user=self.admin,
         )
+        for item in order.items.all():
+            set_purchase_item_shelf_allocations(
+                purchase_item_id=item.id,
+                allocations=[{"shelf_id": shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         confirm_purchase_order(order_id=order.id, user=self.admin)
 
         invoice = create_invoice(
@@ -56,6 +67,12 @@ class ProfitsTestBase(TestCase):
             items=[{"product_id": product.id, "quantity": 4}],
             user=self.admin,
         )
+        for item in invoice.items.all():
+            set_invoice_item_shelf_allocations(
+                invoice_item_id=item.id,
+                allocations=[{"shelf_id": shelf.id, "quantity": item.quantity}],
+                user=self.admin,
+            )
         confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
         # Backdate the confirmation into last month so catch-up finalizes it.

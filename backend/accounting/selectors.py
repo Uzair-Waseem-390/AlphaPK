@@ -1,3 +1,8 @@
+from calendar import monthrange
+from datetime import date as date_cls
+from decimal import Decimal
+
+from django.db.models import Subquery, Sum
 from django.utils import timezone
 
 from billing.models import Invoice
@@ -209,3 +214,368 @@ def get_fixed_asset_register_summary(rows: list = None) -> dict:
         "total_accumulated_depreciation": sum((r["accumulated_depreciation"] for r in rows), 0),
         "total_net_book_value": sum((r["net_book_value"] for r in rows), 0),
     }
+
+
+# ---------------------------------------------------------------------------
+# Cash Flow Statement — classifies cash_flow.CashMovement into the standard
+# Operating / Investing / Financing activities, aggregated over a date range.
+# ---------------------------------------------------------------------------
+# opening_cash is a one-time data-entry bootstrap event (the pre-existing
+# balance registered at go-live) — not a real activity within any reporting
+# period, so it's excluded from all three buckets rather than force-fit into
+# one.
+
+OPERATING_MOVEMENT_TYPES = {
+    "invoice_payment", "advance_payment", "expense", "supplier_payment",
+    "tax_payment", "wht_payment", "cash_lost", "cash_found",
+    "recurring_expense_payment",
+}
+INVESTING_MOVEMENT_TYPES = {"asset_purchase", "asset_sold"}
+FINANCING_MOVEMENT_TYPES = {
+    "investor_investment", "investor_withdrawal", "owner_contribution",
+    "owner_drawing", "investor_profit_payout", "owner_profit_payout",
+}
+
+_BUCKET_BY_MOVEMENT_TYPE = {
+    **{mt: "operating" for mt in OPERATING_MOVEMENT_TYPES},
+    **{mt: "investing" for mt in INVESTING_MOVEMENT_TYPES},
+    **{mt: "financing" for mt in FINANCING_MOVEMENT_TYPES},
+}
+
+_MOVEMENT_TYPE_LABELS = {
+    "invoice_payment": "Invoice Payments Received",
+    "advance_payment": "Advance Payments",
+    "expense": "Expenses Paid",
+    "supplier_payment": "Supplier Payments",
+    "tax_payment": "GST Payments to FBR",
+    "wht_payment": "WHT Payments to FBR",
+    "cash_lost": "Cash Lost",
+    "cash_found": "Cash Found",
+    "recurring_expense_payment": "Recurring Expense Payments",
+    "asset_purchase": "Fixed Asset Purchases",
+    "asset_sold": "Fixed Asset Sale Proceeds",
+    "investor_investment": "Investor Contributions",
+    "investor_withdrawal": "Investor Withdrawals",
+    "owner_contribution": "Owner Contributions",
+    "owner_drawing": "Owner Drawings",
+    "investor_profit_payout": "Investor Profit Payouts",
+    "owner_profit_payout": "Owner Profit Payouts",
+}
+
+
+def get_cash_flow_statement(*, date_from: str, date_to: str) -> dict:
+    """
+    One indexed GROUP BY query (movement_type, direction) over CashMovement's
+    date range — never a per-row Python merge. Opening/closing cash balance
+    is only included when date_to is today: closing = CashFlow.cash_in_hand
+    (already O(1)), opening = closing - net_change. For any range that ends
+    in the past, computing an opening balance would mean summing all
+    CashMovement history before the range started — unbounded, so it's
+    simply omitted rather than silently shipped as an O(n) query.
+    """
+    from cash_flow.models import CashFlow, CashMovement
+
+    rows = (
+        CashMovement.objects
+        .filter(is_deleted=False, date__gte=date_from, date__lte=date_to)
+        .exclude(movement_type="opening_cash")
+        .values("movement_type", "direction")
+        .annotate(total=Sum("amount"))
+    )
+
+    buckets = {"operating": [], "investing": [], "financing": []}
+    bucket_totals = {"operating": Decimal("0"), "investing": Decimal("0"), "financing": Decimal("0")}
+    for row in rows:
+        bucket = _BUCKET_BY_MOVEMENT_TYPE.get(row["movement_type"])
+        if bucket is None:
+            continue
+        signed = row["total"] if row["direction"] == CashMovement.Direction.INFLOW else -row["total"]
+        buckets[bucket].append({
+            "label": _MOVEMENT_TYPE_LABELS.get(row["movement_type"], row["movement_type"]),
+            "amount": signed,
+        })
+        bucket_totals[bucket] += signed
+
+    net_change = bucket_totals["operating"] + bucket_totals["investing"] + bucket_totals["financing"]
+
+    result = {
+        "date_from": date_from,
+        "date_to": date_to,
+        "operating": {"lines": buckets["operating"], "net": bucket_totals["operating"]},
+        "investing": {"lines": buckets["investing"], "net": bucket_totals["investing"]},
+        "financing": {"lines": buckets["financing"], "net": bucket_totals["financing"]},
+        "net_change_in_cash": net_change,
+        "opening_cash": None,
+        "closing_cash": None,
+    }
+
+    if str(date_to) == timezone.localdate().isoformat():
+        closing = CashFlow.get_instance().cash_in_hand
+        result["closing_cash"] = closing
+        result["opening_cash"] = closing - net_change
+
+    return result
+
+
+# ---------------------------------------------------------------------------
+# Income Statement — reshapes profits.MonthlyProfit (finished months) or
+# profits.selectors.get_current_month_profit() (current month, provisional)
+# into standard statement layout, plus a per-category expense breakdown
+# bounded to that one period.
+# ---------------------------------------------------------------------------
+
+def _period_bounds(period: str) -> tuple:
+    year, month = int(period[:4]), int(period[5:7])
+    first_day = date_cls(year, month, 1)
+    last_day = date_cls(year, month, monthrange(year, month)[1])
+    return first_day, last_day
+
+
+def _get_expense_category_breakdown(period: str) -> list:
+    """Bounded to ONE month's Expense/RecurringExpenseAssignmentPayment rows
+    — never all history. Both source fields (expense_date, payment_date) are
+    plain DateFields, already indexed."""
+    from cash_flow.models import Expense
+    from recurring_expenses.models import RecurringExpenseAssignmentPayment
+
+    first_day, last_day = _period_bounds(period)
+
+    expense_rows = (
+        Expense.objects
+        .filter(is_deleted=False, expense_date__gte=first_day, expense_date__lte=last_day)
+        .values("category__name")
+        .annotate(total=Sum("amount"))
+    )
+    recurring_rows = (
+        RecurringExpenseAssignmentPayment.objects
+        .filter(is_deleted=False, payment_date__gte=first_day, payment_date__lte=last_day)
+        .values("assignment__category_name_snapshot")
+        .annotate(total=Sum("amount"))
+    )
+
+    breakdown = [{"category": r["category__name"], "amount": r["total"]} for r in expense_rows]
+    breakdown += [
+        {"category": r["assignment__category_name_snapshot"], "amount": r["total"]}
+        for r in recurring_rows
+    ]
+    return breakdown
+
+
+def get_income_statement(*, period: str = None) -> dict:
+    """
+    period=None, or the current calendar month, returns the LIVE provisional
+    figures (profits.get_current_month_profit) — never stored, always
+    recomputed. Any other period reads the frozen profits.MonthlyProfit row
+    for that period; raises MonthlyProfit.DoesNotExist if it was never
+    finalized (same convention the Profits page already uses — the caller
+    surfaces that as a 404, not a silent zero-filled statement).
+    """
+    from profits.models import MonthlyProfit
+    from profits.selectors import get_current_month_net_profit_only
+
+    today = timezone.localdate()
+    current_period = f"{today.year:04d}-{today.month:02d}"
+
+    if period is None or period == current_period:
+        data = get_current_month_net_profit_only()
+        resolved_period = current_period
+    else:
+        mp = MonthlyProfit.objects.get(period=period)
+        data = {
+            "period": mp.period,
+            "is_provisional": False,
+            "gross_revenue": mp.gross_revenue,
+            "gross_cogs": mp.gross_cogs,
+            "gross_profit": mp.gross_profit,
+            "net_revenue": mp.net_revenue,
+            "net_cogs": mp.net_cogs,
+            "net_gross_profit": mp.net_gross_profit,
+            "expenses_paid": mp.expenses_paid,
+            "recurring_expenses_paid": mp.recurring_expenses_paid,
+            "gst_paid": mp.gst_paid,
+            "wht_paid": mp.wht_paid,
+            "lost_cash": mp.lost_cash,
+            "found_cash": mp.found_cash,
+            "lost_inventory": mp.lost_inventory,
+            "found_inventory": mp.found_inventory,
+            "depreciation": mp.depreciation,
+            "disposal_gain_loss": mp.disposal_gain_loss,
+            "net_profit": mp.net_profit,
+        }
+        resolved_period = period
+
+    data["expense_breakdown"] = _get_expense_category_breakdown(resolved_period)
+    return data
+
+
+# ---------------------------------------------------------------------------
+# Balance Sheet
+# ---------------------------------------------------------------------------
+# "As of today" is live — every figure already lives in an O(1) singleton
+# somewhere (CashFlow/AssetFlow/TaxFlow/CashManagementFlow/ProfitFlow),
+# collapsed into ONE query via Subquery annotations instead of one round
+# trip per singleton. Inventory value is the one exception (not a singleton
+# — reuses the existing bounded Inventory Valuation query, 2 more queries).
+# "As of a finished month" reads the frozen accounting.BalanceSheetSnapshot
+# row for that period instead (see services.catch_up_balance_sheet_snapshots).
+
+def _compute_opening_balance_equity() -> Decimal:
+    """
+    Net offset for go-live bootstrap data (the data_entry app) — each of
+    these creates one side of a transaction with nothing on the other side:
+      + CustomerOpeningBalance          (receivable asset, no offset)
+      + "opening stock" data-entry POs  (real inventory asset, no offset —
+        distinguished from a pure balance-bootstrap PO structurally, via
+        Exists() against its real PurchaseItem rows, never by parsing its
+        description text)
+      - SupplierOpeningBalance          (payable liability, no offset)
+    Without this, a business that used the Data Entry app to bootstrap
+    pre-existing debts/stock at go-live never balances — found by tracing a
+    real Rs 1000 mismatch back to exactly this gap, not assumed upfront.
+    """
+    from django.db.models import Exists, OuterRef
+    from data_entry.models import CustomerOpeningBalance, SupplierOpeningBalance
+    from purchases.models import PurchaseItem, PurchaseOrder
+
+    zero = Decimal("0")
+    customer_ob_total = CustomerOpeningBalance.objects.aggregate(t=Sum("amount"))["t"] or zero
+    supplier_ob_total = SupplierOpeningBalance.objects.aggregate(t=Sum("amount"))["t"] or zero
+
+    has_items = PurchaseItem.objects.filter(order=OuterRef("pk"), is_deleted=False)
+    opening_stock_total = (
+        PurchaseOrder.objects
+        .filter(is_data_entry=True, status=PurchaseOrder.Status.CONFIRMED)
+        .filter(Exists(has_items))
+        .aggregate(t=Sum("net_payable"))["t"]
+    ) or zero
+
+    return customer_ob_total + opening_stock_total - supplier_ob_total
+
+
+def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payable,
+                              inventory_value, fixed_assets_nbv, gst_payable,
+                              wht_payable, owner_capital, investor_capital,
+                              opening_balance_equity, retained_earnings) -> dict:
+    total_assets = cash_in_hand + accounts_receivable + inventory_value + fixed_assets_nbv
+    total_liabilities = accounts_payable + gst_payable + wht_payable
+    total_equity = owner_capital + investor_capital + opening_balance_equity + retained_earnings
+    balance_check = total_assets - (total_liabilities + total_equity)
+
+    return {
+        "assets": {
+            "cash_in_hand": cash_in_hand,
+            "accounts_receivable": accounts_receivable,
+            "inventory_value": inventory_value,
+            "fixed_assets_nbv": fixed_assets_nbv,
+            "total": total_assets,
+        },
+        "liabilities": {
+            "accounts_payable": accounts_payable,
+            "gst_payable": gst_payable,
+            "wht_payable": wht_payable,
+            "total": total_liabilities,
+        },
+        "equity": {
+            "owner_capital": owner_capital,
+            "investor_capital": investor_capital,
+            "opening_balance_equity": opening_balance_equity,
+            "retained_earnings": retained_earnings,
+            "total": total_equity,
+        },
+        "balance_check": balance_check,
+        "is_balanced": abs(balance_check) < Decimal("0.01"),
+    }
+
+
+def get_balance_sheet_live() -> dict:
+    """
+    ProfitFlow.total_net_profit only updates when a month is FINALIZED (the
+    monthly catch-up), but inventory/receivables already move the instant an
+    invoice is confirmed — so for the current, still-open month, Assets
+    would silently outrun Equity by exactly that month's unrecognized
+    profit if retained_earnings only counted finalized months. Adding
+    get_current_month_profit()'s live provisional net_profit here (the same
+    number the Profits page already shows) is what keeps this balanced —
+    caught by the balance-check test itself before this fix, not assumed.
+    """
+    from cash_flow.models import CashFlow
+    from assets.models import AssetFlow
+    from taxes.models import TaxFlow
+    from cash_management.models import CashManagementFlow
+    from profits.models import ProfitFlow
+    from profits.selectors import get_current_month_net_profit_only
+    from reports.selectors import get_inventory_valuation_report_data, get_inventory_valuation_report_stats
+
+    row = (
+        CashFlow.objects.filter(pk=1)
+        .annotate(
+            _fixed_assets_nbv=Subquery(AssetFlow.objects.filter(pk=1).values("total_current_worth")[:1]),
+            _gst_payable=Subquery(TaxFlow.objects.filter(pk=1).values("sales_tax_outstanding")[:1]),
+            _wht_payable=Subquery(TaxFlow.objects.filter(pk=1).values("wht_outstanding")[:1]),
+            _owner_capital=Subquery(CashManagementFlow.objects.filter(pk=1).values("net_owner_capital")[:1]),
+            _investor_capital=Subquery(CashManagementFlow.objects.filter(pk=1).values("net_investor_capital")[:1]),
+            _total_net_profit=Subquery(ProfitFlow.objects.filter(pk=1).values("total_net_profit")[:1]),
+            _total_paid_investors=Subquery(ProfitFlow.objects.filter(pk=1).values("total_paid_out_to_investors")[:1]),
+            _total_paid_owner=Subquery(ProfitFlow.objects.filter(pk=1).values("total_paid_out_to_owner")[:1]),
+            _total_reinvested_investors=Subquery(ProfitFlow.objects.filter(pk=1).values("total_reinvested_by_investors")[:1]),
+            _total_reinvested_owner=Subquery(ProfitFlow.objects.filter(pk=1).values("total_reinvested_by_owner")[:1]),
+        )
+        .values(
+            "cash_in_hand", "customer_outstanding", "supplier_payable_outstanding",
+            "_fixed_assets_nbv", "_gst_payable", "_wht_payable",
+            "_owner_capital", "_investor_capital", "_total_net_profit",
+            "_total_paid_investors", "_total_paid_owner",
+            "_total_reinvested_investors", "_total_reinvested_owner",
+        )
+        .first()
+    ) or {}
+
+    zero = Decimal("0")
+    current_month_net_profit = get_current_month_net_profit_only()["net_profit"]
+    retained_earnings = (
+        (row.get("_total_net_profit") or zero)
+        + current_month_net_profit
+        - (row.get("_total_paid_investors") or zero)
+        - (row.get("_total_paid_owner") or zero)
+        - (row.get("_total_reinvested_investors") or zero)
+        - (row.get("_total_reinvested_owner") or zero)
+    )
+
+    inventory_rows = get_inventory_valuation_report_data()
+    inventory_value = get_inventory_valuation_report_stats(inventory_rows)["total_inventory_value"]
+
+    return _assemble_balance_sheet(
+        cash_in_hand=row.get("cash_in_hand") or zero,
+        accounts_receivable=row.get("customer_outstanding") or zero,
+        accounts_payable=row.get("supplier_payable_outstanding") or zero,
+        inventory_value=inventory_value,
+        fixed_assets_nbv=row.get("_fixed_assets_nbv") or zero,
+        gst_payable=row.get("_gst_payable") or zero,
+        wht_payable=row.get("_wht_payable") or zero,
+        owner_capital=row.get("_owner_capital") or zero,
+        investor_capital=row.get("_investor_capital") or zero,
+        opening_balance_equity=_compute_opening_balance_equity(),
+        retained_earnings=retained_earnings,
+    )
+
+
+def get_balance_sheet_for_period(period: str) -> dict:
+    """Reads the frozen snapshot — raises BalanceSheetSnapshot.DoesNotExist
+    if that month was never caught up (same convention as
+    get_income_statement's MonthlyProfit lookup)."""
+    from .models import BalanceSheetSnapshot
+
+    snap = BalanceSheetSnapshot.objects.get(period=period)
+    return _assemble_balance_sheet(
+        cash_in_hand=snap.cash_in_hand,
+        accounts_receivable=snap.accounts_receivable,
+        accounts_payable=snap.accounts_payable,
+        inventory_value=snap.inventory_value,
+        fixed_assets_nbv=snap.fixed_assets_nbv,
+        gst_payable=snap.gst_payable,
+        wht_payable=snap.wht_payable,
+        owner_capital=snap.owner_capital,
+        investor_capital=snap.investor_capital,
+        opening_balance_equity=snap.opening_balance_equity,
+        retained_earnings=snap.retained_earnings,
+    )

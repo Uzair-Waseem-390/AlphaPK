@@ -6,7 +6,7 @@ import {
     ClipboardList, Wallet, Undo2, BarChart3, FileText, Clock, TrendingUp,
     Repeat, Tag, Send, Calendar, Receipt, Banknote, PackageX, RotateCcw,
     LineChart, TrendingDown, IdCard, ArrowDownCircle, Handshake, Trash2,
-    Gem, Archive, CreditCard, History, Landmark,
+    Gem, Archive, CreditCard, History, Landmark, ArrowLeftRight, FileBarChart, Scale,
 } from 'lucide-react';
 
 export const mainNavigation = [
@@ -140,6 +140,9 @@ export const navGroups = [
         icon: Landmark,
         adminOnly: true,
         items: [
+            { name: 'Income Statement', path: '/accounting/income-statement', icon: FileBarChart },
+            { name: 'Balance Sheet', path: '/accounting/balance-sheet', icon: Scale },
+            { name: 'Cash Flow Statement', path: '/accounting/cash-flow-statement', icon: ArrowLeftRight },
             { name: 'A/R Aging', path: '/accounting/ar-aging', icon: TrendingUp },
             { name: 'A/P Aging', path: '/accounting/ap-aging', icon: TrendingDown },
             { name: 'Fixed Asset Register', path: '/accounting/fixed-asset-register', icon: Building2 },

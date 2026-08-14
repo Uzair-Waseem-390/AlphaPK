@@ -20,4 +20,22 @@ export const accountingApi = {
             return api.get(`/accounting/fixed-asset-register/${query ? `?${query}` : ''}`);
         },
     },
+    cashFlowStatement: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/accounting/cash-flow-statement/${query ? `?${query}` : ''}`);
+        },
+    },
+    incomeStatement: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/accounting/income-statement/${query ? `?${query}` : ''}`);
+        },
+    },
+    balanceSheet: {
+        get: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/accounting/balance-sheet/${query ? `?${query}` : ''}`);
+        },
+    },
 };
