@@ -1,11 +1,16 @@
+import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, TrendingDown } from 'lucide-react';
+import { AlertTriangle, TrendingDown, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { accountingApi } from '../../services/accountingApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
+import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
@@ -72,6 +77,7 @@ const columns = [
 const APAgingPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const {
@@ -80,9 +86,21 @@ const APAgingPage = () => {
 
     const summary = extra?.summary;
     const activeBucket = filters.bucket;
+    const [printing, setPrinting] = useState(false);
 
     const handleBucketClick = (key) => {
         setFilters(activeBucket === key ? {} : { bucket: key });
+    };
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            await printReport('/accounting/ap-aging/print/', filters);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print report'));
+        } finally {
+            setPrinting(false);
+        }
     };
 
     if (!isAdmin) {
@@ -105,17 +123,22 @@ const APAgingPage = () => {
                 </div>
             </div>
 
-            <div>
-                <BackLink to="/dashboard">Back to Dashboard</BackLink>
-                <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <TrendingDown className="w-5 h-5 text-white" />
+            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
+                <div>
+                    <BackLink to="/dashboard">Back to Dashboard</BackLink>
+                    <div className="flex items-center gap-3 mt-2">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
+                            <TrendingDown className="w-5 h-5 text-white" />
+                        </div>
+                        <h1 className="text-3xl font-bold text-neutral-900">A/P Aging Report</h1>
                     </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">A/P Aging Report</h1>
+                    <p className="text-neutral-500 mt-1">
+                        Outstanding supplier purchase orders, bucketed by age since confirmation.
+                    </p>
                 </div>
-                <p className="text-neutral-500 mt-1">
-                    Outstanding supplier purchase orders, bucketed by age since confirmation.
-                </p>
+                <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                    Print
+                </Button>
             </div>
 
             {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}

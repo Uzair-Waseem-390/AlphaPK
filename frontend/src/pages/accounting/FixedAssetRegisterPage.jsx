@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, Building2 } from 'lucide-react';
+import { AlertTriangle, Building2, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { accountingApi } from '../../services/accountingApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
@@ -50,9 +53,11 @@ const columns = [
 const FixedAssetRegisterPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [includeDisposed, setIncludeDisposed] = useState(false);
+    const [printing, setPrinting] = useState(false);
 
     const {
         data: results, meta, extra, page, setPage, loading, error, refetch,
@@ -64,6 +69,20 @@ const FixedAssetRegisterPage = () => {
     );
 
     const summary = extra?.summary;
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            // Prints exactly the currently-applied "include disposed" toggle.
+            await printReport('/accounting/fixed-asset-register/print/', {
+                include_disposed: includeDisposed ? 'true' : undefined,
+            });
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print report'));
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     if (!isAdmin) {
         navigate('/dashboard');
@@ -98,9 +117,14 @@ const FixedAssetRegisterPage = () => {
                         Every asset's cost, accumulated depreciation, and net book value.
                     </p>
                 </div>
-                <Button variant="secondary" onClick={() => setIncludeDisposed((v) => !v)}>
-                    {includeDisposed ? 'Hide Disposed' : 'Include Disposed'}
-                </Button>
+                <div className="flex gap-2">
+                    <Button variant="secondary" onClick={() => setIncludeDisposed((v) => !v)}>
+                        {includeDisposed ? 'Hide Disposed' : 'Include Disposed'}
+                    </Button>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                        Print
+                    </Button>
+                </div>
             </div>
 
             {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}

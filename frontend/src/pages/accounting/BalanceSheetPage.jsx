@@ -1,8 +1,11 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Landmark, Wallet, Scale } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Landmark, Wallet, Scale, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useBalanceSheet } from '../../hooks/useAccounting';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -39,11 +42,13 @@ const Line = ({ label, amount, bold }) => (
 const BalanceSheetPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const [mode, setMode] = useState('today'); // 'today' | 'period'
     const [period, setPeriod] = useState(lastMonthPeriod());
     const [appliedParams, setAppliedParams] = useState({});
+    const [printing, setPrinting] = useState(false);
 
     const { data, loading, error, refetch } = useBalanceSheet(appliedParams);
 
@@ -54,6 +59,20 @@ const BalanceSheetPage = () => {
 
     const handleView = () => {
         setAppliedParams(mode === 'today' ? {} : { period });
+    };
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            // Prints exactly the currently-applied view (Today, or the
+            // finished month last clicked "View"), not whatever's sitting
+            // unsaved in the picker.
+            await printReport('/accounting/balance-sheet/print/', appliedParams);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print statement'));
+        } finally {
+            setPrinting(false);
+        }
     };
 
     return (
@@ -100,6 +119,9 @@ const BalanceSheetPage = () => {
                         <Input type="month" label="Month" value={period} onChange={(e) => setPeriod(e.target.value)} />
                     )}
                     <Button onClick={handleView}>View</Button>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                        Print
+                    </Button>
                 </div>
             </Card>
 

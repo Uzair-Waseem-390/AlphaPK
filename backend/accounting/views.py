@@ -1,8 +1,14 @@
+from decimal import Decimal
+
+from django.http import HttpResponse
 from django.utils import timezone
 from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from reports.pdf_service import generate_report_pdf_bytes
+
+from .pdf_service import generate_statement_pdf_bytes
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_ap_aging_rows,
@@ -24,6 +30,10 @@ from .serializers import (
     FixedAssetRegisterRowSerializer,
     IncomeStatementSerializer,
 )
+
+
+def _fmt(value) -> str:
+    return f"{Decimal(value):.2f}"
 
 
 # ---------------------------------------------------------------------------
@@ -60,6 +70,51 @@ class ARAgingListView(generics.ListAPIView):
         return response
 
 
+class ARAgingPrintView(APIView):
+    """
+    GET /accounting/ar-aging/print/?bucket=1_30 — same shape as
+    reports.views's BaseReportPrintView subclasses (same PDF template/
+    renderer), prints exactly the currently-applied bucket filter, never
+    "everything" if a bucket is selected on screen.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        bucket = request.query_params.get("bucket")
+        rows = get_ar_aging_rows(bucket=bucket)
+        summary = get_ar_aging_summary(get_ar_aging_rows())
+
+        columns = [
+            {"key": "bill_number", "label": "Invoice #"},
+            {"key": "customer_name", "label": "Customer"},
+            {"key": "customer_code", "label": "Code"},
+            {"key": "due_date", "label": "Due Date"},
+            {"key": "days_overdue", "label": "Days Overdue"},
+            {"key": "bucket", "label": "Bucket"},
+            {"key": "outstanding", "label": "Outstanding (PKR)"},
+        ]
+        stats = [
+            {"label": "Invoices Shown", "value": len(rows)},
+            {"label": "Total Outstanding (All)", "value": _fmt(summary["grand_total"])},
+            {"label": "Current", "value": _fmt(summary["buckets"]["current"]["total"])},
+            {"label": "1-30 Days", "value": _fmt(summary["buckets"]["1_30"]["total"])},
+            {"label": "31-60 Days", "value": _fmt(summary["buckets"]["31_60"]["total"])},
+            {"label": "61-90 Days", "value": _fmt(summary["buckets"]["61_90"]["total"])},
+            {"label": "Over 90 Days", "value": _fmt(summary["buckets"]["over_90"]["total"])},
+        ]
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title="A/R Aging Report",
+            filter_description=f"Bucket: {bucket}" if bucket else "All buckets",
+            columns=columns,
+            rows=ARAgingRowSerializer(rows, many=True).data,
+            stats=stats,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
 # ---------------------------------------------------------------------------
 # A/P Aging
 # ---------------------------------------------------------------------------
@@ -84,6 +139,46 @@ class APAgingListView(generics.ListAPIView):
         return response
 
 
+class APAgingPrintView(APIView):
+    """GET /accounting/ap-aging/print/?bucket=1_30 — same shape as ARAgingPrintView."""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        bucket = request.query_params.get("bucket")
+        rows = get_ap_aging_rows(bucket=bucket)
+        summary = get_ap_aging_summary(get_ap_aging_rows())
+
+        columns = [
+            {"key": "order_number", "label": "Order #"},
+            {"key": "supplier_name", "label": "Supplier"},
+            {"key": "supplier_code", "label": "Code"},
+            {"key": "confirmed_date", "label": "Confirmed On"},
+            {"key": "days_overdue", "label": "Days Since Confirmed"},
+            {"key": "bucket", "label": "Bucket"},
+            {"key": "outstanding", "label": "Outstanding (PKR)"},
+        ]
+        stats = [
+            {"label": "Orders Shown", "value": len(rows)},
+            {"label": "Total Outstanding (All)", "value": _fmt(summary["grand_total"])},
+            {"label": "Current", "value": _fmt(summary["buckets"]["current"]["total"])},
+            {"label": "1-30 Days", "value": _fmt(summary["buckets"]["1_30"]["total"])},
+            {"label": "31-60 Days", "value": _fmt(summary["buckets"]["31_60"]["total"])},
+            {"label": "61-90 Days", "value": _fmt(summary["buckets"]["61_90"]["total"])},
+            {"label": "Over 90 Days", "value": _fmt(summary["buckets"]["over_90"]["total"])},
+        ]
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title="A/P Aging Report",
+            filter_description=f"Bucket: {bucket}" if bucket else "All buckets",
+            columns=columns,
+            rows=APAgingRowSerializer(rows, many=True).data,
+            stats=stats,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
 # ---------------------------------------------------------------------------
 # Cash Flow Statement
 # ---------------------------------------------------------------------------
@@ -102,6 +197,64 @@ class CashFlowStatementView(APIView):
 
         data = get_cash_flow_statement(date_from=date_from, date_to=date_to)
         return Response(CashFlowStatementSerializer(data).data)
+
+
+class CashFlowStatementPrintView(APIView):
+    """
+    GET /accounting/cash-flow-statement/print/?date_from=...&date_to=...
+    Prints exactly the range the caller passes — same params as
+    CashFlowStatementView, no separate filter logic to drift out of sync.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        today = timezone.localdate()
+        date_from = request.query_params.get("date_from") or today.replace(day=1).isoformat()
+        date_to = request.query_params.get("date_to") or today.isoformat()
+
+        data = get_cash_flow_statement(date_from=date_from, date_to=date_to)
+
+        def _activity_lines(activity):
+            lines = [{"label": l["label"], "amount": _fmt(l["amount"])} for l in activity["lines"]]
+            lines.append({"label": "Net", "amount": _fmt(activity["net"]), "bold": True})
+            return lines
+
+        sections = [
+            {
+                "heading": "Operating Activities",
+                "subtitle": "Cash from everyday running of the business.",
+                "lines": _activity_lines(data["operating"]),
+            },
+            {
+                "heading": "Investing Activities",
+                "subtitle": "Cash from buying or selling long-term assets.",
+                "lines": _activity_lines(data["investing"]),
+            },
+            {
+                "heading": "Financing Activities",
+                "subtitle": "Cash from owners/investors putting money in or taking it out.",
+                "lines": _activity_lines(data["financing"]),
+            },
+            {
+                "heading": "Summary",
+                "lines": [
+                    *([{"label": "Cash You Started With", "amount": _fmt(data["opening_cash"])}]
+                      if data["opening_cash"] is not None else []),
+                    *([{"label": "Cash You Have Now", "amount": _fmt(data["closing_cash"])}]
+                      if data["closing_cash"] is not None else []),
+                    {"label": "Net Change in Cash", "amount": _fmt(data["net_change_in_cash"]), "bold": True},
+                ],
+            },
+        ]
+
+        pdf_bytes, filename = generate_statement_pdf_bytes(
+            title="Cash Flow Statement",
+            filter_description=f"{date_from} to {date_to}",
+            sections=sections,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -124,6 +277,78 @@ class IncomeStatementView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
         return Response(IncomeStatementSerializer(data).data)
+
+
+class IncomeStatementPrintView(APIView):
+    """GET /accounting/income-statement/print/?period=YYYY-MM"""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        from profits.models import MonthlyProfit
+
+        period = request.query_params.get("period")
+        try:
+            data = get_income_statement(period=period)
+        except MonthlyProfit.DoesNotExist:
+            return Response(
+                {"detail": f"No finalized Income Statement exists for period '{period}'."},
+                status=status.HTTP_404_NOT_FOUND,
+            )
+
+        total_opex = (
+            Decimal(data["expenses_paid"]) + Decimal(data["recurring_expenses_paid"])
+            + Decimal(data["gst_paid"]) + Decimal(data["wht_paid"]) + Decimal(data["depreciation"])
+        )
+
+        sections = [
+            {
+                "heading": "Revenue",
+                "subtitle": "Total sales made this period.",
+                "lines": [
+                    {"label": "Sales Revenue", "amount": _fmt(data["net_revenue"])},
+                    {"label": "Cost of Goods Sold", "amount": _fmt(data["net_cogs"])},
+                    {"label": "Gross Profit", "amount": _fmt(data["net_gross_profit"]), "bold": True},
+                ],
+            },
+            {
+                "heading": "Operating Expenses",
+                "subtitle": "Day-to-day costs of running the business.",
+                "lines": [
+                    *[{"label": b["category"] or "Uncategorized", "amount": _fmt(b["amount"])}
+                      for b in data["expense_breakdown"]],
+                    {"label": "Recurring Expenses", "amount": _fmt(data["recurring_expenses_paid"])},
+                    {"label": "GST Paid", "amount": _fmt(data["gst_paid"])},
+                    {"label": "WHT Paid", "amount": _fmt(data["wht_paid"])},
+                    {"label": "Depreciation", "amount": _fmt(data["depreciation"])},
+                    {"label": "Total Operating Expenses", "amount": _fmt(total_opex), "bold": True},
+                ],
+            },
+            {
+                "heading": "Other Items",
+                "subtitle": "Cash/inventory found or lost, and gains or losses from selling equipment.",
+                "lines": [
+                    {"label": "Cash Lost", "amount": _fmt(data["lost_cash"])},
+                    {"label": "Cash Found", "amount": _fmt(data["found_cash"])},
+                    {"label": "Inventory Lost", "amount": _fmt(data["lost_inventory"])},
+                    {"label": "Inventory Found", "amount": _fmt(data["found_inventory"])},
+                    {"label": "Gain/(Loss) on Asset Disposal", "amount": _fmt(data["disposal_gain_loss"])},
+                ],
+            },
+            {
+                "heading": "Net Income",
+                "lines": [{"label": "Net Income", "amount": _fmt(data["net_profit"]), "bold": True}],
+            },
+        ]
+
+        period_label = data["period"] + (" (provisional — month still in progress)" if data["is_provisional"] else "")
+        pdf_bytes, filename = generate_statement_pdf_bytes(
+            title="Income Statement",
+            filter_description=f"Period: {period_label}",
+            sections=sections,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
 
 
 # ---------------------------------------------------------------------------
@@ -152,6 +377,84 @@ class BalanceSheetView(APIView):
         return Response(BalanceSheetSerializer(data).data)
 
 
+class BalanceSheetPrintView(APIView):
+    """GET /accounting/balance-sheet/print/?period=YYYY-MM — omit `period` for "as of today"."""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        from .models import BalanceSheetSnapshot
+
+        period = request.query_params.get("period")
+        if period:
+            try:
+                data = get_balance_sheet_for_period(period)
+            except BalanceSheetSnapshot.DoesNotExist:
+                return Response(
+                    {"detail": f"No Balance Sheet snapshot exists for period '{period}'. "
+                               f"Only the most recently finished month gets snapshotted automatically."},
+                    status=status.HTTP_404_NOT_FOUND,
+                )
+            filter_description = f"As of {period} (finished month)"
+        else:
+            data = get_balance_sheet_live()
+            filter_description = f"As of today ({timezone.localdate().isoformat()})"
+
+        sections = [
+            {
+                "heading": "Assets",
+                "subtitle": "Everything the business owns.",
+                "lines": [
+                    {"label": "Cash in Hand", "amount": _fmt(data["assets"]["cash_in_hand"])},
+                    {"label": "Money Customers Owe You", "amount": _fmt(data["assets"]["accounts_receivable"])},
+                    {"label": "Inventory Value", "amount": _fmt(data["assets"]["inventory_value"])},
+                    {"label": "Equipment & Fixed Assets", "amount": _fmt(data["assets"]["fixed_assets_nbv"])},
+                    {"label": "Total Assets", "amount": _fmt(data["assets"]["total"]), "bold": True},
+                ],
+            },
+            {
+                "heading": "Liabilities",
+                "subtitle": "Everything the business owes.",
+                "lines": [
+                    {"label": "Money You Owe Suppliers", "amount": _fmt(data["liabilities"]["accounts_payable"])},
+                    {"label": "GST Owed to FBR", "amount": _fmt(data["liabilities"]["gst_payable"])},
+                    {"label": "WHT Owed to FBR", "amount": _fmt(data["liabilities"]["wht_payable"])},
+                    {"label": "Total Liabilities", "amount": _fmt(data["liabilities"]["total"]), "bold": True},
+                ],
+            },
+            {
+                "heading": "Equity",
+                "subtitle": "The owner's stake in the business.",
+                "lines": [
+                    {"label": "Owner's Capital", "amount": _fmt(data["equity"]["owner_capital"])},
+                    {"label": "Investors' Capital", "amount": _fmt(data["equity"]["investor_capital"])},
+                    {"label": "Opening Balance (Pre-Existing Debts/Stock)",
+                     "amount": _fmt(data["equity"]["opening_balance_equity"])},
+                    {"label": "Retained Earnings (Undistributed Profit)", "amount": _fmt(data["equity"]["retained_earnings"])},
+                    {"label": "Total Equity", "amount": _fmt(data["equity"]["total"]), "bold": True},
+                ],
+            },
+        ]
+
+        balance_check = {
+            "is_balanced": data["is_balanced"],
+            "message": (
+                "Balanced — Assets exactly equal Liabilities + Equity."
+                if data["is_balanced"]
+                else f"Off by Rs. {_fmt(abs(data['balance_check']))} — this needs investigating."
+            ),
+        }
+
+        pdf_bytes, filename = generate_statement_pdf_bytes(
+            title="Balance Sheet",
+            filter_description=filter_description,
+            sections=sections,
+            balance_check=balance_check,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+
 # ---------------------------------------------------------------------------
 # Fixed Asset Register
 # ---------------------------------------------------------------------------
@@ -175,4 +478,41 @@ class FixedAssetRegisterListView(generics.ListAPIView):
         serializer = self.get_serializer(page, many=True)
         response = self.get_paginated_response(serializer.data)
         response.data["summary"] = summary
+        return response
+
+
+class FixedAssetRegisterPrintView(APIView):
+    """GET /accounting/fixed-asset-register/print/?include_disposed=true"""
+    permission_classes = [IsAdminOrSuperuser]
+
+    def get(self, request):
+        include_disposed = request.query_params.get("include_disposed") == "true"
+        rows = get_fixed_asset_register_rows(include_disposed=include_disposed)
+        summary = get_fixed_asset_register_summary(rows)
+
+        columns = [
+            {"key": "name", "label": "Asset"},
+            {"key": "category", "label": "Category"},
+            {"key": "acquisition_date", "label": "Acquired"},
+            {"key": "cost", "label": "Cost (PKR)"},
+            {"key": "accumulated_depreciation", "label": "Accum. Depreciation (PKR)"},
+            {"key": "net_book_value", "label": "Net Book Value (PKR)"},
+            {"key": "is_disposed", "label": "Disposed"},
+        ]
+        stats = [
+            {"label": "Asset Count", "value": summary["asset_count"]},
+            {"label": "Total Cost", "value": _fmt(summary["total_cost"])},
+            {"label": "Accum. Depreciation", "value": _fmt(summary["total_accumulated_depreciation"])},
+            {"label": "Net Book Value", "value": _fmt(summary["total_net_book_value"])},
+        ]
+
+        pdf_bytes, filename = generate_report_pdf_bytes(
+            title="Fixed Asset Register",
+            filter_description="Including disposed assets" if include_disposed else "Active assets only",
+            columns=columns,
+            rows=FixedAssetRegisterRowSerializer(rows, many=True).data,
+            stats=stats,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
         return response

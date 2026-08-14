@@ -18,7 +18,11 @@ from purchases.services import (
     confirm_purchase_order, create_opening_stock_order, create_purchase_order,
     create_supplier, set_purchase_item_shelf_allocations,
 )
-from data_entry.services import create_customer_opening_balance, create_supplier_opening_balance
+from cash_management.services import create_investor
+from data_entry.services import (
+    create_customer_opening_balance, create_opening_cash,
+    create_opening_investor_investment, create_supplier_opening_balance,
+)
 from profits.services import _add_months, catch_up_monthly_profits
 from rates.services import create_rate
 
@@ -445,20 +449,69 @@ class BalanceSheetTests(AccountingTestBase):
         self.assertEqual(data["equity"]["opening_balance_equity"], Decimal("0"))
         self.assertTrue(data["is_balanced"], msg=f"balance_check={data['balance_check']}")
 
+    def test_balances_with_opening_cash(self):
+        """Opening Cash (data_entry Feature 3) is a cash asset with nothing
+        offsetting it — must be added to opening_balance_equity, same
+        reasoning as customer opening balances."""
+        create_opening_cash(amount=Decimal("2000"), user=self.admin)
+
+        data = get_balance_sheet_live()
+        self.assertEqual(data["equity"]["opening_balance_equity"], Decimal("2000"))
+        self.assertTrue(data["is_balanced"], msg=f"balance_check={data['balance_check']}")
+
+    def test_balances_with_opening_investor_investment(self):
+        """
+        Opening Investor Investment (data_entry Feature 5) is the OPPOSITE
+        direction from the other four: it inflates CashManagementFlow.
+        net_investor_capital (this Balance Sheet's equity.investor_capital)
+        with NO cash asset behind it, by design — cash_management.services.
+        create_investor_transaction's is_data_entry branch deliberately
+        skips the cash_in_hand sync ("the cash isn't actually sitting in
+        the till"). Without subtracting it, equity would exceed assets.
+        """
+        investor = create_investor(name="Old Investor", growth_rate=Decimal("0"), user=self.admin)
+        create_opening_investor_investment(investor_id=investor.id, amount=Decimal("3000"), user=self.admin)
+
+        data = get_balance_sheet_live()
+        self.assertEqual(data["equity"]["investor_capital"], Decimal("3000"))
+        self.assertEqual(data["equity"]["opening_balance_equity"], Decimal("-3000"))
+        self.assertTrue(data["is_balanced"], msg=f"balance_check={data['balance_check']}")
+
+    def test_opening_balance_equity_never_imports_data_entry(self):
+        """
+        The data_entry app is meant to be removed after go-live — if
+        accounting.selectors ever imports FROM data_entry.models again,
+        the entire Balance Sheet breaks the moment that happens. Checks for
+        an actual import statement, not the bare word (which legitimately
+        appears in comments explaining WHY it's avoided).
+        """
+        import inspect
+        from . import selectors as accounting_selectors
+
+        source = inspect.getsource(accounting_selectors)
+        for line in source.splitlines():
+            stripped = line.strip()
+            if stripped.startswith("from data_entry") or stripped.startswith("import data_entry"):
+                self.fail(f"accounting/selectors.py imports data_entry: {stripped!r}")
+
     def test_live_view_query_count_is_small_and_fixed(self):
         """
         Per architecture.md's STRICT 200ms rule and verification.md rule 6 —
-        must be counted, not eyeballed. ~15 queries is the honest number for
-        this endpoint: 1 subquery-joined singleton read, 2 for inventory
-        valuation, and ~12 more from reusing
-        profits.get_current_month_net_profit_only() (each of ITS
+        must be counted, not eyeballed. ~21 queries is the honest number for
+        this endpoint: 1 to ensure CashFlow's singleton row exists (see
+        get_balance_sheet_live's CashFlow.get_instance() comment), 1
+        subquery-joined singleton read, 2 for inventory valuation, ~12 from
+        reusing profits.get_current_month_net_profit_only() (each of ITS
         `_compute_*` helpers is one small bounded aggregate scoped to the
-        current month only — none are N+1 or proportional to total data
-        size, verified by inspecting profits/services.py directly). Bound
-        set generously above that so this test catches a REAL regression
-        (e.g. an accidental N+1) rather than false-alarming on normal
-        variance — if this ever creeps past ~20, that's worth investigating,
-        not silently raising the bound further.
+        current month only), and 5 from _compute_opening_balance_equity
+        (one bounded aggregate per data_entry bootstrap path — customer OB,
+        opening stock, supplier OB, opening cash, opening investor
+        investment). None are N+1 or proportional to total data size,
+        verified by inspecting each source directly. Bound set generously
+        above that so this test catches a REAL regression (e.g. an
+        accidental N+1) rather than false-alarming on normal variance — if
+        this ever creeps past ~30, that's worth investigating, not silently
+        raising the bound further.
         """
         product = self.make_stocked_product(stock=20)
         self.make_confirmed_invoice(product, quantity=1)
@@ -469,7 +522,7 @@ class BalanceSheetTests(AccountingTestBase):
             response = BalanceSheetView.as_view()(request)
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(
-            len(ctx.captured_queries), 20,
+            len(ctx.captured_queries), 30,
             msg=f"{len(ctx.captured_queries)} queries — investigate before shipping:\n"
                 + "\n".join(q["sql"][:120] for q in ctx.captured_queries),
         )

@@ -421,35 +421,88 @@ def get_income_statement(*, period: str = None) -> dict:
 
 def _compute_opening_balance_equity() -> Decimal:
     """
-    Net offset for go-live bootstrap data (the data_entry app) — each of
-    these creates one side of a transaction with nothing on the other side:
-      + CustomerOpeningBalance          (receivable asset, no offset)
-      + "opening stock" data-entry POs  (real inventory asset, no offset —
-        distinguished from a pure balance-bootstrap PO structurally, via
-        Exists() against its real PurchaseItem rows, never by parsing its
-        description text)
-      - SupplierOpeningBalance          (payable liability, no offset)
-    Without this, a business that used the Data Entry app to bootstrap
-    pre-existing debts/stock at go-live never balances — found by tracing a
-    real Rs 1000 mismatch back to exactly this gap, not assumed upfront.
+    Net offset for go-live bootstrap data — sourced ENTIRELY from billing/
+    purchases/cash_flow/cash_management, NEVER from data_entry.models. The
+    data_entry app is a one-time bootstrap tool meant to be retired after
+    go-live (per its own services.py docstrings, e.g. create_opening_stock:
+    "Stored ... in cash_management ... so the record survives if this app
+    is ever removed post-go-live") — every real bootstrap record already
+    lives in the app it actually belongs to; data_entry.services only
+    orchestrates writes to them. Importing data_entry.models here would
+    make the ENTIRE Balance Sheet break the moment that app is removed, so
+    this deliberately never does — verified by grepping for `is_data_entry`
+    across the whole backend to enumerate every bootstrap path, not just
+    the ones already known about.
+
+    Five paths, each an asset OR liability/equity change with nothing
+    offsetting it elsewhere — the first three were found by tracing a real
+    Rs 1000 mismatch back to exactly this gap; the other two were added
+    after being asked to specifically audit every data_entry edge case:
+      + Customer Opening Balance    (billing.Invoice, receivable asset)
+      + Opening Stock                (purchases.PurchaseOrder, inventory asset)
+      + Opening Cash                  (cash_flow.CashMovement, cash asset)
+      - Supplier Opening Balance        (purchases.PurchaseOrder, payable liability)
+      - Opening Investor Investment       (cash_management.InvestorTransaction —
+        inflates CashManagementFlow.net_investor_capital, which feeds this
+        Balance Sheet's investor_capital, with NO cash asset behind it BY
+        DESIGN — cash_management.services.create_investor_transaction's
+        is_data_entry branch deliberately skips the cash_in_hand sync,
+        since "the cash isn't actually sitting in the till". Without
+        subtracting this, a business that recorded pre-existing investor
+        capital this way would show equity exceeding assets by exactly
+        that amount.)
+
+    Each PO/Invoice/transaction query filters is_deleted=False defensively
+    even though these rows are described as "permanently locked after
+    creation" in data_entry.services — cheap insurance, not load-bearing.
     """
     from django.db.models import Exists, OuterRef
-    from data_entry.models import CustomerOpeningBalance, SupplierOpeningBalance
+    from billing.models import Invoice
+    from cash_flow.models import CashMovement
+    from cash_management.models import InvestorTransaction
     from purchases.models import PurchaseItem, PurchaseOrder
 
     zero = Decimal("0")
-    customer_ob_total = CustomerOpeningBalance.objects.aggregate(t=Sum("amount"))["t"] or zero
-    supplier_ob_total = SupplierOpeningBalance.objects.aggregate(t=Sum("amount"))["t"] or zero
 
-    has_items = PurchaseItem.objects.filter(order=OuterRef("pk"), is_deleted=False)
-    opening_stock_total = (
-        PurchaseOrder.objects
-        .filter(is_data_entry=True, status=PurchaseOrder.Status.CONFIRMED)
-        .filter(Exists(has_items))
-        .aggregate(t=Sum("net_payable"))["t"]
+    customer_ob_total = (
+        Invoice.objects
+        .filter(is_data_entry=True, is_deleted=False)
+        .aggregate(t=Sum("grand_total"))["t"]
     ) or zero
 
-    return customer_ob_total + opening_stock_total - supplier_ob_total
+    has_items = PurchaseItem.objects.filter(order=OuterRef("pk"), is_deleted=False)
+    data_entry_orders = PurchaseOrder.objects.filter(
+        is_data_entry=True, is_deleted=False, status=PurchaseOrder.Status.CONFIRMED,
+    )
+    # "Opening stock" POs have real line items; pure "opening balance" POs
+    # never do — the same structural distinction as before, now applied to
+    # BOTH sides instead of only the asset side.
+    opening_stock_total = (
+        data_entry_orders.filter(Exists(has_items)).aggregate(t=Sum("net_payable"))["t"]
+    ) or zero
+    supplier_ob_total = (
+        data_entry_orders.exclude(Exists(has_items)).aggregate(t=Sum("net_payable"))["t"]
+    ) or zero
+
+    opening_cash_total = (
+        CashMovement.objects
+        .filter(movement_type="opening_cash", is_deleted=False)
+        .aggregate(t=Sum("amount"))["t"]
+    ) or zero
+
+    opening_investor_investment_total = (
+        InvestorTransaction.objects
+        .filter(
+            is_data_entry=True, is_deleted=False,
+            transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
+        )
+        .aggregate(t=Sum("amount"))["t"]
+    ) or zero
+
+    return (
+        customer_ob_total + opening_stock_total + opening_cash_total
+        - supplier_ob_total - opening_investor_investment_total
+    )
 
 
 def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payable,
@@ -505,6 +558,17 @@ def get_balance_sheet_live() -> dict:
     from profits.models import ProfitFlow
     from profits.selectors import get_current_month_net_profit_only
     from reports.selectors import get_inventory_valuation_report_data, get_inventory_valuation_report_stats
+
+    # CashFlow.get_instance() (get_or_create), NOT a bare .filter(pk=1) —
+    # a business that's only ever used the Data Entry app's "Opening
+    # Investor Investment" so far (deliberately skips cash_in_hand, see
+    # _compute_opening_balance_equity's docstring) never triggers CashFlow's
+    # creation any other way. A bare filter().first() would then return
+    # None, `row` would fall back to {}, and EVERY field below — not just
+    # the ones actually related to cash — would silently read as zero.
+    # Found by a real test with only an investor investment and nothing
+    # else, which should never happen for a value this load-bearing.
+    CashFlow.get_instance()
 
     row = (
         CashFlow.objects.filter(pk=1)

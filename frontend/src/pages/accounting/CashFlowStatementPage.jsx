@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, ArrowLeftRight, TrendingUp, TrendingDown, Building2 } from 'lucide-react';
+import { AlertTriangle, ArrowLeftRight, TrendingUp, TrendingDown, Building2, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useCashFlowStatement } from '../../hooks/useAccounting';
 import { todayLocalDate } from '../../utils/helpers';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -49,6 +52,7 @@ const ActivitySection = ({ icon: Icon, title, subtitle, activity }) => (
 const CashFlowStatementPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const today = todayLocalDate();
@@ -56,6 +60,7 @@ const CashFlowStatementPage = () => {
     const [dateFrom, setDateFrom] = useState(defaultFrom);
     const [dateTo, setDateTo] = useState(today);
     const [appliedRange, setAppliedRange] = useState({ date_from: defaultFrom, date_to: today });
+    const [printing, setPrinting] = useState(false);
 
     const { data, loading, error, refetch } = useCashFlowStatement(appliedRange);
 
@@ -65,6 +70,19 @@ const CashFlowStatementPage = () => {
     }
 
     const handleApply = () => setAppliedRange({ date_from: dateFrom, date_to: dateTo });
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            // Prints exactly the currently-applied range, not whatever is
+            // sitting unsaved in the date inputs.
+            await printReport('/accounting/cash-flow-statement/print/', appliedRange);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print statement'));
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     return (
         <div className="space-y-6">
@@ -100,6 +118,9 @@ const CashFlowStatementPage = () => {
                     <Input type="date" label="From" value={dateFrom} onChange={(e) => setDateFrom(e.target.value)} />
                     <Input type="date" label="To" value={dateTo} onChange={(e) => setDateTo(e.target.value)} />
                     <Button onClick={handleApply}>Apply</Button>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                        Print
+                    </Button>
                 </div>
             </Card>
 

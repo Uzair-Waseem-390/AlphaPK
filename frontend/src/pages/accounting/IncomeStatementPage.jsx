@@ -1,9 +1,12 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, FileBarChart } from 'lucide-react';
+import { AlertTriangle, FileBarChart, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
+import { useToast } from '../../context/ToastContext';
 import { useIncomeStatement } from '../../hooks/useAccounting';
 import { todayLocalDate } from '../../utils/helpers';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
@@ -33,11 +36,13 @@ const SectionSubtitle = ({ children }) => (
 const IncomeStatementPage = () => {
     const { user } = useAuth();
     const navigate = useNavigate();
+    const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
     const currentPeriod = todayLocalDate().slice(0, 7);
     const [period, setPeriod] = useState(currentPeriod);
     const [appliedPeriod, setAppliedPeriod] = useState(currentPeriod);
+    const [printing, setPrinting] = useState(false);
 
     const { data, loading, error, refetch } = useIncomeStatement({ period: appliedPeriod });
 
@@ -45,6 +50,19 @@ const IncomeStatementPage = () => {
         navigate('/dashboard');
         return null;
     }
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            // Prints exactly the currently-applied period, not whatever is
+            // sitting unsaved in the month picker.
+            await printReport('/accounting/income-statement/print/', { period: appliedPeriod });
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print statement'));
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     const totalOperatingExpenses = data
         ? Number(data.expenses_paid) + Number(data.recurring_expenses_paid) + Number(data.gst_paid)
@@ -84,6 +102,9 @@ const IncomeStatementPage = () => {
                 <div className="flex flex-wrap items-end gap-3">
                     <Input type="month" label="Month" value={period} onChange={(e) => setPeriod(e.target.value)} />
                     <Button onClick={() => setAppliedPeriod(period)}>View</Button>
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                        Print
+                    </Button>
                 </div>
             </Card>
 
