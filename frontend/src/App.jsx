@@ -65,6 +65,11 @@ import LedgerDetailPage from './pages/ledger/LedgerDetailPage';
 import LedgerBySupplierPage from './pages/ledger/LedgerBySupplierPage';
 import CustomerLedgerDetailPage from './pages/ledger/CustomerLedgerDetailPage';
 
+// Accounting pages
+import ARAgingPage from './pages/accounting/ARAgingPage';
+import APAgingPage from './pages/accounting/APAgingPage';
+import FixedAssetRegisterPage from './pages/accounting/FixedAssetRegisterPage';
+
 // Reports pages
 import ReportsHomePage from './pages/reports/ReportsHomePage';
 import InvoicesReportPage from './pages/reports/InvoicesReportPage';
@@ -582,6 +587,30 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <ExpensesReportPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/ar-aging" element={
+          <ProtectedRoute>
+            <Layout>
+              <ARAgingPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/ap-aging" element={
+          <ProtectedRoute>
+            <Layout>
+              <APAgingPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/accounting/fixed-asset-register" element={
+          <ProtectedRoute>
+            <Layout>
+              <FixedAssetRegisterPage />
             </Layout>
           </ProtectedRoute>
         } />
