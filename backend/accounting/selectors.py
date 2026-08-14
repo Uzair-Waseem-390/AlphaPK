@@ -332,11 +332,28 @@ def _period_bounds(period: str) -> tuple:
 
 
 def _get_expense_category_breakdown(period: str) -> list:
-    """Bounded to ONE month's Expense/RecurringExpenseAssignmentPayment rows
-    — never all history. Both source fields (expense_date, payment_date) are
-    plain DateFields, already indexed."""
+    """
+    Category decomposition of `expenses_paid` ONLY — deliberately NOT of
+    recurring expenses.
+
+    This used to also concatenate one row per
+    RecurringExpenseAssignmentPayment category, which broke the Income
+    Statement's footing: the Operating Expenses section renders these
+    breakdown lines AND a separate "Recurring Expenses" total line, so every
+    recurring category was displayed twice while the bold "Total Operating
+    Expenses" (computed from the source totals, not from these lines) stayed
+    correct. The printed statement's own lines therefore did not add up to
+    its own subtotal, overstated by exactly recurring_expenses_paid.
+
+    The contract now is exact and asserted in tests: these rows sum to
+    profits' `expenses_paid` for the same period, because this uses the same
+    model, filter and date bounds as profits._compute_expenses_paid. Per
+    category recurring detail lives on the Recurring Expenses page.
+
+    Bounded to ONE month's Expense rows — never all history. expense_date is
+    a plain DateField, already indexed.
+    """
     from cash_flow.models import Expense
-    from recurring_expenses.models import RecurringExpenseAssignmentPayment
 
     first_day, last_day = _period_bounds(period)
 
@@ -346,19 +363,8 @@ def _get_expense_category_breakdown(period: str) -> list:
         .values("category__name")
         .annotate(total=Sum("amount"))
     )
-    recurring_rows = (
-        RecurringExpenseAssignmentPayment.objects
-        .filter(is_deleted=False, payment_date__gte=first_day, payment_date__lte=last_day)
-        .values("assignment__category_name_snapshot")
-        .annotate(total=Sum("amount"))
-    )
 
-    breakdown = [{"category": r["category__name"], "amount": r["total"]} for r in expense_rows]
-    breakdown += [
-        {"category": r["assignment__category_name_snapshot"], "amount": r["total"]}
-        for r in recurring_rows
-    ]
-    return breakdown
+    return [{"category": r["category__name"], "amount": r["total"]} for r in expense_rows]
 
 
 def get_income_statement(*, period: str = None) -> dict:
@@ -505,10 +511,63 @@ def _compute_opening_balance_equity() -> Decimal:
     )
 
 
+_STALE_SNAPSHOT_LAG_DAYS = 2
+
+
+def _snapshot_freshness(*, period: str = None, computed_at=None) -> dict:
+    """
+    How late a frozen snapshot was actually taken, in days after the month it
+    claims to describe.
+
+    Why this has to be surfaced rather than fixed: every Balance Sheet figure
+    is an ALL-TIME singleton that only knows "right now" — there is no stored
+    history to reconstruct a true month-end position from. So
+    catch_up_balance_sheet_snapshots can only copy whatever the singletons say
+    at the moment it runs and stamp last month's label on it, and it is frozen
+    once and never recomputed. Run it on the 1st and the snapshot is honest;
+    run it on the 20th and "July" silently contains 20 days of August, with no
+    way to detect that after the fact.
+
+    lag_days makes that visible instead of silent. It does NOT make a late
+    snapshot more accurate — nothing can, the information was never recorded —
+    it just stops a late one from looking exactly as authoritative as a
+    prompt one.
+
+    Derived from the model's existing `computed_at` (auto_now_add), so no new
+    column and no migration was needed, and every snapshot already frozen
+    before this shipped reports its real lag too.
+
+    Live ("as of today") sheets pass nothing and get is_snapshot=False — they
+    read the singletons directly, so the concept simply doesn't apply.
+    """
+    if period is None or computed_at is None:
+        return {
+            "is_snapshot": False,
+            "snapshot_taken_on": None,
+            "lag_days": None,
+            "is_stale": False,
+        }
+
+    # .localtime() first — computed_at is a UTC instant, and taking .date()
+    # off it directly reads the UTC calendar day, which is the wrong day for
+    # ~5 hours of every Pakistan day (see architecture.md).
+    taken_on = timezone.localtime(computed_at).date()
+    _, last_day = _period_bounds(period)
+    lag_days = (taken_on - last_day).days
+
+    return {
+        "is_snapshot": True,
+        "snapshot_taken_on": taken_on,
+        "lag_days": lag_days,
+        "is_stale": lag_days > _STALE_SNAPSHOT_LAG_DAYS,
+    }
+
+
 def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payable,
                               inventory_value, fixed_assets_nbv, gst_payable,
                               wht_payable, owner_capital, investor_capital,
-                              opening_balance_equity, retained_earnings) -> dict:
+                              opening_balance_equity, retained_earnings,
+                              freshness=None) -> dict:
     total_assets = cash_in_hand + accounts_receivable + inventory_value + fixed_assets_nbv
     total_liabilities = accounts_payable + gst_payable + wht_payable
     total_equity = owner_capital + investor_capital + opening_balance_equity + retained_earnings
@@ -537,6 +596,7 @@ def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payab
         },
         "balance_check": balance_check,
         "is_balanced": abs(balance_check) < Decimal("0.01"),
+        "freshness": freshness or _snapshot_freshness(),
     }
 
 
@@ -642,4 +702,5 @@ def get_balance_sheet_for_period(period: str) -> dict:
         investor_capital=snap.investor_capital,
         opening_balance_equity=snap.opening_balance_equity,
         retained_earnings=snap.retained_earnings,
+        freshness=_snapshot_freshness(period=snap.period, computed_at=snap.computed_at),
     )

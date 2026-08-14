@@ -404,6 +404,140 @@ class IncomeStatementTests(AccountingTestBase):
         response = IncomeStatementView.as_view()(request)
         self.assertEqual(response.status_code, 403)
 
+    def _pay_recurring_expense(self, *, period, category_name, amount, payment_date):
+        """Creates a template + assignment + payment for `period` so the month
+        has a RecurringExpenseAssignmentPayment row to (not) show up in the
+        breakdown."""
+        from recurring_expenses.services import (
+            create_recurring_expense, create_recurring_expense_assignment,
+            create_recurring_expense_category, create_recurring_expense_payment,
+        )
+
+        cat = create_recurring_expense_category(name=category_name, user=self.admin)
+        template = create_recurring_expense(
+            name=f"{category_name} Bill", category_id=cat.id, amount=Decimal(amount),
+            start_date=payment_date, user=self.admin,
+        )
+        assignment = create_recurring_expense_assignment(
+            recurring_expense_id=template.id, period=period, user=self.admin,
+        )
+        create_recurring_expense_payment(
+            assignment_id=assignment.id, amount=Decimal(amount),
+            payment_date=payment_date, user=self.admin,
+        )
+
+    def test_expense_breakdown_excludes_recurring_and_foots_to_expenses_paid(self):
+        """
+        Regression: the breakdown used to concatenate recurring-expense
+        categories too, while the Income Statement ALSO renders a separate
+        "Recurring Expenses" total line — so recurring expenses appeared
+        twice in the visible lines and the section's own lines no longer
+        added up to its own "Total Operating Expenses" subtotal (overstated
+        by exactly recurring_expenses_paid). The breakdown must decompose
+        expenses_paid and nothing else.
+        """
+        product = self.make_stocked_product(stock=20, unit_cost="50", selling_price="100")
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+
+        today = timezone.localdate()
+        y, m = _add_months(today.year, today.month, -1)
+        period = f"{y:04d}-{m:02d}"
+        from billing.models import Invoice
+        Invoice.objects.filter(pk=invoice.pk).update(
+            confirmed_at=timezone.now().replace(year=y, month=m, day=15),
+        )
+
+        # A one-off expense and a recurring payment sharing the SAME category
+        # name — the exact collision that produced two identical-looking rows.
+        cat = create_expense_category(name="Utilities", user=self.admin)
+        create_expense(
+            name="Electricity Top-Up", category_id=cat.id, amount=Decimal("40"),
+            expense_date=date(y, m, 20), user=self.admin,
+        )
+        self._pay_recurring_expense(
+            period=period, category_name="Utilities", amount="25",
+            payment_date=date(y, m, 21),
+        )
+
+        catch_up_monthly_profits(user=self.admin)
+        data = get_income_statement(period=period)
+
+        # Both figures are genuinely non-zero, so this test can actually fail.
+        self.assertEqual(Decimal(data["expenses_paid"]), Decimal("40"))
+        self.assertEqual(Decimal(data["recurring_expenses_paid"]), Decimal("25"))
+
+        breakdown = data["expense_breakdown"]
+        self.assertEqual(
+            sum(Decimal(line["amount"]) for line in breakdown),
+            Decimal(data["expenses_paid"]),
+            "expense_breakdown must sum to expenses_paid exactly — no recurring rows.",
+        )
+        # "Utilities" must appear exactly once (the one-off), not twice.
+        utilities_rows = [b for b in breakdown if b["category"] == "Utilities"]
+        self.assertEqual(len(utilities_rows), 1)
+        self.assertEqual(Decimal(utilities_rows[0]["amount"]), Decimal("40"))
+
+    def test_print_operating_expense_lines_foot_to_their_subtotal(self):
+        """
+        Guards the PDF itself, not just the selector — the print view builds
+        its sections independently of the API view and is what an accountant
+        actually reads. Every non-bold line in Operating Expenses must add up
+        to the bold "Total Operating Expenses" line.
+        """
+        from .views import IncomeStatementPrintView
+
+        product = self.make_stocked_product(stock=20, unit_cost="50", selling_price="100")
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        today = timezone.localdate()
+        y, m = _add_months(today.year, today.month, -1)
+        period = f"{y:04d}-{m:02d}"
+        from billing.models import Invoice
+        Invoice.objects.filter(pk=invoice.pk).update(
+            confirmed_at=timezone.now().replace(year=y, month=m, day=15),
+        )
+        cat = create_expense_category(name="Utilities", user=self.admin)
+        create_expense(
+            name="Electricity Top-Up", category_id=cat.id, amount=Decimal("40"),
+            expense_date=date(y, m, 20), user=self.admin,
+        )
+        self._pay_recurring_expense(
+            period=period, category_name="Utilities", amount="25",
+            payment_date=date(y, m, 21),
+        )
+        catch_up_monthly_profits(user=self.admin)
+
+        captured = {}
+        original = IncomeStatementPrintView._build_sections
+
+        def _capture(self_view, data):
+            sections = original(self_view, data)
+            captured["sections"] = sections
+            return sections
+
+        IncomeStatementPrintView._build_sections = _capture
+        try:
+            request = self.factory.get(
+                "/api/accounting/income-statement/print/", {"period": period},
+            )
+            force_authenticate(request, user=self.admin)
+            response = IncomeStatementPrintView.as_view()(request)
+            self.assertEqual(response.status_code, 200)
+        finally:
+            IncomeStatementPrintView._build_sections = original
+
+        opex = next(s for s in captured["sections"] if s["heading"] == "Operating Expenses")
+        line_total = sum(
+            Decimal(line["amount"]) for line in opex["lines"] if not line.get("bold")
+        )
+        subtotal = next(
+            Decimal(line["amount"]) for line in opex["lines"]
+            if line.get("bold") and line["label"] == "Total Operating Expenses"
+        )
+        self.assertEqual(
+            line_total, subtotal,
+            "Printed Operating Expenses lines must add up to their own subtotal.",
+        )
+
 
 # ---------------------------------------------------------------------------
 # Balance Sheet
@@ -558,6 +692,93 @@ class BalanceSheetTests(AccountingTestBase):
     def test_period_without_snapshot_raises(self):
         with self.assertRaises(BalanceSheetSnapshot.DoesNotExist):
             get_balance_sheet_for_period("2020-01")
+
+    # ---- Snapshot freshness (lag_days) --------------------------------------
+    # A snapshot copies all-time singletons and stamps last month's label on
+    # them, so a LATE one silently contains the following month's activity and
+    # is frozen that way forever. These guard that the lag is surfaced.
+
+    def _make_snapshot_taken_on(self, *, period, taken_on):
+        """Freezes a snapshot for `period`, then forces computed_at to
+        `taken_on` local time. computed_at is auto_now_add, so it has to be
+        overwritten with .update() (which bypasses auto_now_add) rather than
+        set on create."""
+        from datetime import datetime, time as time_cls
+
+        snap = BalanceSheetSnapshot.objects.create(period=period)
+        aware = timezone.make_aware(
+            datetime.combine(taken_on, time_cls(12, 0)),
+            timezone.get_current_timezone(),
+        )
+        BalanceSheetSnapshot.objects.filter(pk=snap.pk).update(computed_at=aware)
+        return snap
+
+    def test_lag_days_is_small_when_snapshot_taken_promptly(self):
+        # July 2026 ends the 31st; frozen Aug 1 => 1 day late, not stale.
+        self._make_snapshot_taken_on(period="2026-07", taken_on=date(2026, 8, 1))
+        freshness = get_balance_sheet_for_period("2026-07")["freshness"]
+
+        self.assertTrue(freshness["is_snapshot"])
+        self.assertEqual(freshness["lag_days"], 1)
+        self.assertEqual(freshness["snapshot_taken_on"], date(2026, 8, 1))
+        self.assertFalse(freshness["is_stale"])
+
+    def test_lag_days_flags_a_late_snapshot_as_stale(self):
+        # Frozen Aug 20 for July => 20 days of August bled into "July".
+        self._make_snapshot_taken_on(period="2026-07", taken_on=date(2026, 8, 20))
+        freshness = get_balance_sheet_for_period("2026-07")["freshness"]
+
+        self.assertEqual(freshness["lag_days"], 20)
+        self.assertTrue(freshness["is_stale"])
+
+    def test_live_sheet_reports_no_snapshot_lag(self):
+        """The live sheet reads the singletons directly, so lag is meaningless
+        — it must report is_snapshot=False rather than a misleading 0."""
+        freshness = get_balance_sheet_live()["freshness"]
+
+        self.assertFalse(freshness["is_snapshot"])
+        self.assertIsNone(freshness["lag_days"])
+        self.assertIsNone(freshness["snapshot_taken_on"])
+        self.assertFalse(freshness["is_stale"])
+
+    def test_view_exposes_freshness(self):
+        self._make_snapshot_taken_on(period="2026-07", taken_on=date(2026, 8, 20))
+        request = self.factory.get("/api/accounting/balance-sheet/", {"period": "2026-07"})
+        force_authenticate(request, user=self.admin)
+        response = BalanceSheetView.as_view()(request)
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["freshness"]["lag_days"], 20)
+        self.assertTrue(response.data["freshness"]["is_stale"])
+
+    def test_print_pdf_carries_the_stale_warning(self):
+        """A printed PDF outlives the screen it came from, so the caveat has
+        to travel with it — not just live on the page."""
+        from .views import BalanceSheetPrintView
+
+        self._make_snapshot_taken_on(period="2026-07", taken_on=date(2026, 8, 20))
+
+        captured = {}
+        import accounting.views as accounting_views
+        original = accounting_views.generate_statement_pdf_bytes
+
+        def _capture(**kwargs):
+            captured.update(kwargs)
+            return original(**kwargs)
+
+        accounting_views.generate_statement_pdf_bytes = _capture
+        try:
+            request = self.factory.get(
+                "/api/accounting/balance-sheet/print/", {"period": "2026-07"},
+            )
+            force_authenticate(request, user=self.admin)
+            response = BalanceSheetPrintView.as_view()(request)
+            self.assertEqual(response.status_code, 200)
+        finally:
+            accounting_views.generate_statement_pdf_bytes = original
+
+        self.assertIn("WARNING", captured["filter_description"])
+        self.assertIn("20 days", captured["filter_description"])
 
     def test_view_requires_admin(self):
         normal = make_normal_user()

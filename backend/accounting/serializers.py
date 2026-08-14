@@ -136,9 +136,21 @@ class BalanceSheetEquitySerializer(serializers.Serializer):
     total                              = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
+class BalanceSheetFreshnessSerializer(serializers.Serializer):
+    """How late a frozen snapshot was taken — see
+    accounting.selectors._snapshot_freshness for why this has to be shown
+    rather than corrected. All-null with is_snapshot=False for the live
+    "as of today" sheet, which has no lag by definition."""
+    is_snapshot        = serializers.BooleanField()
+    snapshot_taken_on   = serializers.DateField(allow_null=True)
+    lag_days             = serializers.IntegerField(allow_null=True)
+    is_stale              = serializers.BooleanField()
+
+
 class BalanceSheetSerializer(serializers.Serializer):
     assets         = BalanceSheetAssetsSerializer()
     liabilities     = BalanceSheetLiabilitiesSerializer()
     equity           = BalanceSheetEquitySerializer()
     balance_check      = serializers.DecimalField(max_digits=20, decimal_places=4)
     is_balanced          = serializers.BooleanField()
+    freshness              = BalanceSheetFreshnessSerializer()

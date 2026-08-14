@@ -81,8 +81,14 @@ class ARAgingPrintView(APIView):
 
     def get(self, request):
         bucket = request.query_params.get("bucket")
-        rows = get_ar_aging_rows(bucket=bucket)
-        summary = get_ar_aging_summary(get_ar_aging_rows())
+        # ONE fetch, not two. The summary is deliberately over ALL rows (the
+        # PDF's "Total Outstanding (All)" stat) while `rows` is the filtered
+        # set, but that never needed a second full scan + re-bucketing:
+        # get_ar_aging_rows applies `bucket` as a plain Python post-filter on
+        # the derived bucket key, so filtering here is exactly equivalent.
+        all_rows = get_ar_aging_rows()
+        summary = get_ar_aging_summary(all_rows)
+        rows = [r for r in all_rows if r["bucket"] == bucket] if bucket else all_rows
 
         columns = [
             {"key": "bill_number", "label": "Invoice #"},
@@ -145,8 +151,11 @@ class APAgingPrintView(APIView):
 
     def get(self, request):
         bucket = request.query_params.get("bucket")
-        rows = get_ap_aging_rows(bucket=bucket)
-        summary = get_ap_aging_summary(get_ap_aging_rows())
+        # ONE fetch, not two — see ARAgingPrintView.get for why this is
+        # equivalent to the previous double-scan.
+        all_rows = get_ap_aging_rows()
+        summary = get_ap_aging_summary(all_rows)
+        rows = [r for r in all_rows if r["bucket"] == bucket] if bucket else all_rows
 
         columns = [
             {"key": "order_number", "label": "Order #"},
@@ -295,12 +304,28 @@ class IncomeStatementPrintView(APIView):
                 status=status.HTTP_404_NOT_FOUND,
             )
 
+        sections = self._build_sections(data)
+
+        period_label = data["period"] + (" (provisional — month still in progress)" if data["is_provisional"] else "")
+        pdf_bytes, filename = generate_statement_pdf_bytes(
+            title="Income Statement",
+            filter_description=f"Period: {period_label}",
+            sections=sections,
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
+
+    def _build_sections(self, data):
+        """Extracted from get() purely so the printed content can be asserted
+        in tests without rendering a PDF — in particular that the Operating
+        Expenses lines add up to their own subtotal."""
         total_opex = (
             Decimal(data["expenses_paid"]) + Decimal(data["recurring_expenses_paid"])
             + Decimal(data["gst_paid"]) + Decimal(data["wht_paid"]) + Decimal(data["depreciation"])
         )
 
-        sections = [
+        return [
             {
                 "heading": "Revenue",
                 "subtitle": "Total sales made this period.",
@@ -312,7 +337,9 @@ class IncomeStatementPrintView(APIView):
             },
             {
                 "heading": "Operating Expenses",
-                "subtitle": "Day-to-day costs of running the business.",
+                "subtitle": "Day-to-day costs of running the business. One-off expenses are listed "
+                            "by category; recurring expenses are shown as a single total on their "
+                            "own line.",
                 "lines": [
                     *[{"label": b["category"] or "Uncategorized", "amount": _fmt(b["amount"])}
                       for b in data["expense_breakdown"]],
@@ -339,16 +366,6 @@ class IncomeStatementPrintView(APIView):
                 "lines": [{"label": "Net Income", "amount": _fmt(data["net_profit"]), "bold": True}],
             },
         ]
-
-        period_label = data["period"] + (" (provisional — month still in progress)" if data["is_provisional"] else "")
-        pdf_bytes, filename = generate_statement_pdf_bytes(
-            title="Income Statement",
-            filter_description=f"Period: {period_label}",
-            sections=sections,
-        )
-        response = HttpResponse(pdf_bytes, content_type="application/pdf")
-        response["Content-Disposition"] = f'inline; filename="{filename}"'
-        return response
 
 
 # ---------------------------------------------------------------------------
@@ -395,6 +412,16 @@ class BalanceSheetPrintView(APIView):
                     status=status.HTTP_404_NOT_FOUND,
                 )
             filter_description = f"As of {period} (finished month)"
+            # A late snapshot is silently wrong (see selectors._snapshot_freshness),
+            # so the printed copy has to carry the same caveat the page does —
+            # a PDF outlives the screen it was printed from.
+            freshness = data["freshness"]
+            if freshness["is_stale"]:
+                filter_description += (
+                    f" — WARNING: frozen {freshness['lag_days']} days after the month ended "
+                    f"({freshness['snapshot_taken_on'].isoformat()}), so it may include activity "
+                    f"from the following month. Treat these figures as approximate."
+                )
         else:
             data = get_balance_sheet_live()
             filter_description = f"As of today ({timezone.localdate().isoformat()})"

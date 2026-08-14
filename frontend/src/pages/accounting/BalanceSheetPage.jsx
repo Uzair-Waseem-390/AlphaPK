@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { AlertTriangle, CheckCircle2, Landmark, Wallet, Scale, Printer } from 'lucide-react';
+import { AlertTriangle, CheckCircle2, Clock, Landmark, Wallet, Scale, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useBalanceSheet } from '../../hooks/useAccounting';
@@ -143,6 +143,25 @@ const BalanceSheetPage = () => {
                 </div>
             ) : data && (
                 <>
+                    {data.freshness?.is_stale && (
+                        <Card className="p-4 flex items-start gap-3 bg-warning-50 border-l-4 border-warning-500">
+                            <Clock className="w-5 h-5 text-warning-600 flex-shrink-0 mt-0.5" />
+                            <div>
+                                <p className="text-sm font-semibold text-warning-700">
+                                    These figures were saved {data.freshness.lag_days} days after the month ended
+                                </p>
+                                <p className="text-xs text-warning-600 mt-0.5">
+                                    A month's Balance Sheet has to be saved soon after that month finishes.
+                                    This one was saved on{' '}
+                                    {new Date(data.freshness.snapshot_taken_on).toLocaleDateString()}, so it may
+                                    include sales, payments and expenses that actually belong to the following
+                                    month. Treat these numbers as approximate — the "As of Today" view above is
+                                    always exact.
+                                </p>
+                            </div>
+                        </Card>
+                    )}
+
                     <Card className={`p-4 flex items-center gap-3 ${data.is_balanced ? 'bg-success-50 border border-success-100' : 'bg-error-50 border border-error-100'}`}>
                         {data.is_balanced ? (
                             <CheckCircle2 className="w-5 h-5 text-success-600 flex-shrink-0" />

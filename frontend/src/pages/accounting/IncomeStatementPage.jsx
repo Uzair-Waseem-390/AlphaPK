@@ -132,9 +132,12 @@ const IncomeStatementPage = () => {
 
                     <div className="mb-5">
                         <h3 className="font-semibold text-neutral-900 mb-1">Operating Expenses</h3>
-                        <SectionSubtitle>Day-to-day costs of running the business.</SectionSubtitle>
+                        <SectionSubtitle>
+                            Day-to-day costs of running the business. One-off expenses are listed by
+                            category; recurring expenses are shown as a single total on their own line.
+                        </SectionSubtitle>
                         {data.expense_breakdown.length === 0 ? (
-                            <p className="text-sm text-neutral-400 italic py-2">No categorized expenses this period.</p>
+                            <p className="text-sm text-neutral-400 italic py-2">No one-off expenses this period.</p>
                         ) : (
                             data.expense_breakdown.map((line, i) => (
                                 <Line key={i} label={line.category || 'Uncategorized'} amount={line.amount} indent />
