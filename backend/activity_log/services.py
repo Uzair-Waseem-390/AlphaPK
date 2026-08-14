@@ -104,14 +104,21 @@ def record_activity(*, action: str, instance, description: str, object_repr: str
     moment any statement inside it errors, so every later statement
     (including the outer COMMIT) would fail too, even though the Python
     exception was "handled."
+
+    is_tracking_enabled()'s own SELECT is deliberately INSIDE this same
+    savepoint, not before it — that read can fail too (e.g. mid-deploy,
+    before this app's own migrations have run against a shared DB; a
+    transient lock timeout), and if it raised outside the atomic block,
+    the same "whole transaction aborted" problem above would apply to it
+    just as much as to the INSERT it's guarding.
     """
-    if not is_tracking_enabled():
-        return None
-
-    user = get_current_user()
-    user = user if getattr(user, "is_authenticated", False) else None
-
     with transaction.atomic():
+        if not is_tracking_enabled():
+            return None
+
+        user = get_current_user()
+        user = user if getattr(user, "is_authenticated", False) else None
+
         event = ActivityEvent.objects.create(
             user=user,
             action=action,

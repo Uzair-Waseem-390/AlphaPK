@@ -45,6 +45,7 @@ const ShelfAllocationEditor = ({
 }) => {
     const { toast } = useToast();
     const [autoAllocating, setAutoAllocating] = useState(false);
+    const [autoAllocateShortfall, setAutoAllocateShortfall] = useState(0);
     const allocations = value;
     const allocatedTotal = allocations.reduce((sum, a) => sum + (parseInt(a.quantity, 10) || 0), 0);
     const remaining = requiredQuantity - allocatedTotal;
@@ -68,6 +69,7 @@ const ShelfAllocationEditor = ({
     const handleAutoAllocate = async () => {
         if (remaining <= 0 || !autoAllocateApi) return;
         setAutoAllocating(true);
+        setAutoAllocateShortfall(0);
         try {
             const excludeShelfIds = allocations.map((a) => a.shelf_id).filter(Boolean);
             const data = await autoAllocateApi(productId, remaining, excludeShelfIds);
@@ -76,8 +78,17 @@ const ShelfAllocationEditor = ({
                 quantity: a.quantity,
                 shelf_name: a.shelf_name || '',
             }));
+            // Read `allocations` fresh via onChange's functional-update-like
+            // pattern isn't available here (onChange takes a value, not an
+            // updater), so this still appends to the value captured at
+            // click-time — safe because the whole row set is disabled below
+            // while a request is in flight, so nothing else can change it
+            // out from under this response.
             if (newRows.length > 0) {
                 onChange([...allocations, ...newRows]);
+            }
+            if (data?.shortfall > 0) {
+                setAutoAllocateShortfall(data.shortfall);
             }
         } catch (error) {
             toast.error(extractErrorMessage(error, 'Failed to auto-allocate shelves'));
@@ -124,7 +135,7 @@ const ShelfAllocationEditor = ({
                                 onChange={(e) => handleUpdateRow(index, { shelf_id: e.target.value })}
                                 options={dropdownOptions(index)}
                                 placeholder="Select shelf"
-                                disabled={disabled}
+                                disabled={disabled || autoAllocating}
                             />
                         ) : (
                             <SearchableSelect
@@ -135,7 +146,7 @@ const ShelfAllocationEditor = ({
                                 }
                                 onSearch={searchForRow(index)}
                                 placeholder="Search shelf by name..."
-                                disabled={disabled}
+                                disabled={disabled || autoAllocating}
                             />
                         )}
                     </div>
@@ -146,7 +157,7 @@ const ShelfAllocationEditor = ({
                             value={a.quantity}
                             onChange={(e) => handleUpdateRow(index, { quantity: e.target.value })}
                             placeholder="Qty"
-                            disabled={disabled}
+                            disabled={disabled || autoAllocating}
                         />
                     </div>
                     <Button
@@ -154,7 +165,7 @@ const ShelfAllocationEditor = ({
                         variant="secondary"
                         size="sm"
                         onClick={() => handleRemoveRow(index)}
-                        disabled={disabled}
+                        disabled={disabled || autoAllocating}
                     >
                         Remove
                     </Button>
@@ -168,7 +179,7 @@ const ShelfAllocationEditor = ({
                         variant="secondary"
                         size="sm"
                         onClick={handleAddRow}
-                        disabled={disabled || allRowsUsed}
+                        disabled={disabled || autoAllocating || allRowsUsed}
                     >
                         + Add Shelf
                     </Button>
@@ -205,6 +216,12 @@ const ShelfAllocationEditor = ({
             {mode === 'consumption' && shelves.length === 0 && (
                 <p className="text-sm text-red-600">
                     No shelf currently holds stock of this product — nothing can be allocated.
+                </p>
+            )}
+
+            {autoAllocateShortfall > 0 && (
+                <p className="text-sm text-amber-600">
+                    Auto-allocate could only cover {allocatedTotal} of {requiredQuantity} — {autoAllocateShortfall} short of total stock across all shelves. Add more manually if more becomes available.
                 </p>
             )}
         </div>

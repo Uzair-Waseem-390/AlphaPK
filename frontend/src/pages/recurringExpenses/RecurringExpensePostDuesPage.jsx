@@ -5,6 +5,7 @@ import { useToast } from '../../context/ToastContext';
 import { useRecurringExpensePendingDues } from '../../hooks/useRecurringExpenses';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import { currentMonthLocal } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Select from '../../components/ui/Select';
@@ -20,7 +21,7 @@ const fmt = (value) => {
     return isNaN(num) ? '0.00' : num.toFixed(2);
 };
 
-const currentMonth = () => new Date().toISOString().slice(0, 7);
+const currentMonth = () => currentMonthLocal();
 
 const RecurringExpensePostDuesPage = () => {
     const { user } = useAuth();

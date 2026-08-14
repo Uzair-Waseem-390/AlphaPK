@@ -6,7 +6,7 @@ import { billingApi } from '../../services/billingApi';
 import { ratesApi } from '../../services/ratesApi';
 import { creditScoreApi } from '../../services/creditScoreApi';
 import { useToast } from '../../context/ToastContext';
-import { creditScoreColorClass } from '../../utils/helpers';
+import { creditScoreColorClass, daysFromTodayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -17,11 +17,7 @@ import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
 import { extractErrorMessage } from '../../utils/errorMessage';
 
-const defaultDueDate = () => {
-    const d = new Date();
-    d.setDate(d.getDate() + 7);
-    return d.toISOString().slice(0, 10);
-};
+const defaultDueDate = () => daysFromTodayLocalDate(7);
 
 // Normalizes a DRF field error value (string, or list-of-strings) to a
 // single display string.

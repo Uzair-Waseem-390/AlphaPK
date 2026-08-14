@@ -516,6 +516,7 @@ class PurchaseReturnItemShelfAllocationReadSerializer(serializers.ModelSerialize
 
 
 class PurchaseReturnItemReadSerializer(serializers.ModelSerializer):
+    product            = serializers.IntegerField(source="purchase_item.product_id", read_only=True)
     product_name       = serializers.CharField(source="purchase_item.product.name", read_only=True)
     product_code       = serializers.CharField(source="purchase_item.product.code", read_only=True)
     allocated_quantity = serializers.IntegerField(read_only=True)
@@ -524,7 +525,7 @@ class PurchaseReturnItemReadSerializer(serializers.ModelSerializer):
     class Meta:
         model  = PurchaseReturnItem
         fields = [
-            "id", "product_name", "product_code", "quantity",
+            "id", "product", "product_name", "product_code", "quantity",
             "gst", "wht", "unit_price",
             "gross_amount", "gst_amount", "wht_amount", "total_amount",
             "allocated_quantity", "shelf_allocations",

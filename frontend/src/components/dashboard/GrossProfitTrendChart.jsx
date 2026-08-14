@@ -6,6 +6,7 @@ import Select from '../ui/Select';
 import LoadingSpinner from '../ui/LoadingSpinner';
 import InlineAlert from '../ui/InlineAlert';
 import { cashFlowApi } from '../../services/cashFlowApi';
+import { toLocalDateString } from '../../utils/helpers';
 
 const MONTHS_OPTIONS = [
     { value: '6', label: 'Last 6 months' },
@@ -69,7 +70,7 @@ const GrossProfitTrendChart = () => {
             const from = new Date();
             from.setMonth(from.getMonth() - (months - 1));
             from.setDate(1);
-            const date_from = from.toISOString().slice(0, 10);
+            const date_from = toLocalDateString(from);
             const result = await cashFlowApi.grossProfitTrend.get({ date_from });
             setData(result || []);
         } catch (err) {

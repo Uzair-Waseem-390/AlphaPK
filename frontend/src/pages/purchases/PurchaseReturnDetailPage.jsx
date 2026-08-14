@@ -48,14 +48,12 @@ const PurchaseReturnDetailPage = () => {
         fetchReturnDetails();
     }, [returnId]);
 
-    // The read serializer only exposes product_name/product_code on a return
-    // item (no product id) — resolve each item's product id by matching
-    // product_code against the related order's items (which do carry the
-    // id), then fetch that product's candidate shelves (already a small,
-    // bounded set — only shelves currently holding stock of it) for a
-    // plain dropdown.
+    // The read serializer exposes `product` (id) directly on a return item,
+    // resolved server-side from the item's own purchase_item FK — no need
+    // to cross-reference the order's items by product_code, which was
+    // ambiguous whenever an order had two lines for the same product code.
     useEffect(() => {
-        if (!returnItem?.items || !order?.items) return;
+        if (!returnItem?.items) return;
 
         setAllocationDrafts((prev) => {
             const next = { ...prev };
@@ -71,18 +69,17 @@ const PurchaseReturnDetailPage = () => {
         if (returnItem.status !== 'pending') return;
 
         returnItem.items.forEach((item) => {
-            const orderItem = order.items.find((oi) => oi.product_code === item.product_code);
-            if (!orderItem) return;
-            purchasesApi.shelves.getCandidates(orderItem.product)
+            if (!item.product) return;
+            purchasesApi.shelves.getCandidates(item.product)
                 .then((res) => {
                     const list = Array.isArray(res) ? res : (res?.results ?? []);
                     setCandidateShelves((prev) => ({ ...prev, [item.id]: list }));
                 })
                 .catch((error) => console.error('Failed to fetch candidate shelves:', error));
         });
-    }, [returnItem, order]);
+    }, [returnItem]);
 
-    const getItemProductId = (item) => order?.items?.find((oi) => oi.product_code === item.product_code)?.product;
+    const getItemProductId = (item) => item.product;
 
     // One click auto-allocates every item at once — fills only each item's
     // remaining gap, never touches rows already present.

@@ -702,6 +702,10 @@ def update_invoice_due_date(*, invoice_id: int, new_due_date, user) -> Invoice:
 def _cancel_advance_payment(*, invoice, user) -> bool:
     """
     Cancels any existing advance Payment on this invoice and reverses cash.
+    Also removes the linked customer ledger entry (mirrors the supplier-side
+    _cancel_advance_payment in purchases.services — the ledger entry was
+    previously left orphaned here, silently overstating the customer's
+    receivable balance after a draft with an advance was deleted).
     Returns True if an advance payment was found and cancelled.
     """
     advance_payment = Payment.objects.filter(
@@ -714,6 +718,9 @@ def _cancel_advance_payment(*, invoice, user) -> bool:
         from cash_flow.services import reverse_cash_movement, sync_invoice_advance_payment_deleted
         sync_invoice_advance_payment_deleted(advance_amount=advance_payment.amount, user=user)
 
+        from ledger.services import remove_customer_ledger_entry_for_payment
+        remove_customer_ledger_entry_for_payment(payment=advance_payment)
+
         advance_payment.is_deleted = True
         advance_payment.deleted_by = user
         advance_payment.deleted_at = timezone.now()
@@ -724,7 +731,14 @@ def _cancel_advance_payment(*, invoice, user) -> bool:
 
 
 def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal, user) -> None:
-    """Updates the advance Payment record and adjusts cash_in_hand."""
+    """
+    Updates the advance Payment record and adjusts cash_in_hand. Also keeps
+    the linked customer ledger entry's amount in sync (mirrors the
+    supplier-side _update_advance_payment in purchases.services — this
+    previously updated the real Payment/cash but left the ledger entry at
+    its original amount, silently understating the customer's receivable
+    balance after the advance was edited).
+    """
     advance_payment = Payment.objects.filter(
         invoice=invoice,
         note__startswith=ADVANCE_PAYMENT_NOTE,
@@ -738,6 +752,16 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
 
         from cash_flow.services import refresh_cash_movement
         refresh_cash_movement(advance_payment)
+
+        from ledger.models import CustomerLedgerEntry
+        from ledger.services import _get_year_month, _recalculate_customer_snapshots_from
+        ledger_entry = CustomerLedgerEntry.objects.filter(payment=advance_payment).first()
+        if ledger_entry:
+            ledger_entry.credit = new_amount
+            ledger_entry.save(update_fields=["credit"])
+            from ledger.models import CustomerLedger
+            ledger = CustomerLedger.objects.select_for_update().get(pk=ledger_entry.ledger_id)
+            _recalculate_customer_snapshots_from(ledger, _get_year_month(ledger_entry.date))
     else:
         adv_payment = Payment.objects.create(
             invoice=invoice,
@@ -748,6 +772,14 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
             note=ADVANCE_PAYMENT_NOTE,
             created_by=user,
             updated_by=user,
+        )
+        from ledger.services import add_customer_advance_entry
+        add_customer_advance_entry(
+            customer=invoice.customer,
+            payment=adv_payment,
+            amount=new_amount,
+            date=timezone.localtime(timezone.now()).date(),
+            user=user,
         )
         from cash_flow.services import record_cash_movement
         record_cash_movement(adv_payment)

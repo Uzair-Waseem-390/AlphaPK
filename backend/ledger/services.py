@@ -203,6 +203,25 @@ def create_ledger_for_customer(*, customer) -> CustomerLedger:
     )[0]
 
 
+def _get_locked_customer_ledger(customer) -> CustomerLedger:
+    """
+    Self-healing lookup used by every customer entry-write function below.
+    A CustomerLedger normally already exists (auto-created alongside the
+    customer by create_customer()) — but a customer created through any
+    OTHER path (Django admin's CustomerAdmin has no save_model override;
+    import_customer_data.py creates Customer rows directly) would otherwise
+    crash every one of these writes with CustomerLedger.DoesNotExist the
+    first time that customer has any sale/payment/advance/return. get_or_create
+    is idempotent under a race (real OneToOne constraint on customer), same
+    safety net create_ledger_for_customer already provides for the normal path.
+    """
+    CustomerLedger.objects.get_or_create(
+        customer=customer,
+        defaults={"customer_name": customer.name, "customer_code": customer.code},
+    )
+    return CustomerLedger.objects.select_for_update().get(customer=customer)
+
+
 # ---------------------------------------------------------------------------
 # Entry creation — called from purchases.services
 # ---------------------------------------------------------------------------
@@ -385,7 +404,7 @@ def add_sale_entry(
     # concurrently would each recalculate the month snapshot without seeing
     # the other's uncommitted entry — last writer would store a balance
     # missing one entry. The lock serializes writes per customer only.
-    ledger = CustomerLedger.objects.select_for_update().get(customer=customer)
+    ledger = _get_locked_customer_ledger(customer)
     entry  = CustomerLedgerEntry.objects.create(
         ledger      = ledger,
         entry_type  = CustomerLedgerEntry.EntryType.SALE,
@@ -410,7 +429,7 @@ def add_customer_opening_balance_entry(
     Data-entry bootstrap: one-time opening balance for a customer.
     Debit entry (they owed us from before go-live).
     """
-    ledger = CustomerLedger.objects.select_for_update().get(customer=customer)
+    ledger = _get_locked_customer_ledger(customer)
     entry  = CustomerLedgerEntry.objects.create(
         ledger      = ledger,
         entry_type  = CustomerLedgerEntry.EntryType.OPENING_BALANCE,
@@ -431,7 +450,7 @@ def add_customer_payment_entry(
     *, customer, payment, amount: Decimal, date, user,
 ) -> CustomerLedgerEntry:
     """Payment received → Credit entry (customer owes us less)."""
-    ledger = CustomerLedger.objects.select_for_update().get(customer=customer)
+    ledger = _get_locked_customer_ledger(customer)
     entry  = CustomerLedgerEntry.objects.create(
         ledger      = ledger,
         entry_type  = CustomerLedgerEntry.EntryType.PAYMENT,
@@ -452,7 +471,7 @@ def add_customer_advance_entry(
     *, customer, payment, amount: Decimal, date, user,
 ) -> CustomerLedgerEntry:
     """Advance payment on draft invoice → Credit entry (paid upfront)."""
-    ledger = CustomerLedger.objects.select_for_update().get(customer=customer)
+    ledger = _get_locked_customer_ledger(customer)
     entry  = CustomerLedgerEntry.objects.create(
         ledger      = ledger,
         entry_type  = CustomerLedgerEntry.EntryType.ADVANCE,
@@ -473,7 +492,7 @@ def add_customer_return_entry(
     *, customer, customer_return, amount: Decimal, date, user,
 ) -> CustomerLedgerEntry:
     """Return accepted → Credit entry (reduces what the customer owes)."""
-    ledger = CustomerLedger.objects.select_for_update().get(customer=customer)
+    ledger = _get_locked_customer_ledger(customer)
     entry  = CustomerLedgerEntry.objects.create(
         ledger          = ledger,
         entry_type      = CustomerLedgerEntry.EntryType.RETURN,
