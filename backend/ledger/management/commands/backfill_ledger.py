@@ -45,7 +45,7 @@ class Command(BaseCommand):
         # ----------------------------------------------------------------
         self.stdout.write("\nStep 2: Backfilling missing reference numbers...")
 
-        year   = timezone.now().year
+        year   = timezone.localtime(timezone.now()).year
 
         # Supplier payments
         sp_prefix = f"SPY-{year}-"

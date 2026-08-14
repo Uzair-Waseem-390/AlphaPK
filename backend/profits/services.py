@@ -41,7 +41,8 @@ def _earliest_period():
     )
     if not first:
         return None
-    return f"{first.year:04d}-{first.month:02d}"
+    first_local = timezone.localtime(first)
+    return f"{first_local.year:04d}-{first_local.month:02d}"
 
 
 # ---------------------------------------------------------------------------

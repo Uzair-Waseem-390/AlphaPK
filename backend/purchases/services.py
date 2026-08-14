@@ -124,7 +124,7 @@ def next_reference(*, counter_key: str, prefix_label: str, model, field: str) ->
     billing returns both format as RTN-<year>-#### (unique per table), so
     billing uses counter_key="BILL-RTN" with prefix_label="RTN".
     """
-    year   = timezone.now().year
+    year   = timezone.localtime(timezone.now()).year
     prefix = f"{prefix_label}-{year}-"
     with transaction.atomic():
         counter, created = (
@@ -1894,7 +1894,7 @@ def mark_lost_inventory_found(*, lost_item_id: int, quantity: int, shelf_allocat
         lost_item=lost_item,
         quantity=quantity,
         recovered_amount=recovered_amount,
-        recovered_at=timezone.now().date(),
+        recovered_at=timezone.localtime(timezone.now()).date(),
         recovered_by=user,
     )
 
