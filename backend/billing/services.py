@@ -917,6 +917,7 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     # _sync_invoice_payment_summary would sum the uncapped Payment.amount
     # and silently raise cash_received/credit_outstanding back up.
     if advance > invoice.grand_total:
+        uncapped_advance = advance
         advance = invoice.grand_total
         invoice.advance_amount = advance
         invoice.save(update_fields=["advance_amount"])
@@ -928,8 +929,29 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         if advance_payment:
             advance_payment.amount = advance
             advance_payment.save(update_fields=["amount"])
-            from cash_flow.services import refresh_cash_movement
+            # The FULL uncapped advance was added to cash_in_hand back when the
+            # draft was created (sync_invoice_advance_payment_created). Capping
+            # it here used to update the Payment row and the drawer event but
+            # NOT the CashFlow counter, so the capped-off difference stayed in
+            # cash_in_hand forever — silently, with no error, and unbounded:
+            # a 50,000 advance on a draft later reduced to an 850 total left
+            # cash overstated by 49,150. Found because a 0.004 rounding on one
+            # real invoice made the counter and the event table disagree.
+            #
+            # Paired deliberately with refresh_cash_movement inside the same
+            # `if advance_payment` block and the same atomic transaction:
+            # cash-in-hand.md's rule is that an event and its cash sync move
+            # together, never one without the other. (Row absent means the
+            # advance was already reversed via
+            # sync_invoice_advance_payment_deleted, so adjusting again here
+            # would double-subtract.)
+            from cash_flow.services import (
+                refresh_cash_movement, sync_invoice_advance_payment_updated,
+            )
             refresh_cash_movement(advance_payment)
+            sync_invoice_advance_payment_updated(
+                old_amount=uncapped_advance, new_amount=advance, user=user,
+            )
 
     credit_outstanding = max(Decimal("0"), invoice.grand_total - advance)
     invoice.cash_received      = advance
