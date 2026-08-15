@@ -218,3 +218,4 @@ frontend/.env
 # Locally-installed Claude Code skills — not part of the app, never pushed.
 .claude/skills/
 backend/accounting_capabilities_report.md
+db.sqlite3
