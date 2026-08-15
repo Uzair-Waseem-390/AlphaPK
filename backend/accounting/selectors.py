@@ -608,7 +608,7 @@ def get_income_statement(*, period: str = None) -> dict:
 # "As of a finished month" reads the frozen accounting.BalanceSheetSnapshot
 # row for that period instead (see services.catch_up_balance_sheet_snapshots).
 
-def _compute_opening_balance_equity() -> Decimal:
+def _compute_equity_offsets() -> dict:
     """
     Net offset for go-live bootstrap data — sourced ENTIRELY from billing/
     purchases/cash_flow/cash_management, NEVER from data_entry.models. The
@@ -644,59 +644,128 @@ def _compute_opening_balance_equity() -> Decimal:
     Each PO/Invoice/transaction query filters is_deleted=False defensively
     even though these rows are described as "permanently locked after
     creation" in data_entry.services — cheap insurance, not load-bearing.
+
+    ALSO returns the two ASSET-side offsets, which are a different class of
+    problem but need the same treatment:
+      + Pre-owned assets (acquisition_type='existing'), documented in
+        assets/models.py as "already owned before being registered. No cash
+        movement." — an asset from nothing, exactly like Opening Stock, and
+        NOT go-live-only: it fires whenever anyone registers a pre-owned
+        asset. Netted against depreciation posted for periods no income
+        statement ever covered (an asset back-filled from a pre-go-live
+        acquisition date has months with no MonthlyProfit row at all), so
+        this line means "what that equipment was worth when tracking began".
+      + Revaluation surplus. Only DEPRECIATION entries feed net profit, so a
+        REVALUATION moves current_worth with nothing on the other side.
+
+    ONE QUERY for all eight figures. They were six separate round-trips over
+    six tables; at ~100ms each against Supabase that was ~600ms on every
+    single live Balance Sheet load, to compute numbers that are constant
+    after go-live. Each is now a correlated scalar subquery hung off the
+    CashFlow singleton — the same pattern already proven by the five Flow
+    reads above and by profits.compute_month_figures_in_one_query. The
+    predicates are unchanged, so every figure is identical; only the number
+    of round-trips moved.
     """
-    from django.db.models import Exists, OuterRef
+    from django.db.models import DecimalField, Exists, IntegerField, OuterRef, Value
+    from django.db.models.functions import Coalesce
+
+    from assets.models import Asset, AssetValuationEntry
     from billing.models import Invoice
-    from cash_flow.models import CashMovement
+    from cash_flow.models import CashFlow, CashMovement
     from cash_management.models import InvestorTransaction
+    from profits.models import MonthlyProfit
     from purchases.models import PurchaseItem, PurchaseOrder
 
     zero = Decimal("0")
+    money = DecimalField(max_digits=20, decimal_places=4)
 
-    customer_ob_total = (
-        Invoice.objects
-        .filter(is_data_entry=True, is_deleted=False)
-        .aggregate(t=Sum("grand_total"))["t"]
-    ) or zero
+    def scalar(qs, field, *, filter=None):
+        """One-row scalar sum, safe on an empty table (a bare Subquery would
+        return NULL)."""
+        grouped = (
+            qs.values(_g=Value(1, output_field=IntegerField()))
+            .annotate(_t=Sum(field, filter=filter))
+            .values("_t")[:1]
+        )
+        return Coalesce(Subquery(grouped, output_field=money),
+                        Value(zero), output_field=money)
 
     has_items = PurchaseItem.objects.filter(order=OuterRef("pk"), is_deleted=False)
     data_entry_orders = PurchaseOrder.objects.filter(
         is_data_entry=True, is_deleted=False, status=PurchaseOrder.Status.CONFIRMED,
     )
-    # "Opening stock" POs have real line items; pure "opening balance" POs
-    # never do — the same structural distinction as before, now applied to
-    # BOTH sides instead of only the asset side.
-    #
-    # ONE query, not two: these were two separate aggregates over the identical
-    # base queryset partitioned on the same boolean, i.e. two ~100ms Supabase
-    # round-trips to compute two halves of one partition. A conditional
-    # aggregate gets both numbers in a single pass with identical semantics.
-    partitioned = data_entry_orders.aggregate(
-        stock=Sum("net_payable", filter=Exists(has_items)),
-        supplier=Sum("net_payable", filter=~Exists(has_items)),
-    )
-    opening_stock_total = partitioned["stock"] or zero
-    supplier_ob_total = partitioned["supplier"] or zero
 
-    opening_cash_total = (
-        CashMovement.objects
-        .filter(movement_type="opening_cash", is_deleted=False)
-        .aggregate(t=Sum("amount"))["t"]
-    ) or zero
+    # Periods whose depreciation DID reach retained earnings: every finalized
+    # MonthlyProfit plus the current month (recomputed live). Anything else
+    # reduced current_worth without ever being expensed.
+    today = timezone.localdate()
+    current_period = f"{today.year:04d}-{today.month:02d}"
+    expensed = Q(period__in=MonthlyProfit.objects.values("period")) | Q(period=current_period)
 
-    opening_investor_investment_total = (
-        InvestorTransaction.objects
-        .filter(
-            is_data_entry=True, is_deleted=False,
-            transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
-        )
-        .aggregate(t=Sum("amount"))["t"]
-    ) or zero
+    def _read():
+        return CashFlow.objects.filter(pk=1).annotate(
+            _customer_ob=scalar(
+                Invoice.objects.filter(is_data_entry=True, is_deleted=False),
+                "grand_total"),
+            # "Opening stock" POs have real line items; pure "opening balance"
+            # POs never do — the same structural distinction, applied to both
+            # sides. Two filtered sums over one base, not two scans.
+            _opening_stock=scalar(
+                data_entry_orders, "net_payable", filter=Exists(has_items)),
+            _supplier_ob=scalar(
+                data_entry_orders, "net_payable", filter=~Exists(has_items)),
+            _opening_cash=scalar(
+                CashMovement.objects.filter(
+                    movement_type="opening_cash", is_deleted=False),
+                "amount"),
+            _investor_ob=scalar(
+                InvestorTransaction.objects.filter(
+                    is_data_entry=True, is_deleted=False,
+                    transaction_type=InvestorTransaction.TransactionType.INVESTMENT),
+                "amount"),
+            _pre_owned_cost=scalar(
+                Asset.objects.filter(
+                    is_deleted=False,
+                    acquisition_type=Asset.AcquisitionType.EXISTING),
+                "cost"),
+            _revaluation=scalar(
+                AssetValuationEntry.objects.filter(asset__is_deleted=False),
+                "amount",
+                filter=Q(entry_type=AssetValuationEntry.EntryType.REVALUATION)),
+            _unexpensed_dep=scalar(
+                AssetValuationEntry.objects.filter(asset__is_deleted=False),
+                "amount",
+                filter=Q(entry_type=AssetValuationEntry.EntryType.DEPRECIATION)
+                       & ~expensed),
+        ).values(
+            "_customer_ob", "_opening_stock", "_supplier_ob", "_opening_cash",
+            "_investor_ob", "_pre_owned_cost", "_revaluation", "_unexpensed_dep",
+        ).first()
 
-    return (
-        customer_ob_total + opening_stock_total + opening_cash_total
-        - supplier_ob_total - opening_investor_investment_total
-    )
+    # Read first; only create the singleton if it genuinely doesn't exist yet.
+    # Without the row, .filter(pk=1) returns nothing and EVERY figure would
+    # silently read as zero — the same trap already documented in
+    # get_balance_sheet_live.
+    row = _read()
+    if row is None:
+        CashFlow.get_instance()
+        row = _read()
+    row = row or {}
+
+    def g(key):
+        return row.get(key) or zero
+
+    return {
+        "opening_balance_equity": (
+            g("_customer_ob") + g("_opening_stock") + g("_opening_cash")
+            - g("_supplier_ob") - g("_investor_ob")
+        ),
+        # `amount` is stored NEGATIVE for depreciation, so adding the
+        # unexpensed sum reduces equity — no sign flip needed.
+        "pre_owned_asset_equity": g("_pre_owned_cost") + g("_unexpensed_dep"),
+        "asset_revaluation_surplus": g("_revaluation"),
+    }
 
 
 _STALE_SNAPSHOT_LAG_DAYS = 2
@@ -748,94 +817,6 @@ def _snapshot_freshness(*, period: str = None, computed_at=None) -> dict:
         "snapshot_taken_on": taken_on,
         "lag_days": lag_days,
         "is_stale": lag_days > _STALE_SNAPSHOT_LAG_DAYS,
-    }
-
-
-def _compute_asset_equity_offsets() -> dict:
-    """
-    Two asset-side amounts that increase Assets with NO counterpart anywhere
-    else, so equity has to carry them or the sheet cannot balance.
-
-    1. PRE-OWNED ASSETS (acquisition_type='existing')
-       assets/models.py documents these as "already owned before being
-       registered. No cash movement." — an asset appears from nothing, exactly
-       like data-entry Opening Stock. This is a SIXTH bootstrap path that
-       _compute_opening_balance_equity never enumerated, and unlike the other
-       five it is not go-live-only: it lives in the normal assets app and
-       fires whenever anyone registers a pre-owned asset.
-       ('new' assets need no offset — cash already left the business, so the
-       cash decrease and the asset increase cancel.)
-
-    2. REVALUATION SURPLUS
-       AssetValuationEntry has two types, and only DEPRECIATION feeds
-       net_profit (profits.services._compute_depreciation). A REVALUATION
-       moves current_worth — an asset — with nothing on the other side. In
-       standard accounting that's a revaluation surplus in equity. `amount` is
-       stored signed (new_worth - worth_before, assets/services.py:324), so a
-       downward revaluation correctly reduces the surplus.
-
-    Both sums deliberately INCLUDE disposed assets. Worked through one
-    pre-owned asset's whole life (cost C, accumulated depreciation D,
-    revaluation R, sold for P):
-        assets  = P                        (asset removed, cash received)
-        equity  = C + R - D + (P - (C - D + R))
-                = P                        ✓
-    Dropping the disposed ones would strand the -D already expensed through
-    retained earnings and unbalance the sheet at the moment of every disposal.
-    """
-    from assets.models import Asset, AssetValuationEntry
-    from profits.models import MonthlyProfit
-
-    zero = Decimal("0")
-
-    pre_owned_cost = (
-        Asset.objects
-        .filter(is_deleted=False, acquisition_type=Asset.AcquisitionType.EXISTING)
-        .aggregate(t=Sum("cost"))["t"]
-    ) or zero
-
-    # Periods whose depreciation DID reach retained earnings: every finalized
-    # MonthlyProfit, plus the current month (whose figures are recomputed live
-    # by get_current_month_net_profit_only). `period__in` over a subquery
-    # rather than a separate fetch, so this stays one round-trip.
-    today = timezone.localdate()
-    current_period = f"{today.year:04d}-{today.month:02d}"
-    expensed_periods = Q(period__in=MonthlyProfit.objects.values("period")) | Q(period=current_period)
-
-    # Both figures from ONE query over AssetValuationEntry — same table, same
-    # base filter, so there is no reason to pay two round-trips.
-    entries = AssetValuationEntry.objects.filter(asset__is_deleted=False).aggregate(
-        revaluation=Sum(
-            "amount",
-            filter=Q(entry_type=AssetValuationEntry.EntryType.REVALUATION),
-        ),
-        # Depreciation for periods that NO income statement ever covered.
-        # An asset registered with acquisition_type='existing' gets valuation
-        # entries back-filled all the way from acquisition_date, so one bought
-        # years before this system went live carries depreciation for months
-        # that have no MonthlyProfit row at all. Those entries reduced
-        # current_worth (an asset) but were never expensed through profit, so
-        # equity would be overstated by exactly that amount.
-        #
-        # They are NOT missing expenses to be booked now — they happened
-        # before the business was tracking profit here, so they belong to the
-        # opening position, not to any reportable period. Netting them off the
-        # pre-owned figure is what makes that line mean "what this equipment
-        # was actually worth when the system started tracking it".
-        #
-        # `amount` is stored NEGATIVE for depreciation entries (see
-        # profits.services._compute_depreciation, which takes abs() of it), so
-        # adding this sum reduces equity — no sign flip needed.
-        unexpensed_depreciation=Sum(
-            "amount",
-            filter=Q(entry_type=AssetValuationEntry.EntryType.DEPRECIATION)
-                   & ~expensed_periods,
-        ),
-    )
-
-    return {
-        "pre_owned_asset_equity": pre_owned_cost + (entries["unexpensed_depreciation"] or zero),
-        "asset_revaluation_surplus": entries["revaluation"] or zero,
     }
 
 
@@ -974,8 +955,7 @@ def get_balance_sheet_live() -> dict:
         wht_payable=row.get("_wht_payable") or zero,
         owner_capital=row.get("_owner_capital") or zero,
         investor_capital=row.get("_investor_capital") or zero,
-        opening_balance_equity=_compute_opening_balance_equity(),
-        **_compute_asset_equity_offsets(),
+        **_compute_equity_offsets(),
         retained_earnings=retained_earnings,
     )
 

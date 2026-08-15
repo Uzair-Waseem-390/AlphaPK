@@ -764,24 +764,35 @@ class BalanceSheetTests(AccountingTestBase):
     def test_live_view_query_count_is_small_and_fixed(self):
         """
         Per architecture.md's STRICT 200ms rule and verification.md rule 6 —
-        must be counted, not eyeballed. ~21 queries is the honest number for
-        this endpoint: 1 to ensure CashFlow's singleton row exists (see
-        get_balance_sheet_live's CashFlow.get_instance() comment), 1
-        subquery-joined singleton read, 2 for inventory valuation, ~12 from
-        reusing profits.get_current_month_net_profit_only() (each of ITS
-        `_compute_*` helpers is one small bounded aggregate scoped to the
-        current month only), and 5 from _compute_opening_balance_equity
-        (one bounded aggregate per data_entry bootstrap path — customer OB,
-        opening stock, supplier OB, opening cash, opening investor
-        investment). None are N+1 or proportional to total data size,
-        verified by inspecting each source directly. Bound set generously
-        above that so this test catches a REAL regression (e.g. an
-        accidental N+1) rather than false-alarming on normal variance — if
-        this ever creeps past ~30, that's worth investigating, not silently
-        raising the bound further.
+        counted, never eyeballed. 7 is the honest number today, down from 21:
+
+            1  subquery-joined read of all five Flow singletons
+            2  get_gross_profit_trend (invoice + return TruncMonth GROUP BY)
+            1  profits.compute_month_figures_in_one_query — ten month
+               figures that used to be ten separate round-trips
+            2  inventory valuation (Inventory rows + FIFO batches)
+            1  _compute_equity_offsets — eight bootstrap/asset offsets that
+               used to be six separate round-trips
+
+        None is an N+1 or proportional to total data size; each was verified
+        by reading the emitted SQL, not inferred.
+
+        Bound set a little above 7 so this catches a REAL regression (an
+        accidental N+1, or a collapsed query silently un-collapsing) instead
+        of false-alarming on variance. If it creeps past 10, investigate —
+        do not just raise the bound. Getting below ~4 would need caching
+        opening_balance_equity on a singleton, which is a design change (new
+        persistent state + an invalidation obligation), not an optimization.
         """
         product = self.make_stocked_product(stock=20)
         self.make_confirmed_invoice(product, quantity=1)
+
+        # Measure STEADY STATE. The read-first singleton fallbacks (CashFlow,
+        # ProfitFlow) each cost a few extra queries on their very first miss —
+        # a fresh test database pays that, a live system paid it once and
+        # never again. Counting the bootstrap path would report ~12 and
+        # describe a state no real request is ever in.
+        get_balance_sheet_live()
 
         request = self.factory.get("/api/accounting/balance-sheet/")
         force_authenticate(request, user=self.admin)
@@ -789,7 +800,7 @@ class BalanceSheetTests(AccountingTestBase):
             response = BalanceSheetView.as_view()(request)
         self.assertEqual(response.status_code, 200)
         self.assertLessEqual(
-            len(ctx.captured_queries), 30,
+            len(ctx.captured_queries), 10,
             msg=f"{len(ctx.captured_queries)} queries — investigate before shipping:\n"
                 + "\n".join(q["sql"][:120] for q in ctx.captured_queries),
         )
