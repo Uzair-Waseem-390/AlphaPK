@@ -220,6 +220,8 @@ const BalanceSheetPage = () => {
                                 <Line label="Owner's Capital" amount={data.equity.owner_capital} />
                                 <Line label="Investors' Capital" amount={data.equity.investor_capital} />
                                 <Line label="Opening Balance (Pre-Existing Debts/Stock)" amount={data.equity.opening_balance_equity} />
+                                <Line label="Equipment You Already Owned" amount={data.equity.pre_owned_asset_equity} />
+                                <Line label="Increase in Equipment Value (Revaluation)" amount={data.equity.asset_revaluation_surplus} />
                                 <Line label="Retained Earnings (Undistributed Profit)" amount={data.equity.retained_earnings} />
                                 <div className="pt-3 mt-2 border-t border-neutral-200">
                                     <Line label="Total Equity" amount={data.equity.total} bold />

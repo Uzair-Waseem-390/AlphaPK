@@ -14,6 +14,17 @@
    event table against.
 5. `backfill_cashflow.py`. (Otherwise re-running it silently undoes the
    deduction/addition.)
+6. Classify the new `movement_type` in `accounting/selectors.py`'s
+   `OPERATING_MOVEMENT_TYPES` / `INVESTING_MOVEMENT_TYPES` /
+   `FINANCING_MOVEMENT_TYPES` sets, and give it a human label in
+   `_MOVEMENT_TYPE_LABELS`. Skipping this does NOT just omit a line from the
+   Cash Flow Statement — `net_change_in_cash` is summed from those buckets
+   and `opening_cash` is derived as `closing_cash - net_change`, so an
+   unclassified type makes both totals wrong. Since 2026-08-15 an unmapped
+   type falls into Operating labelled `"Unclassified — <movement_type>"`
+   rather than being dropped, so the totals stay correct and the gap is
+   visible on the statement — but that's a safety net, not a substitute for
+   classifying it properly here.
 
 Events are written in the SAME transaction as the CashFlow adjustment —
 never record an event without its cash sync or vice versa.

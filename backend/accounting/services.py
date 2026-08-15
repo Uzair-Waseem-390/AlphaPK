@@ -69,6 +69,8 @@ def catch_up_balance_sheet_snapshots(*, user=None) -> int:
                 owner_capital=live["equity"]["owner_capital"],
                 investor_capital=live["equity"]["investor_capital"],
                 opening_balance_equity=live["equity"]["opening_balance_equity"],
+                pre_owned_asset_equity=live["equity"]["pre_owned_asset_equity"],
+                asset_revaluation_surplus=live["equity"]["asset_revaluation_surplus"],
                 retained_earnings=live["equity"]["retained_earnings"],
                 total_equity=live["equity"]["total"],
             )

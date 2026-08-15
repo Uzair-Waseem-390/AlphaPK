@@ -2,7 +2,7 @@ from datetime import date, timedelta
 from decimal import Decimal
 
 from django.db import IntegrityError, transaction
-from django.db.models import Sum
+from django.db.models import Q, Sum
 from django.utils import timezone
 
 from .models import (
@@ -48,6 +48,147 @@ def _earliest_period():
 # ---------------------------------------------------------------------------
 # Per-month deduction computations — each scoped to [first_day, last_day]
 # ---------------------------------------------------------------------------
+
+def compute_month_figures_in_one_query(first_day, last_day, period: str) -> dict:
+    """
+    The same ten month figures the _compute_* helpers below return, but in ONE
+    round-trip instead of ten.
+
+    Why: each helper is a single-row `.aggregate()` against a different table.
+    Individually they're cheap and correctly indexed — the cost is purely that
+    there are ten network round-trips. Against Supabase at ~100ms each that's
+    ~1 second, and it is paid on EVERY read of the live Income Statement and
+    the live Balance Sheet (which reuses this path). architecture.md's 200ms
+    rule is about query COUNT for exactly this reason.
+
+    Deliberately used ONLY by the live current-month path, NOT by
+    catch_up_monthly_profits. That function writes MonthlyProfit rows which
+    are frozen forever and never recomputed, so an error there would be
+    permanent and undetectable; and it runs once a month, where ten round
+    trips cost a second that nobody notices. Fixing the hot path while leaving
+    the irreversible writer on the long-proven code is the whole point — the
+    ten helpers remain the single definition of each predicate, and
+    ProfitsEquivalenceTests asserts this function returns byte-identical
+    values to them.
+
+    Each figure is a correlated scalar subquery hung off the ProfitFlow
+    singleton (guaranteed to exist via get_instance), grouped by a constant so
+    every subquery yields exactly one row. Coalesce handles the empty-table
+    case, which a bare Subquery would return as NULL.
+    """
+    from django.db.models import DecimalField, IntegerField, OuterRef, Subquery, Value
+    from django.db.models.functions import Coalesce
+
+    from assets.models import AssetDisposal, AssetValuationEntry
+    from cash_flow.models import Expense
+    from cash_management.models import CashAdjustment
+    from purchases.models import LostInventoryRecord, LostInventoryRecovery
+    from purchases.selectors import _day_start, _next_day_start
+    from recurring_expenses.models import RecurringExpenseAssignmentPayment
+    from taxes.models import TaxPayment, WHTPayment
+
+    money = DecimalField(max_digits=20, decimal_places=4)
+
+    def scalar(qs, field):
+        """One-row scalar sum of `field` over `qs`, safe on an empty table."""
+        grouped = (
+            qs.values(_g=Value(1, output_field=IntegerField()))
+            .annotate(_t=Sum(field))
+            .values("_t")[:1]
+        )
+        return Coalesce(Subquery(grouped, output_field=money), Value(Decimal("0")),
+                        output_field=money)
+
+    # Predicates below are copied verbatim from the individual helpers. Any
+    # divergence is caught by the equivalence test, not left to review.
+    def _read():
+        return ProfitFlow.objects.filter(pk=1).annotate(
+            _expenses=scalar(
+                Expense.objects.filter(
+                    is_deleted=False, expense_date__gte=first_day, expense_date__lte=last_day),
+                "amount"),
+            _recurring=scalar(
+                RecurringExpenseAssignmentPayment.objects.filter(
+                    is_deleted=False, payment_date__gte=first_day, payment_date__lte=last_day),
+                "amount"),
+            _gst=scalar(
+                TaxPayment.objects.filter(
+                    is_deleted=False, payment_date__gte=first_day, payment_date__lte=last_day),
+                "amount"),
+            _wht=scalar(
+                WHTPayment.objects.filter(
+                    is_deleted=False, payment_date__gte=first_day, payment_date__lte=last_day),
+                "amount"),
+            _lost_cash=scalar(
+                CashAdjustment.objects.filter(
+                    is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.LOST,
+                    adjustment_date__gte=first_day, adjustment_date__lte=last_day),
+                "amount"),
+            _found_cash=scalar(
+                CashAdjustment.objects.filter(
+                    is_deleted=False, adjustment_type=CashAdjustment.AdjustmentType.FOUND,
+                    adjustment_date__gte=first_day, adjustment_date__lte=last_day),
+                "amount"),
+            _lost_inv=scalar(
+                LostInventoryRecord.objects.filter(
+                    is_deleted=False,
+                    created_at__gte=_day_start(first_day),
+                    created_at__lt=_next_day_start(last_day)),
+                "total_lost_amount"),
+            _found_inv=scalar(
+                LostInventoryRecovery.objects.filter(
+                    recovered_at__gte=first_day, recovered_at__lte=last_day),
+                "recovered_amount"),
+            _depreciation=scalar(
+                AssetValuationEntry.objects.filter(
+                    entry_type=AssetValuationEntry.EntryType.DEPRECIATION, period=period),
+                "amount"),
+            _disposal_sold=scalar(
+                AssetDisposal.objects.filter(
+                    disposal_type=AssetDisposal.DisposalType.SOLD,
+                    disposal_date__gte=first_day, disposal_date__lte=last_day),
+                "gain_loss"),
+            _disposal_scrapped=scalar(
+                AssetDisposal.objects.filter(
+                    disposal_type=AssetDisposal.DisposalType.SCRAPPED,
+                    disposal_date__gte=first_day, disposal_date__lte=last_day),
+                "worth_at_disposal"),
+        ).values(
+                "_expenses", "_recurring", "_gst", "_wht", "_lost_cash", "_found_cash",
+                "_lost_inv", "_found_inv", "_depreciation",
+                "_disposal_sold", "_disposal_scrapped",
+            ).first()
+
+    # Read first; only pay get_instance()'s extra get_or_create round-trip if
+    # the singleton genuinely doesn't exist yet (once in the system's
+    # lifetime). Same pattern as accounting.selectors.get_balance_sheet_live —
+    # and it matters here for the same reason: without the row, `.filter(pk=1)`
+    # returns nothing and EVERY figure would silently read as zero.
+    row = _read()
+    if row is None:
+        ProfitFlow.get_instance()
+        row = _read()
+    row = row or {}
+
+    zero = Decimal("0")
+
+    def g(key):
+        return row.get(key) or zero
+
+    return {
+        "expenses_paid": g("_expenses"),
+        "recurring_expenses_paid": g("_recurring"),
+        "gst_paid": g("_gst"),
+        "wht_paid": g("_wht"),
+        "lost_cash": g("_lost_cash"),
+        "found_cash": g("_found_cash"),
+        "lost_inventory": g("_lost_inv"),
+        "found_inventory": g("_found_inv"),
+        # Stored negative, same abs() the individual helper applies.
+        "depreciation": abs(g("_depreciation")),
+        "disposal_gain_loss": g("_disposal_sold") - g("_disposal_scrapped"),
+    }
+
 
 def _compute_expenses_paid(first_day, last_day) -> Decimal:
     from cash_flow.models import Expense
@@ -141,13 +282,38 @@ def _compute_depreciation(period: str) -> Decimal:
 
 
 def _compute_disposal_gain_loss(first_day, last_day) -> Decimal:
+    """
+    Net gain/(loss) from disposing of fixed assets this month — BOTH kinds.
+
+    This used to filter disposal_type=SOLD only. Scrapping an asset has
+    gain_loss=None (there's no sale price to compare against), so a scrapped
+    asset's remaining book value simply disappeared: AssetFlow.
+    total_current_worth dropped by worth_at_disposal, but nothing was ever
+    recorded as an expense. The loss was real — the business genuinely wrote
+    off that value — it just never reached the income statement, and it left
+    the Balance Sheet unable to balance by exactly that amount.
+
+    SOLD assets keep using the stored gain_loss (sale_amount -
+    worth_at_disposal, already computed at disposal time — deliberately NOT
+    recomputed here, so a historical disposal keeps the figure it was
+    recorded with). SCRAPPED assets are a pure loss of worth_at_disposal.
+
+    One query, not two: a conditional aggregate over the same date-bounded
+    queryset, so this costs nothing extra on the current-month path that
+    recomputes it on every read.
+    """
     from assets.models import AssetDisposal
 
-    total = AssetDisposal.objects.filter(
-        disposal_type=AssetDisposal.DisposalType.SOLD,
+    totals = AssetDisposal.objects.filter(
         disposal_date__gte=first_day, disposal_date__lte=last_day,
-    ).aggregate(total=Sum("gain_loss"))["total"]
-    return total or Decimal("0")
+    ).aggregate(
+        sold=Sum("gain_loss", filter=Q(disposal_type=AssetDisposal.DisposalType.SOLD)),
+        scrapped=Sum(
+            "worth_at_disposal",
+            filter=Q(disposal_type=AssetDisposal.DisposalType.SCRAPPED),
+        ),
+    )
+    return (totals["sold"] or Decimal("0")) - (totals["scrapped"] or Decimal("0"))
 
 
 def _compute_share_status(share: MonthlyProfitInvestorShare) -> str:

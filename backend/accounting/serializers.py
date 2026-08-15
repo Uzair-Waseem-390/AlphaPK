@@ -129,11 +129,13 @@ class BalanceSheetLiabilitiesSerializer(serializers.Serializer):
 
 
 class BalanceSheetEquitySerializer(serializers.Serializer):
-    owner_capital           = serializers.DecimalField(max_digits=20, decimal_places=4)
-    investor_capital          = serializers.DecimalField(max_digits=20, decimal_places=4)
-    opening_balance_equity      = serializers.DecimalField(max_digits=20, decimal_places=4)
-    retained_earnings              = serializers.DecimalField(max_digits=20, decimal_places=4)
-    total                              = serializers.DecimalField(max_digits=20, decimal_places=4)
+    owner_capital               = serializers.DecimalField(max_digits=20, decimal_places=4)
+    investor_capital             = serializers.DecimalField(max_digits=20, decimal_places=4)
+    opening_balance_equity        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    pre_owned_asset_equity          = serializers.DecimalField(max_digits=20, decimal_places=4)
+    asset_revaluation_surplus        = serializers.DecimalField(max_digits=20, decimal_places=4)
+    retained_earnings                  = serializers.DecimalField(max_digits=20, decimal_places=4)
+    total                                = serializers.DecimalField(max_digits=20, decimal_places=4)
 
 
 class BalanceSheetFreshnessSerializer(serializers.Serializer):

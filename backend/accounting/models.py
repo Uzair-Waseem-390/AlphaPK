@@ -52,6 +52,19 @@ class BalanceSheetSnapshot(models.Model):
                                                "natural double-entry counterpart, so without this line the "
                                                "balance sheet would never balance for a business that used the "
                                                "Data Entry app to bootstrap pre-existing debts/stock at go-live.")
+    pre_owned_asset_equity    = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Total cost of assets registered with acquisition_type='existing' "
+                                               "(already owned before being recorded, so no cash ever left the "
+                                               "business). Like opening stock, these add an asset with no natural "
+                                               "counterpart — without this line the sheet cannot balance for any "
+                                               "business that registered a pre-owned asset. Includes disposed ones: "
+                                               "removing them would strand the depreciation already expensed "
+                                               "through retained earnings.")
+    asset_revaluation_surplus  = models.DecimalField(max_digits=20, decimal_places=4, default=0,
+                                    help_text="Net of all AssetValuationEntry REVALUATION amounts (signed, so "
+                                               "downward revaluations reduce it). Only DEPRECIATION entries feed "
+                                               "net profit, so a revaluation moves current_worth with nothing on "
+                                               "the other side — this is the standard revaluation-surplus offset.")
     retained_earnings        = models.DecimalField(max_digits=20, decimal_places=4, default=0,
                                     help_text="Cumulative net profit minus everything already paid out or reinvested.")
     total_equity              = models.DecimalField(max_digits=20, decimal_places=4, default=0)

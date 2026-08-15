@@ -40,9 +40,24 @@ def _adjust_asset_flow(
         af.total_asset_cost = max(
             Decimal("0"), af.total_asset_cost + total_asset_cost_delta
         )
-        af.total_current_worth = max(
-            Decimal("0"), af.total_current_worth + total_current_worth_delta
-        )
+        # NOT floored at 0 — same reasoning as cash_flow._adjust_cashflow's
+        # cash_in_hand. This is a live balance (the net book value of every
+        # asset still held), not a cumulative counter, and it feeds the
+        # Balance Sheet's fixed_assets_nbv directly.
+        #
+        # With max(0, ...) any delta that would take it negative had the
+        # excess silently DISCARDED, so the total no longer matched
+        # sum(Asset.current_worth) and every later movement built on the
+        # wrong base — permanently, with no error and no way to detect it.
+        # If it ever does go negative, that means depreciation/disposal
+        # deltas have outrun what was actually added, which is a real bug
+        # worth seeing rather than hiding.
+        #
+        # The genuinely cumulative counters below (accumulated depreciation,
+        # gain/loss on disposal, disposed count) keep their floors — those
+        # only ever move one way, so a floor there guards a value that
+        # should never be negative rather than destroying information.
+        af.total_current_worth = af.total_current_worth + total_current_worth_delta
         af.total_accumulated_depreciation = max(
             Decimal("0"), af.total_accumulated_depreciation + total_accumulated_depreciation_delta
         )
@@ -184,6 +199,37 @@ def catch_up_all_asset_depreciation(user=None) -> None:
 # AssetCategory services
 # ---------------------------------------------------------------------------
 
+def _validate_depreciation_rate(rate: Decimal) -> None:
+    """
+    depreciation_rate is a FRACTION (0.15 == 15%), stored as
+    DecimalField(max_digits=5, decimal_places=4) — so the largest value the
+    column can physically hold is 9.9999.
+
+    Only `rate > 0` was checked before, which meant someone typing 15 for
+    "15%" was written successfully and then poisoned the row: every
+    subsequent read raised decimal.InvalidOperation trying to fit 15.00 into
+    5 digits with 4 decimal places, taking down the whole assets app until
+    the row was deleted by hand. A silent write that bricks later reads is
+    far worse than a rejected write.
+
+    Upper bound is 1 (100%) rather than the column's 9.9999: this is a
+    reducing-balance rate, so anything above 100% would write off more than
+    the asset is worth and drive current_worth negative.
+    """
+    from rest_framework.exceptions import ValidationError
+
+    if rate <= 0:
+        raise ValidationError(
+            {"depreciation_rate": "Depreciation rate must be greater than zero."}
+        )
+    if rate > 1:
+        raise ValidationError({
+            "depreciation_rate":
+                f"Depreciation rate is a fraction between 0 and 1 — enter 0.15 for 15%, "
+                f"not 15. Got {rate}.",
+        })
+
+
 def create_asset_category(
     *, name: str, valuation_method: str, depreciation_rate: Decimal = Decimal("0"), user,
 ) -> AssetCategory:
@@ -195,8 +241,8 @@ def create_asset_category(
         raise ValidationError({"name": "An asset category with this name already exists."})
     if valuation_method not in AssetCategory.ValuationMethod.values:
         raise ValidationError({"valuation_method": "Must be 'depreciation', 'revaluation', or 'none'."})
-    if valuation_method == AssetCategory.ValuationMethod.DEPRECIATION and depreciation_rate <= 0:
-        raise ValidationError({"depreciation_rate": "Depreciation rate must be greater than zero for a depreciation-method category."})
+    if valuation_method == AssetCategory.ValuationMethod.DEPRECIATION:
+        _validate_depreciation_rate(depreciation_rate)
 
     return AssetCategory.objects.create(
         name=name.strip(),
@@ -229,8 +275,7 @@ def update_asset_category(
     if depreciation_rate is not None:
         if category.valuation_method != AssetCategory.ValuationMethod.DEPRECIATION:
             raise ValidationError({"depreciation_rate": "Only depreciation-method categories have a rate."})
-        if depreciation_rate <= 0:
-            raise ValidationError({"depreciation_rate": "Depreciation rate must be greater than zero."})
+        _validate_depreciation_rate(depreciation_rate)
         rate_changed = category.depreciation_rate != depreciation_rate
         category.depreciation_rate = depreciation_rate
 

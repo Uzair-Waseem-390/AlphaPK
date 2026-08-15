@@ -63,9 +63,22 @@ def _adjust_cashflow(
     with transaction.atomic():
         cf = CashFlow.objects.select_for_update().get_or_create(pk=1)[0]
 
-        cf.cash_in_hand = max(
-            Decimal("0"), cf.cash_in_hand + cash_in_hand_delta
-        )
+        # NOT floored at 0 — deliberately, unlike the cumulative counters below.
+        #
+        # This used to be max(Decimal("0"), ...). When a movement would take
+        # cash negative, the deficit was DISCARDED rather than deferred: later
+        # inflows then built on the clamped-up figure, so the error was
+        # permanent, cumulative, silent, and undetectable after the fact. It
+        # also broke the invariant that cash_in_hand equals
+        # total_cash_inflow - total_cash_outflow.
+        #
+        # A negative cash_in_hand is information, not corruption: it means the
+        # recorded outflows exceed the recorded inflows, which is a real data
+        # problem (a missing receipt, an out-of-order back-dated entry) that
+        # someone should see and correct. Showing it is strictly better than
+        # silently absorbing it, and it self-corrects the moment the missing
+        # inflow is recorded.
+        cf.cash_in_hand = cf.cash_in_hand + cash_in_hand_delta
         cf.total_cash_inflow = max(
             Decimal("0"), cf.total_cash_inflow + total_cash_inflow_delta
         )

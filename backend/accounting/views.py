@@ -11,8 +11,12 @@ from reports.pdf_service import generate_report_pdf_bytes
 from .pdf_service import generate_statement_pdf_bytes
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
+    ap_aging_row,
+    ar_aging_row,
+    get_ap_aging_queryset,
     get_ap_aging_rows,
     get_ap_aging_summary,
+    get_ar_aging_queryset,
     get_ar_aging_rows,
     get_ar_aging_summary,
     get_balance_sheet_for_period,
@@ -36,6 +40,44 @@ def _fmt(value) -> str:
     return f"{Decimal(value):.2f}"
 
 
+# PDF rendering is the slowest thing in this app by a wide margin, and it is
+# NOT database-bound: the aging prints run a single query, then WeasyPrint
+# takes roughly 30ms PER ROW to lay the table out, linearly, on top of a
+# multi-second one-time warm-up. Measured on real data: 100 rows ~2.8s, 200
+# rows ~7.7s, 383 rows ~11.4s. The aging reports are the only unbounded sets
+# in this app (an invoice stays outstanding until it is paid, and the over_90
+# bucket never clears), so at a few thousand rows this becomes minutes and a
+# guaranteed gateway timeout.
+#
+# Deliberately generous — a real filtered view is far below it, so in normal
+# use nothing is ever dropped.
+MAX_PRINT_ROWS = 500
+
+
+def _cap_print_rows(rows: list, *, noun: str) -> tuple:
+    """
+    Bounds a print set and reports the truncation LOUDLY.
+
+    architecture.md's rule: no silent caps — a truncated report that doesn't
+    say so reads as "this is everything", which on a financial document is
+    worse than being slow. So the notice goes into the PDF's filter line
+    (rendered directly under the title, impossible to miss) and the full
+    unfiltered count stays visible in the stats block, which is sourced from
+    the summary rather than from the truncated list.
+
+    Returns (rows_to_render, notice_or_empty_string).
+    """
+    total = len(rows)
+    if total <= MAX_PRINT_ROWS:
+        return rows, ""
+
+    return rows[:MAX_PRINT_ROWS], (
+        f"  |  SHOWING FIRST {MAX_PRINT_ROWS} OF {total} {noun} — this report was "
+        f"truncated to stay printable. Totals below still cover all {total}. "
+        f"Narrow the filter to print the rest."
+    )
+
+
 # ---------------------------------------------------------------------------
 # A/R Aging
 # ---------------------------------------------------------------------------
@@ -56,15 +98,17 @@ class ARAgingListView(generics.ListAPIView):
     serializer_class = ARAgingRowSerializer
 
     def list(self, request, *args, **kwargs):
-        rows = get_ar_aging_rows()
-        summary = get_ar_aging_summary(rows)
-
+        # Paginates the QUERYSET, so only the page's rows cross the network.
+        # Previously every outstanding invoice was materialized and sorted in
+        # Python just to slice 25 of them out. The summary is a separate
+        # GROUP BY over the unfiltered set, so it still describes the whole
+        # outstanding book even when `bucket` narrows the table below it.
         bucket = request.query_params.get("bucket")
-        if bucket:
-            rows = [r for r in rows if r["bucket"] == bucket]
+        summary = get_ar_aging_summary()
 
-        page = self.paginate_queryset(rows)
-        serializer = self.get_serializer(page, many=True)
+        page = self.paginate_queryset(get_ar_aging_queryset(bucket=bucket))
+        rows = [ar_aging_row(inv) for inv in page]
+        serializer = self.get_serializer(rows, many=True)
         response = self.get_paginated_response(serializer.data)
         response.data["summary"] = summary
         return response
@@ -89,6 +133,10 @@ class ARAgingPrintView(APIView):
         all_rows = get_ar_aging_rows()
         summary = get_ar_aging_summary(all_rows)
         rows = [r for r in all_rows if r["bucket"] == bucket] if bucket else all_rows
+        # `summary` is computed BEFORE capping and from the unfiltered set, so
+        # the printed totals still describe every outstanding invoice even
+        # when the row list below them is truncated.
+        rows, truncation_notice = _cap_print_rows(rows, noun="invoices")
 
         columns = [
             {"key": "bill_number", "label": "Invoice #"},
@@ -111,7 +159,7 @@ class ARAgingPrintView(APIView):
 
         pdf_bytes, filename = generate_report_pdf_bytes(
             title="A/R Aging Report",
-            filter_description=f"Bucket: {bucket}" if bucket else "All buckets",
+            filter_description=(f"Bucket: {bucket}" if bucket else "All buckets") + truncation_notice,
             columns=columns,
             rows=ARAgingRowSerializer(rows, many=True).data,
             stats=stats,
@@ -131,15 +179,13 @@ class APAgingListView(generics.ListAPIView):
     serializer_class = APAgingRowSerializer
 
     def list(self, request, *args, **kwargs):
-        rows = get_ap_aging_rows()
-        summary = get_ap_aging_summary(rows)
-
+        # Same shape as ARAgingListView.list — see there for why.
         bucket = request.query_params.get("bucket")
-        if bucket:
-            rows = [r for r in rows if r["bucket"] == bucket]
+        summary = get_ap_aging_summary()
 
-        page = self.paginate_queryset(rows)
-        serializer = self.get_serializer(page, many=True)
+        page = self.paginate_queryset(get_ap_aging_queryset(bucket=bucket))
+        rows = [ap_aging_row(o) for o in page]
+        serializer = self.get_serializer(rows, many=True)
         response = self.get_paginated_response(serializer.data)
         response.data["summary"] = summary
         return response
@@ -156,6 +202,7 @@ class APAgingPrintView(APIView):
         all_rows = get_ap_aging_rows()
         summary = get_ap_aging_summary(all_rows)
         rows = [r for r in all_rows if r["bucket"] == bucket] if bucket else all_rows
+        rows, truncation_notice = _cap_print_rows(rows, noun="orders")
 
         columns = [
             {"key": "order_number", "label": "Order #"},
@@ -178,7 +225,7 @@ class APAgingPrintView(APIView):
 
         pdf_bytes, filename = generate_report_pdf_bytes(
             title="A/P Aging Report",
-            filter_description=f"Bucket: {bucket}" if bucket else "All buckets",
+            filter_description=(f"Bucket: {bucket}" if bucket else "All buckets") + truncation_notice,
             columns=columns,
             rows=APAgingRowSerializer(rows, many=True).data,
             stats=stats,
@@ -456,6 +503,10 @@ class BalanceSheetPrintView(APIView):
                     {"label": "Investors' Capital", "amount": _fmt(data["equity"]["investor_capital"])},
                     {"label": "Opening Balance (Pre-Existing Debts/Stock)",
                      "amount": _fmt(data["equity"]["opening_balance_equity"])},
+                    {"label": "Equipment You Already Owned",
+                     "amount": _fmt(data["equity"]["pre_owned_asset_equity"])},
+                    {"label": "Increase in Equipment Value (Revaluation)",
+                     "amount": _fmt(data["equity"]["asset_revaluation_surplus"])},
                     {"label": "Retained Earnings (Undistributed Profit)", "amount": _fmt(data["equity"]["retained_earnings"])},
                     {"label": "Total Equity", "amount": _fmt(data["equity"]["total"]), "bold": True},
                 ],

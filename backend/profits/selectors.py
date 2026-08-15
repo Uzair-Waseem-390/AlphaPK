@@ -180,12 +180,7 @@ def _compute_current_month_figures() -> dict:
     extraction, no behavior change.
     """
     from django.utils import timezone
-    from .services import (
-        _compute_depreciation, _compute_disposal_gain_loss, _compute_expenses_paid,
-        _compute_found_cash, _compute_found_inventory, _compute_gst_paid,
-        _compute_lost_cash, _compute_lost_inventory,
-        _compute_recurring_expenses_paid, _compute_wht_paid, _month_bounds,
-    )
+    from .services import compute_month_figures_in_one_query, _month_bounds
 
     today = timezone.localdate()
     period = f"{today.year:04d}-{today.month:02d}"
@@ -195,16 +190,20 @@ def _compute_current_month_figures() -> dict:
     from cash_flow.selectors import get_gross_profit_trend
     row = get_gross_profit_trend(date_from=first_day.isoformat(), date_to=last_day.isoformat())[0]
 
-    expenses_paid           = _compute_expenses_paid(first_day, last_day)
-    recurring_expenses_paid = _compute_recurring_expenses_paid(first_day, last_day)
-    gst_paid                 = _compute_gst_paid(first_day, last_day)
-    wht_paid                 = _compute_wht_paid(first_day, last_day)
-    lost_cash                = _compute_lost_cash(first_day, last_day)
-    found_cash               = _compute_found_cash(first_day, last_day)
-    lost_inventory           = _compute_lost_inventory(first_day, last_day)
-    found_inventory          = _compute_found_inventory(first_day, last_day)
-    depreciation             = _compute_depreciation(period)
-    disposal_gain_loss       = _compute_disposal_gain_loss(first_day, last_day)
+    # ONE query for all ten figures instead of ten separate round-trips —
+    # see compute_month_figures_in_one_query for why this is used on the live
+    # path only and never by the frozen monthly finalization.
+    figures = compute_month_figures_in_one_query(first_day, last_day, period)
+    expenses_paid           = figures["expenses_paid"]
+    recurring_expenses_paid = figures["recurring_expenses_paid"]
+    gst_paid                 = figures["gst_paid"]
+    wht_paid                 = figures["wht_paid"]
+    lost_cash                = figures["lost_cash"]
+    found_cash               = figures["found_cash"]
+    lost_inventory           = figures["lost_inventory"]
+    found_inventory          = figures["found_inventory"]
+    depreciation             = figures["depreciation"]
+    disposal_gain_loss       = figures["disposal_gain_loss"]
 
     net_profit = (
         row["net_gross_profit"]

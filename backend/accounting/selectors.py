@@ -1,8 +1,11 @@
 from calendar import monthrange
-from datetime import date as date_cls
+from datetime import date as date_cls, timedelta
 from decimal import Decimal
 
-from django.db.models import Subquery, Sum
+from django.db.models import (
+    Case, CharField, Count, DateField, Q, Subquery, Sum, Value, When,
+)
+from django.db.models.functions import Coalesce, TruncDate
 from django.utils import timezone
 
 from billing.models import Invoice
@@ -36,20 +39,88 @@ def _empty_bucket_totals() -> dict:
     return {bucket: {"count": 0, "total": 0} for bucket in AGING_BUCKETS}
 
 
+def _bucket_case(due_field: str, today):
+    """
+    SQL equivalent of _bucket_for_days_overdue, expressed as DATE comparisons
+    against `today` rather than as arithmetic on a day count.
+
+    Why dates and not `today - due_date`: extracting an integer number of days
+    from a date difference is not portable (Postgres yields an interval,
+    SQLite needs julianday()), and Django would need a DurationField dance to
+    make it work on both. Comparing the date column against precomputed
+    threshold dates is plain, portable SQL, and it keeps the column directly
+    comparable so an index on it can still be used.
+
+    Boundary equivalence with the Python version, checked value by value:
+        due == today      -> 0 days  -> current   (due >= today)
+        due == today-1    -> 1       -> 1_30
+        due == today-30   -> 30      -> 1_30      (>= today-30)
+        due == today-31   -> 31      -> 31_60
+        due == today-60   -> 60      -> 31_60
+        due == today-61   -> 61      -> 61_90
+        due == today-90   -> 90      -> 61_90
+        due == today-91   -> 91      -> over_90
+    """
+    d30, d60, d90 = (today - timedelta(days=n) for n in (30, 60, 90))
+    return Case(
+        When(**{f"{due_field}__gte": today}, then=Value("current")),
+        When(**{f"{due_field}__gte": d30}, then=Value("1_30")),
+        When(**{f"{due_field}__gte": d60}, then=Value("31_60")),
+        When(**{f"{due_field}__gte": d90}, then=Value("61_90")),
+        default=Value("over_90"),
+        output_field=CharField(),
+    )
+
+
+def _summary_from_queryset(qs, *, amount_field: str, count_key: str) -> dict:
+    """
+    Bucket totals via ONE GROUP BY instead of counting a materialized Python
+    list. `qs` must be the UNFILTERED base queryset — the summary always
+    describes the full outstanding set even when the table below it is
+    narrowed to one bucket (the cards stay a stable reference point).
+    """
+    totals = _empty_bucket_totals()
+    grand_total = Decimal("0")
+    row_count = 0
+
+    for row in qs.values("_bucket").annotate(
+        count=Count("id"), total=Sum(amount_field),
+    ):
+        bucket = totals[row["_bucket"]]
+        amount = row["total"] or Decimal("0")
+        bucket["count"] = row["count"]
+        bucket["total"] = amount
+        grand_total += amount
+        row_count += row["count"]
+
+    return {"buckets": totals, "grand_total": grand_total, count_key: row_count}
+
+
 # ---------------------------------------------------------------------------
 # A/R Aging — customers who owe us money, bucketed by invoice due date
 # ---------------------------------------------------------------------------
 
-def get_ar_aging_rows(*, bucket: str = None) -> list:
+def get_ar_aging_queryset(*, bucket: str = None):
     """
-    One row per outstanding invoice, newest-due-first is NOT the point here —
-    ordered oldest-overdue-first (worst first) since that's what an aging
-    report is for. Bounded to confirmed/partial invoices with
-    credit_outstanding > 0 — see idx_invoice_outstanding partial index.
+    Annotated QuerySet — NOT a list — so the DATABASE does the bucketing,
+    the ordering and (once the view paginates it) the LIMIT/OFFSET.
 
-    `bucket`, when given, narrows to just that aging bucket (e.g. the AR
-    Aging page's summary cards are clickable) — applied in Python after
-    bucketing since the bucket itself is derived, not a stored column.
+    This used to build every outstanding invoice into a Python list, sort that
+    list, and hand it to DRF's paginator, which then sliced 25 rows out of it.
+    Serving page 1 therefore materialized the entire outstanding set. That set
+    never self-limits: an invoice enters when it's confirmed with credit
+    outstanding and only leaves when it's fully paid, and the over_90 bucket
+    by definition never clears — so it was the one genuinely unbounded read in
+    this app.
+
+    Ordering: `_due_date` ASC is exactly the old `days_overdue` DESC, since
+    days_overdue = today - due_date. `id` is a deterministic tiebreaker —
+    without one, rows sharing a due date could repeat or vanish between pages,
+    which the old single-materialized-list version couldn't suffer from but
+    real LIMIT/OFFSET pagination absolutely can.
+
+    Bounded to confirmed/partial invoices with credit_outstanding > 0 — see
+    the idx_invoice_outstanding partial index.
     """
     today = timezone.localdate()
     qs = (
@@ -64,34 +135,61 @@ def get_ar_aging_rows(*, bucket: str = None) -> list:
             "id", "bill_number", "confirmed_at", "payment_due_date",
             "credit_outstanding", "customer_id", "customer__name", "customer__code",
         )
-    )
-
-    rows = []
-    for inv in qs:
-        due = inv.payment_due_date or (
-            timezone.localtime(inv.confirmed_at).date() if inv.confirmed_at else today
+        .annotate(
+            # Same fallback chain as the old Python expression. TruncDate
+            # renders as AT TIME ZONE settings.TIME_ZONE under USE_TZ, which is
+            # precisely what timezone.localtime(confirmed_at).date() computed.
+            _due_date=Coalesce(
+                "payment_due_date", TruncDate("confirmed_at"), Value(today),
+                output_field=DateField(),
+            ),
         )
-        days_overdue = (today - due).days
-        rows.append({
-            "invoice_id": inv.id,
-            "bill_number": inv.bill_number,
-            "customer_id": inv.customer_id,
-            "customer_name": inv.customer.name,
-            "customer_code": inv.customer.code,
-            "due_date": due,
-            "days_overdue": days_overdue,
-            "bucket": _bucket_for_days_overdue(days_overdue),
-            "outstanding": inv.credit_outstanding,
-        })
-
-    rows.sort(key=lambda r: r["days_overdue"], reverse=True)
+        .annotate(_bucket=_bucket_case("_due_date", today))
+    )
     if bucket:
-        rows = [r for r in rows if r["bucket"] == bucket]
-    return rows
+        qs = qs.filter(_bucket=bucket)
+    return qs.order_by("_due_date", "id")
+
+
+def ar_aging_row(inv, today=None) -> dict:
+    """One annotated Invoice -> the response dict. Called for the PAGE only
+    (25 rows), so days_overdue staying a Python subtraction costs nothing and
+    avoids non-portable date arithmetic in SQL."""
+    today = today or timezone.localdate()
+    return {
+        "invoice_id": inv.id,
+        "bill_number": inv.bill_number,
+        "customer_id": inv.customer_id,
+        "customer_name": inv.customer.name,
+        "customer_code": inv.customer.code,
+        "due_date": inv._due_date,
+        "days_overdue": (today - inv._due_date).days,
+        "bucket": inv._bucket,
+        "outstanding": inv.credit_outstanding,
+    }
+
+
+def get_ar_aging_rows(*, bucket: str = None) -> list:
+    """Every matching row as dicts — for the PDF print view (which genuinely
+    needs the whole set) and for tests. The paginated list view goes through
+    get_ar_aging_queryset instead and never materializes more than a page."""
+    today = timezone.localdate()
+    return [ar_aging_row(inv, today) for inv in get_ar_aging_queryset(bucket=bucket)]
 
 
 def get_ar_aging_summary(rows: list = None) -> dict:
-    rows = get_ar_aging_rows() if rows is None else rows
+    """
+    With `rows`: totals over exactly those dicts (used by the print view,
+    which already holds the full set, and by tests).
+    Without: ONE GROUP BY over the full outstanding set — no materialization.
+    A test asserts the two paths agree, so they can't drift apart.
+    """
+    if rows is None:
+        return _summary_from_queryset(
+            get_ar_aging_queryset(), amount_field="credit_outstanding",
+            count_key="invoice_count",
+        )
+
     totals = _empty_bucket_totals()
     grand_total = 0
     for row in rows:
@@ -111,9 +209,11 @@ def get_ar_aging_summary(rows: list = None) -> dict:
 # would use for any supplier with no stated credit terms. Documented here
 # rather than silently treated as equivalent to a real due date.
 
-def get_ap_aging_rows(*, bucket: str = None) -> list:
-    """`bucket`, when given, narrows to just that aging bucket — see
-    get_ar_aging_rows's docstring for the same convention."""
+def get_ap_aging_queryset(*, bucket: str = None):
+    """Annotated QuerySet, database-side bucketing/ordering/pagination — see
+    get_ar_aging_queryset for the full reasoning. The only structural
+    difference is that a PurchaseOrder has no due-date field, so age runs from
+    confirmed_at alone."""
     today = timezone.localdate()
     qs = (
         PurchaseOrder.objects
@@ -127,34 +227,46 @@ def get_ap_aging_rows(*, bucket: str = None) -> list:
             "id", "order_number", "confirmed_at",
             "payable_outstanding", "supplier_id", "supplier__name", "supplier__code",
         )
-    )
-
-    rows = []
-    for order in qs:
-        confirmed_date = (
-            timezone.localtime(order.confirmed_at).date() if order.confirmed_at else today
+        .annotate(
+            _due_date=Coalesce(
+                TruncDate("confirmed_at"), Value(today), output_field=DateField(),
+            ),
         )
-        days_overdue = (today - confirmed_date).days
-        rows.append({
-            "order_id": order.id,
-            "order_number": order.order_number,
-            "supplier_id": order.supplier_id,
-            "supplier_name": order.supplier.name,
-            "supplier_code": order.supplier.code,
-            "confirmed_date": confirmed_date,
-            "days_overdue": days_overdue,
-            "bucket": _bucket_for_days_overdue(days_overdue),
-            "outstanding": order.payable_outstanding,
-        })
-
-    rows.sort(key=lambda r: r["days_overdue"], reverse=True)
+        .annotate(_bucket=_bucket_case("_due_date", today))
+    )
     if bucket:
-        rows = [r for r in rows if r["bucket"] == bucket]
-    return rows
+        qs = qs.filter(_bucket=bucket)
+    return qs.order_by("_due_date", "id")
+
+
+def ap_aging_row(order, today=None) -> dict:
+    today = today or timezone.localdate()
+    return {
+        "order_id": order.id,
+        "order_number": order.order_number,
+        "supplier_id": order.supplier_id,
+        "supplier_name": order.supplier.name,
+        "supplier_code": order.supplier.code,
+        "confirmed_date": order._due_date,
+        "days_overdue": (today - order._due_date).days,
+        "bucket": order._bucket,
+        "outstanding": order.payable_outstanding,
+    }
+
+
+def get_ap_aging_rows(*, bucket: str = None) -> list:
+    today = timezone.localdate()
+    return [ap_aging_row(o, today) for o in get_ap_aging_queryset(bucket=bucket)]
 
 
 def get_ap_aging_summary(rows: list = None) -> dict:
-    rows = get_ap_aging_rows() if rows is None else rows
+    """See get_ar_aging_summary — same two paths, same drift-guard test."""
+    if rows is None:
+        return _summary_from_queryset(
+            get_ap_aging_queryset(), amount_field="payable_outstanding",
+            count_key="order_count",
+        )
+
     totals = _empty_bucket_totals()
     grand_total = 0
     for row in rows:
@@ -173,6 +285,22 @@ def get_ap_aging_summary(rows: list = None) -> dict:
 # cost - current_worth for depreciation-method assets.
 
 def get_fixed_asset_register_rows(*, include_disposed: bool = False) -> list:
+    # Depreciation/growth for the current period is posted by the assets
+    # catch-up, not on write — so reading Asset.current_worth WITHOUT
+    # triggering that catch-up first can show a net book value that is one
+    # period stale. reports.selectors.get_asset_depreciation_report_queryset
+    # already calls this for exactly that reason; this register did not, so
+    # the two pages could show DIFFERENT net book values for the same asset
+    # and both look authoritative.
+    #
+    # Cheap: get_asset_stats() is marker-gated on
+    # AssetFlow.depreciation_caught_up_through (architecture.md's O(1)
+    # catch-up rule), so once the period is already posted this is a single
+    # singleton read, not a per-asset sweep.
+    from assets.selectors import get_asset_stats
+
+    get_asset_stats()
+
     qs = (
         Asset.objects
         .filter(is_deleted=False)
@@ -273,11 +401,45 @@ def get_cash_flow_statement(*, date_from: str, date_to: str) -> dict:
     CashMovement history before the range started — unbounded, so it's
     simply omitted rather than silently shipped as an O(n) query.
     """
+    from rest_framework.exceptions import ValidationError
+
     from cash_flow.models import CashFlow, CashMovement
+
+    # Validate/cap BEFORE querying — these two values arrive straight from the
+    # query string. Previously neither was parsed nor bounded, so
+    # ?date_from=1900-01-01 sequentially scanned the whole CashMovement table
+    # (the fastest-growing table in the project) and a malformed date reached
+    # the ORM and surfaced as a 500. An inverted range was worse than either:
+    # it returned an empty statement with no error at all, which looks like a
+    # real answer.
+    #
+    # Same guard shape and same 120-month ceiling as
+    # cash_flow.selectors.get_gross_profit_trend, which already bounds this
+    # exact class of request.
+    def _parse(value, field_name):
+        try:
+            return date_cls.fromisoformat(str(value))
+        except ValueError:
+            raise ValidationError(
+                {field_name: f"'{value}' is not a valid date (expected YYYY-MM-DD)."}
+            )
+
+    range_start = _parse(date_from, "date_from")
+    range_end = _parse(date_to, "date_to")
+
+    if range_start > range_end:
+        raise ValidationError({"date_from": "date_from cannot be after date_to."})
+
+    months_in_range = (
+        (range_end.year - range_start.year) * 12
+        + (range_end.month - range_start.month) + 1
+    )
+    if months_in_range > 120:
+        raise ValidationError({"date_from": "Date range cannot exceed 10 years (120 months)."})
 
     rows = (
         CashMovement.objects
-        .filter(is_deleted=False, date__gte=date_from, date__lte=date_to)
+        .filter(is_deleted=False, date__gte=range_start, date__lte=range_end)
         .exclude(movement_type="opening_cash")
         .values("movement_type", "direction")
         .annotate(total=Sum("amount"))
@@ -286,21 +448,39 @@ def get_cash_flow_statement(*, date_from: str, date_to: str) -> dict:
     buckets = {"operating": [], "investing": [], "financing": []}
     bucket_totals = {"operating": Decimal("0"), "investing": Decimal("0"), "financing": Decimal("0")}
     for row in rows:
-        bucket = _BUCKET_BY_MOVEMENT_TYPE.get(row["movement_type"])
-        if bucket is None:
-            continue
+        movement_type = row["movement_type"]
+        bucket = _BUCKET_BY_MOVEMENT_TYPE.get(movement_type)
         signed = row["total"] if row["direction"] == CashMovement.Direction.INFLOW else -row["total"]
-        buckets[bucket].append({
-            "label": _MOVEMENT_TYPE_LABELS.get(row["movement_type"], row["movement_type"]),
-            "amount": signed,
-        })
+
+        if bucket is None:
+            # This used to `continue`, which SILENTLY dropped the movement —
+            # and because net_change is summed from these buckets (and
+            # opening_cash is then derived as closing - net_change), an
+            # unmapped type didn't just go missing from a section, it made
+            # BOTH totals quietly wrong with no error anywhere.
+            #
+            # Every movement type that exists today IS mapped, so this path
+            # is currently unreachable. It exists because the bucket map is a
+            # SIXTH place a new cash-touching feature has to be wired, and
+            # instructions/cash-in-hand.md only lists five — so the next cash
+            # feature that follows the documented process correctly would
+            # still land here. Unclassified cash defaults to Operating (the
+            # standard convention) so the totals stay honest, and the label
+            # names the raw movement_type so the gap is visible on the
+            # statement instead of invisible.
+            bucket = "operating"
+            label = f"Unclassified — {movement_type}"
+        else:
+            label = _MOVEMENT_TYPE_LABELS.get(movement_type, movement_type)
+
+        buckets[bucket].append({"label": label, "amount": signed})
         bucket_totals[bucket] += signed
 
     net_change = bucket_totals["operating"] + bucket_totals["investing"] + bucket_totals["financing"]
 
     result = {
-        "date_from": date_from,
-        "date_to": date_to,
+        "date_from": range_start.isoformat(),
+        "date_to": range_end.isoformat(),
         "operating": {"lines": buckets["operating"], "net": bucket_totals["operating"]},
         "investing": {"lines": buckets["investing"], "net": bucket_totals["investing"]},
         "financing": {"lines": buckets["financing"], "net": bucket_totals["financing"]},
@@ -309,7 +489,10 @@ def get_cash_flow_statement(*, date_from: str, date_to: str) -> dict:
         "closing_cash": None,
     }
 
-    if str(date_to) == timezone.localdate().isoformat():
+    # Compare parsed dates, not strings — "2026-8-15" and "2026-08-15" are the
+    # same day but only one of them ever matched the old string comparison,
+    # silently omitting opening/closing cash for the other.
+    if range_end == timezone.localdate():
         closing = CashFlow.get_instance().cash_in_hand
         result["closing_cash"] = closing
         result["opening_cash"] = closing - net_change
@@ -483,12 +666,17 @@ def _compute_opening_balance_equity() -> Decimal:
     # "Opening stock" POs have real line items; pure "opening balance" POs
     # never do — the same structural distinction as before, now applied to
     # BOTH sides instead of only the asset side.
-    opening_stock_total = (
-        data_entry_orders.filter(Exists(has_items)).aggregate(t=Sum("net_payable"))["t"]
-    ) or zero
-    supplier_ob_total = (
-        data_entry_orders.exclude(Exists(has_items)).aggregate(t=Sum("net_payable"))["t"]
-    ) or zero
+    #
+    # ONE query, not two: these were two separate aggregates over the identical
+    # base queryset partitioned on the same boolean, i.e. two ~100ms Supabase
+    # round-trips to compute two halves of one partition. A conditional
+    # aggregate gets both numbers in a single pass with identical semantics.
+    partitioned = data_entry_orders.aggregate(
+        stock=Sum("net_payable", filter=Exists(has_items)),
+        supplier=Sum("net_payable", filter=~Exists(has_items)),
+    )
+    opening_stock_total = partitioned["stock"] or zero
+    supplier_ob_total = partitioned["supplier"] or zero
 
     opening_cash_total = (
         CashMovement.objects
@@ -563,14 +751,107 @@ def _snapshot_freshness(*, period: str = None, computed_at=None) -> dict:
     }
 
 
+def _compute_asset_equity_offsets() -> dict:
+    """
+    Two asset-side amounts that increase Assets with NO counterpart anywhere
+    else, so equity has to carry them or the sheet cannot balance.
+
+    1. PRE-OWNED ASSETS (acquisition_type='existing')
+       assets/models.py documents these as "already owned before being
+       registered. No cash movement." — an asset appears from nothing, exactly
+       like data-entry Opening Stock. This is a SIXTH bootstrap path that
+       _compute_opening_balance_equity never enumerated, and unlike the other
+       five it is not go-live-only: it lives in the normal assets app and
+       fires whenever anyone registers a pre-owned asset.
+       ('new' assets need no offset — cash already left the business, so the
+       cash decrease and the asset increase cancel.)
+
+    2. REVALUATION SURPLUS
+       AssetValuationEntry has two types, and only DEPRECIATION feeds
+       net_profit (profits.services._compute_depreciation). A REVALUATION
+       moves current_worth — an asset — with nothing on the other side. In
+       standard accounting that's a revaluation surplus in equity. `amount` is
+       stored signed (new_worth - worth_before, assets/services.py:324), so a
+       downward revaluation correctly reduces the surplus.
+
+    Both sums deliberately INCLUDE disposed assets. Worked through one
+    pre-owned asset's whole life (cost C, accumulated depreciation D,
+    revaluation R, sold for P):
+        assets  = P                        (asset removed, cash received)
+        equity  = C + R - D + (P - (C - D + R))
+                = P                        ✓
+    Dropping the disposed ones would strand the -D already expensed through
+    retained earnings and unbalance the sheet at the moment of every disposal.
+    """
+    from assets.models import Asset, AssetValuationEntry
+    from profits.models import MonthlyProfit
+
+    zero = Decimal("0")
+
+    pre_owned_cost = (
+        Asset.objects
+        .filter(is_deleted=False, acquisition_type=Asset.AcquisitionType.EXISTING)
+        .aggregate(t=Sum("cost"))["t"]
+    ) or zero
+
+    # Periods whose depreciation DID reach retained earnings: every finalized
+    # MonthlyProfit, plus the current month (whose figures are recomputed live
+    # by get_current_month_net_profit_only). `period__in` over a subquery
+    # rather than a separate fetch, so this stays one round-trip.
+    today = timezone.localdate()
+    current_period = f"{today.year:04d}-{today.month:02d}"
+    expensed_periods = Q(period__in=MonthlyProfit.objects.values("period")) | Q(period=current_period)
+
+    # Both figures from ONE query over AssetValuationEntry — same table, same
+    # base filter, so there is no reason to pay two round-trips.
+    entries = AssetValuationEntry.objects.filter(asset__is_deleted=False).aggregate(
+        revaluation=Sum(
+            "amount",
+            filter=Q(entry_type=AssetValuationEntry.EntryType.REVALUATION),
+        ),
+        # Depreciation for periods that NO income statement ever covered.
+        # An asset registered with acquisition_type='existing' gets valuation
+        # entries back-filled all the way from acquisition_date, so one bought
+        # years before this system went live carries depreciation for months
+        # that have no MonthlyProfit row at all. Those entries reduced
+        # current_worth (an asset) but were never expensed through profit, so
+        # equity would be overstated by exactly that amount.
+        #
+        # They are NOT missing expenses to be booked now — they happened
+        # before the business was tracking profit here, so they belong to the
+        # opening position, not to any reportable period. Netting them off the
+        # pre-owned figure is what makes that line mean "what this equipment
+        # was actually worth when the system started tracking it".
+        #
+        # `amount` is stored NEGATIVE for depreciation entries (see
+        # profits.services._compute_depreciation, which takes abs() of it), so
+        # adding this sum reduces equity — no sign flip needed.
+        unexpensed_depreciation=Sum(
+            "amount",
+            filter=Q(entry_type=AssetValuationEntry.EntryType.DEPRECIATION)
+                   & ~expensed_periods,
+        ),
+    )
+
+    return {
+        "pre_owned_asset_equity": pre_owned_cost + (entries["unexpensed_depreciation"] or zero),
+        "asset_revaluation_surplus": entries["revaluation"] or zero,
+    }
+
+
 def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payable,
                               inventory_value, fixed_assets_nbv, gst_payable,
                               wht_payable, owner_capital, investor_capital,
                               opening_balance_equity, retained_earnings,
+                              pre_owned_asset_equity=Decimal("0"),
+                              asset_revaluation_surplus=Decimal("0"),
                               freshness=None) -> dict:
     total_assets = cash_in_hand + accounts_receivable + inventory_value + fixed_assets_nbv
     total_liabilities = accounts_payable + gst_payable + wht_payable
-    total_equity = owner_capital + investor_capital + opening_balance_equity + retained_earnings
+    total_equity = (
+        owner_capital + investor_capital + opening_balance_equity
+        + pre_owned_asset_equity + asset_revaluation_surplus + retained_earnings
+    )
     balance_check = total_assets - (total_liabilities + total_equity)
 
     return {
@@ -591,6 +872,8 @@ def _assemble_balance_sheet(*, cash_in_hand, accounts_receivable, accounts_payab
             "owner_capital": owner_capital,
             "investor_capital": investor_capital,
             "opening_balance_equity": opening_balance_equity,
+            "pre_owned_asset_equity": pre_owned_asset_equity,
+            "asset_revaluation_surplus": asset_revaluation_surplus,
             "retained_earnings": retained_earnings,
             "total": total_equity,
         },
@@ -619,20 +902,10 @@ def get_balance_sheet_live() -> dict:
     from profits.selectors import get_current_month_net_profit_only
     from reports.selectors import get_inventory_valuation_report_data, get_inventory_valuation_report_stats
 
-    # CashFlow.get_instance() (get_or_create), NOT a bare .filter(pk=1) —
-    # a business that's only ever used the Data Entry app's "Opening
-    # Investor Investment" so far (deliberately skips cash_in_hand, see
-    # _compute_opening_balance_equity's docstring) never triggers CashFlow's
-    # creation any other way. A bare filter().first() would then return
-    # None, `row` would fall back to {}, and EVERY field below — not just
-    # the ones actually related to cash — would silently read as zero.
-    # Found by a real test with only an investor investment and nothing
-    # else, which should never happen for a value this load-bearing.
-    CashFlow.get_instance()
-
-    row = (
-        CashFlow.objects.filter(pk=1)
-        .annotate(
+    def _read_row():
+        return (
+            CashFlow.objects.filter(pk=1)
+            .annotate(
             _fixed_assets_nbv=Subquery(AssetFlow.objects.filter(pk=1).values("total_current_worth")[:1]),
             _gst_payable=Subquery(TaxFlow.objects.filter(pk=1).values("sales_tax_outstanding")[:1]),
             _wht_payable=Subquery(TaxFlow.objects.filter(pk=1).values("wht_outstanding")[:1]),
@@ -642,17 +915,40 @@ def get_balance_sheet_live() -> dict:
             _total_paid_investors=Subquery(ProfitFlow.objects.filter(pk=1).values("total_paid_out_to_investors")[:1]),
             _total_paid_owner=Subquery(ProfitFlow.objects.filter(pk=1).values("total_paid_out_to_owner")[:1]),
             _total_reinvested_investors=Subquery(ProfitFlow.objects.filter(pk=1).values("total_reinvested_by_investors")[:1]),
-            _total_reinvested_owner=Subquery(ProfitFlow.objects.filter(pk=1).values("total_reinvested_by_owner")[:1]),
+                _total_reinvested_owner=Subquery(ProfitFlow.objects.filter(pk=1).values("total_reinvested_by_owner")[:1]),
+            )
+            .values(
+                "cash_in_hand", "customer_outstanding", "supplier_payable_outstanding",
+                "_fixed_assets_nbv", "_gst_payable", "_wht_payable",
+                "_owner_capital", "_investor_capital", "_total_net_profit",
+                "_total_paid_investors", "_total_paid_owner",
+                "_total_reinvested_investors", "_total_reinvested_owner",
+            )
+            .first()
         )
-        .values(
-            "cash_in_hand", "customer_outstanding", "supplier_payable_outstanding",
-            "_fixed_assets_nbv", "_gst_payable", "_wht_payable",
-            "_owner_capital", "_investor_capital", "_total_net_profit",
-            "_total_paid_investors", "_total_paid_owner",
-            "_total_reinvested_investors", "_total_reinvested_owner",
-        )
-        .first()
-    ) or {}
+
+    # Read FIRST, and only fall back to get_instance() if the singleton row
+    # genuinely doesn't exist yet.
+    #
+    # The row must exist for this to be correct at all: a business that has
+    # only ever used the Data Entry app's "Opening Investor Investment"
+    # (which deliberately skips cash_in_hand — see
+    # _compute_opening_balance_equity's docstring) never triggers CashFlow's
+    # creation any other way, and a missing row would make `row` fall back to
+    # {} so that EVERY field below — not just the cash ones — silently read
+    # as zero. That was a real bug, caught by a test with only an investor
+    # investment and nothing else.
+    #
+    # But calling get_instance() (a get_or_create SELECT) BEFORE the read
+    # meant paying that extra round-trip on every single Balance Sheet load
+    # forever, to guard a case that happens at most once in the system's
+    # lifetime. Inverted: steady state is 1 query, and the bootstrap path
+    # costs one extra query exactly once, ever.
+    row = _read_row()
+    if row is None:
+        CashFlow.get_instance()
+        row = _read_row()
+    row = row or {}
 
     zero = Decimal("0")
     current_month_net_profit = get_current_month_net_profit_only()["net_profit"]
@@ -679,6 +975,7 @@ def get_balance_sheet_live() -> dict:
         owner_capital=row.get("_owner_capital") or zero,
         investor_capital=row.get("_investor_capital") or zero,
         opening_balance_equity=_compute_opening_balance_equity(),
+        **_compute_asset_equity_offsets(),
         retained_earnings=retained_earnings,
     )
 
@@ -701,6 +998,8 @@ def get_balance_sheet_for_period(period: str) -> dict:
         owner_capital=snap.owner_capital,
         investor_capital=snap.investor_capital,
         opening_balance_equity=snap.opening_balance_equity,
+        pre_owned_asset_equity=snap.pre_owned_asset_equity,
+        asset_revaluation_surplus=snap.asset_revaluation_surplus,
         retained_earnings=snap.retained_earnings,
         freshness=_snapshot_freshness(period=snap.period, computed_at=snap.computed_at),
     )

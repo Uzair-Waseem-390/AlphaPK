@@ -354,3 +354,69 @@ class DraftAdvanceQuirkFixTests(CashFlowTestBase):
         self.assertEqual(CashFlow.get_instance().total_purchases_count, 0)
         confirm_purchase_order(order_id=order2.id, user=self.admin)
         self.assertEqual(CashFlow.get_instance().total_purchases_count, 1)
+
+
+# ---------------------------------------------------------------------------
+# cash_in_hand is a live balance, not a cumulative counter
+# ---------------------------------------------------------------------------
+
+class CashInHandClampTests(CashFlowTestBase):
+    """
+    _adjust_cashflow used to do max(Decimal("0"), cash_in_hand + delta).
+
+    When a movement would take cash negative the shortfall was DISCARDED, not
+    deferred — later inflows then built on the clamped-up figure, so the error
+    was permanent, cumulative, silent (no error, no log) and undetectable
+    afterwards. On seeded test data it fired 152 times and fabricated ~21M of
+    cash that never existed.
+
+    A negative cash_in_hand is information: it means recorded outflows exceed
+    recorded inflows, i.e. something is missing from the records. Showing it
+    is strictly better than absorbing it, and it self-corrects the moment the
+    missing inflow is entered.
+    """
+
+    def test_deficit_is_retained_not_discarded(self):
+        from .services import _adjust_cashflow
+
+        cf = CashFlow.get_instance()
+        cf.cash_in_hand = Decimal("1000")
+        cf.save(update_fields=["cash_in_hand"])
+
+        _adjust_cashflow(cash_in_hand_delta=Decimal("-1500"), user=self.admin)
+
+        cf.refresh_from_db()
+        self.assertEqual(cf.cash_in_hand, Decimal("-500"))
+
+    def test_deficit_self_corrects_when_the_missing_inflow_arrives(self):
+        """The whole point: 1000 - 1500 + 2000 must land on 1500, not 2000.
+        Under the clamp the 500 was invented and never went away."""
+        from .services import _adjust_cashflow
+
+        cf = CashFlow.get_instance()
+        cf.cash_in_hand = Decimal("1000")
+        cf.save(update_fields=["cash_in_hand"])
+
+        _adjust_cashflow(cash_in_hand_delta=Decimal("-1500"), user=self.admin)
+        _adjust_cashflow(cash_in_hand_delta=Decimal("2000"), user=self.admin)
+
+        cf.refresh_from_db()
+        self.assertEqual(
+            cf.cash_in_hand, Decimal("1500"),
+            "the clamp would leave 2000 here — 500 fabricated out of nothing",
+        )
+
+    def test_cumulative_counters_keep_their_floor(self):
+        """Guards against over-correcting — the one-way totals should still be
+        floored, since a negative there is meaningless rather than
+        informative."""
+        from .services import _adjust_cashflow
+
+        cf = CashFlow.get_instance()
+        cf.total_paid_payables = Decimal("100")
+        cf.save(update_fields=["total_paid_payables"])
+
+        _adjust_cashflow(total_paid_payables_delta=Decimal("-999"), user=self.admin)
+
+        cf.refresh_from_db()
+        self.assertEqual(cf.total_paid_payables, Decimal("0"))

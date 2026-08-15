@@ -29,6 +29,7 @@ from rates.services import create_rate
 from .models import BalanceSheetSnapshot
 from .services import catch_up_balance_sheet_snapshots
 from .selectors import (
+    AGING_BUCKETS, _bucket_for_days_overdue,
     get_ap_aging_rows, get_ap_aging_summary, get_ar_aging_rows,
     get_ar_aging_summary, get_balance_sheet_for_period, get_balance_sheet_live,
     get_cash_flow_statement, get_fixed_asset_register_rows,
@@ -166,6 +167,100 @@ class ARAgingTests(AccountingTestBase):
         )
         rows = get_ar_aging_rows()
         self.assertNotIn(invoice.id, {r["invoice_id"] for r in rows})
+
+    # ---- SQL bucketing must match the old Python bucketing exactly ---------
+    # Bucketing/ordering/pagination moved from Python into the database so a
+    # page of 25 stops materializing every outstanding invoice. That's only
+    # acceptable if not one number moved, and the boundaries are where an
+    # off-by-one would hide.
+
+    def test_sql_buckets_match_python_bucketing_at_every_boundary(self):
+        product = self.make_stocked_product(stock=200)
+        today = timezone.localdate()
+
+        # Exact boundary days, on both sides of each cutoff.
+        expected = {}
+        for offset in (-5, 0, 1, 30, 31, 60, 61, 90, 91, 200):
+            inv = self.make_confirmed_invoice(
+                product, quantity=1, due_date=today - timedelta(days=offset),
+            )
+            # `offset` days past due == days_overdue, so the pre-existing
+            # Python classifier is the oracle the SQL must reproduce.
+            expected[inv.id] = _bucket_for_days_overdue(offset)
+
+        by_id = {r["invoice_id"]: r for r in get_ar_aging_rows()}
+        self.assertEqual(len(by_id), len(expected))
+        for invoice_id, want in expected.items():
+            self.assertEqual(
+                by_id[invoice_id]["bucket"], want,
+                f"invoice {invoice_id}: SQL bucket disagrees with _bucket_for_days_overdue",
+            )
+            self.assertEqual(
+                by_id[invoice_id]["days_overdue"],
+                (today - by_id[invoice_id]["due_date"]).days,
+            )
+
+        # Every bucket actually got exercised — otherwise this test could pass
+        # while silently only checking one branch of the CASE.
+        self.assertEqual(set(expected.values()), set(AGING_BUCKETS))
+
+    def test_ordering_is_worst_first_and_deterministic(self):
+        """_due_date ASC == days_overdue DESC. The `id` tiebreaker matters
+        now that pagination is real LIMIT/OFFSET — without it, rows sharing a
+        due date could repeat or vanish between pages."""
+        product = self.make_stocked_product(stock=200)
+        today = timezone.localdate()
+        for offset in (10, 90, 45, 90, 1):
+            self.make_confirmed_invoice(
+                product, quantity=1, due_date=today - timedelta(days=offset),
+            )
+
+        rows = get_ar_aging_rows()
+        days = [r["days_overdue"] for r in rows]
+        self.assertEqual(days, sorted(days, reverse=True))
+
+        tied = [r["invoice_id"] for r in rows if r["days_overdue"] == 90]
+        self.assertEqual(len(tied), 2)
+        self.assertEqual(tied, sorted(tied), "tied rows must order by id")
+
+    def test_db_summary_matches_rows_summary(self):
+        """get_ar_aging_summary() has two paths — a GROUP BY (list view) and a
+        Python loop over materialized dicts (print view). They must agree, or
+        the page and its PDF would disagree."""
+        product = self.make_stocked_product(stock=200)
+        today = timezone.localdate()
+        for offset in (-3, 5, 40, 75, 120):
+            self.make_confirmed_invoice(
+                product, quantity=1, due_date=today - timedelta(days=offset),
+            )
+
+        from_db = get_ar_aging_summary()
+        from_rows = get_ar_aging_summary(get_ar_aging_rows())
+        self.assertEqual(from_db, from_rows)
+
+    def test_list_view_does_not_materialize_every_row(self):
+        """The point of the change: query count must stay flat as the
+        outstanding set grows, instead of scaling with it."""
+        product = self.make_stocked_product(stock=300)
+        today = timezone.localdate()
+        for offset in range(0, 60):
+            self.make_confirmed_invoice(
+                product, quantity=1, due_date=today - timedelta(days=offset),
+            )
+
+        request = self.factory.get("/api/accounting/ar-aging/", {"page_size": 25})
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = ARAgingListView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        self.assertLessEqual(
+            len(ctx.captured_queries), 6,
+            "count + page + summary GROUP BY, not one query per row",
+        )
+        # 60 outstanding invoices exist, but only a page came back.
+        self.assertEqual(response.data["count"], 60)
+        self.assertEqual(len(response.data["results"]), 25)
+        self.assertEqual(response.data["summary"]["invoice_count"], 60)
 
     def test_view_requires_admin(self):
         product = self.make_stocked_product(stock=20)
@@ -347,6 +442,44 @@ class CashFlowStatementTests(AccountingTestBase):
         force_authenticate(request, user=self.admin)
         response = CashFlowStatementView.as_view()(request)
         self.assertEqual(response.status_code, 200)
+
+    # ---- Date-range validation -------------------------------------------
+    # date_from/date_to arrive straight from the query string. Before this,
+    # nothing parsed or bounded them: a malformed date reached the ORM and
+    # surfaced as a 500, an inverted range returned an empty statement that
+    # looked like a real answer, and a typo'd year scanned the entire
+    # CashMovement table.
+
+    def _get(self, params):
+        request = self.factory.get("/api/accounting/cash-flow-statement/", params)
+        force_authenticate(request, user=self.admin)
+        return CashFlowStatementView.as_view()(request)
+
+    def test_malformed_date_is_400_not_500(self):
+        response = self._get({"date_from": "not-a-date", "date_to": "2026-08-15"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("date_from", response.data)
+
+    def test_inverted_range_is_rejected_not_silently_empty(self):
+        response = self._get({"date_from": "2026-08-15", "date_to": "2026-01-01"})
+        self.assertEqual(response.status_code, 400)
+        self.assertIn("date_from", response.data)
+
+    def test_range_over_ten_years_is_rejected(self):
+        response = self._get({"date_from": "1900-01-01", "date_to": "2026-08-15"})
+        self.assertEqual(response.status_code, 400)
+
+    def test_exactly_120_months_is_allowed(self):
+        """The cap is 120 months INCLUSIVE — guards an off-by-one that would
+        reject a legitimate 10-year request."""
+        response = self._get({"date_from": "2017-01-05", "date_to": "2026-12-31"})
+        self.assertEqual(response.status_code, 200)
+
+    def test_valid_range_still_works(self):
+        response = self._get({"date_from": "2026-01-01", "date_to": "2026-08-15"})
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["date_from"], "2026-01-01")
+        self.assertEqual(response.data["date_to"], "2026-08-15")
 
 
 # ---------------------------------------------------------------------------
@@ -693,6 +826,176 @@ class BalanceSheetTests(AccountingTestBase):
         with self.assertRaises(BalanceSheetSnapshot.DoesNotExist):
             get_balance_sheet_for_period("2020-01")
 
+    # ---- Asset-side equity offsets ----------------------------------------
+    # An asset can appear on the books with no cash paid and no liability
+    # incurred. Every such path needs an equity counterpart or Assets
+    # permanently outrun Liabilities + Equity. These were found by seeding
+    # real asset activity, not by reading the code.
+
+    def _depreciating_category(self, rate="0.10"):
+        from assets.services import create_asset_category
+        return create_asset_category(
+            name=f"Machinery {rate}", valuation_method="depreciation",
+            depreciation_rate=Decimal(rate), user=self.admin,
+        )
+
+    def _revaluing_category(self):
+        from assets.services import create_asset_category
+        return create_asset_category(
+            name="Land", valuation_method="revaluation", user=self.admin,
+        )
+
+    def test_pre_owned_asset_does_not_unbalance_the_sheet(self):
+        """
+        acquisition_type='existing' is documented as "already owned before
+        being registered. No cash movement." — an asset from nothing, exactly
+        like data-entry Opening Stock. Without an equity offset the sheet is
+        off by its cost. This is NOT go-live-only: it fires whenever anyone
+        registers a pre-owned asset.
+        """
+        from assets.services import create_asset
+
+        before = get_balance_sheet_live()
+        self.assertTrue(before["is_balanced"])
+
+        create_asset(
+            name="Inherited Generator", category_id=self._revaluing_category().id,
+            acquisition_type="existing", cost=Decimal("500000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+
+        after = get_balance_sheet_live()
+        self.assertEqual(after["equity"]["pre_owned_asset_equity"], Decimal("500000"))
+        self.assertTrue(
+            after["is_balanced"],
+            f"pre-owned asset unbalanced the sheet by {after['balance_check']}",
+        )
+
+    def test_purchased_asset_gets_no_pre_owned_offset(self):
+        """'new' assets are paid for in cash — the cash decrease and the asset
+        increase already cancel, so adding an offset would DOUBLE count."""
+        from assets.services import create_asset
+
+        create_asset(
+            name="New Forklift", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("300000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+
+        sheet = get_balance_sheet_live()
+        self.assertEqual(sheet["equity"]["pre_owned_asset_equity"], Decimal("0"))
+        self.assertTrue(sheet["is_balanced"], f"off by {sheet['balance_check']}")
+
+    def test_revaluation_does_not_unbalance_the_sheet(self):
+        """Only DEPRECIATION entries feed net profit, so a REVALUATION moves
+        current_worth with nothing on the other side unless equity carries a
+        revaluation surplus."""
+        from assets.services import create_asset, revalue_asset
+
+        asset = create_asset(
+            name="Warehouse Plot", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("1000000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        revalue_asset(
+            asset_id=asset.id, new_worth=Decimal("1250000"),
+            revaluation_date=timezone.localdate(), user=self.admin,
+        )
+
+        sheet = get_balance_sheet_live()
+        self.assertEqual(sheet["equity"]["asset_revaluation_surplus"], Decimal("250000"))
+        self.assertTrue(sheet["is_balanced"], f"off by {sheet['balance_check']}")
+
+    def test_downward_revaluation_reduces_the_surplus(self):
+        """`amount` is stored signed, so a write-down must REDUCE the surplus
+        rather than adding its absolute value."""
+        from assets.services import create_asset, revalue_asset
+
+        asset = create_asset(
+            name="Old Plot", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("1000000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        revalue_asset(
+            asset_id=asset.id, new_worth=Decimal("800000"),
+            revaluation_date=timezone.localdate(), user=self.admin,
+        )
+
+        sheet = get_balance_sheet_live()
+        self.assertEqual(sheet["equity"]["asset_revaluation_surplus"], Decimal("-200000"))
+        self.assertTrue(sheet["is_balanced"], f"off by {sheet['balance_check']}")
+
+    def test_scrapping_an_asset_does_not_unbalance_the_sheet(self):
+        """
+        Scrapping removes the asset's remaining book value with no sale
+        proceeds. profits._compute_disposal_gain_loss used to filter
+        disposal_type=SOLD only, so a scrapped asset's worth vanished from
+        the asset side with nothing recorded as a loss.
+        """
+        from assets.services import create_asset, dispose_asset
+
+        asset = create_asset(
+            name="Crashed Van", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("400000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        dispose_asset(
+            asset_id=asset.id, disposal_type="scrapped",
+            disposal_date=timezone.localdate(), user=self.admin,
+        )
+
+        sheet = get_balance_sheet_live()
+        self.assertTrue(
+            sheet["is_balanced"],
+            f"scrapping unbalanced the sheet by {sheet['balance_check']}",
+        )
+
+    def test_scrapped_loss_reaches_the_income_statement(self):
+        """The balance check alone could pass for the wrong reason — assert
+        the loss actually appears as a loss, not just that things add up."""
+        from assets.services import create_asset, dispose_asset
+        from profits.services import _compute_disposal_gain_loss
+
+        asset = create_asset(
+            name="Burnt Compressor", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("250000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        dispose_asset(
+            asset_id=asset.id, disposal_type="scrapped",
+            disposal_date=timezone.localdate(), user=self.admin,
+        )
+
+        today = timezone.localdate()
+        first = today.replace(day=1)
+        self.assertEqual(
+            _compute_disposal_gain_loss(first, today), Decimal("-250000"),
+            "a scrapped asset must be recorded as a loss of its book value",
+        )
+
+    def test_sold_asset_still_uses_its_stored_gain_loss(self):
+        """Guards the scrapped fix against changing SOLD behaviour — sold
+        disposals must keep the gain_loss computed at disposal time."""
+        from assets.services import create_asset, dispose_asset
+        from profits.services import _compute_disposal_gain_loss
+
+        asset = create_asset(
+            name="Resold Printer", category_id=self._revaluing_category().id,
+            acquisition_type="new", cost=Decimal("100000"),
+            acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        dispose_asset(
+            asset_id=asset.id, disposal_type="sold",
+            disposal_date=timezone.localdate(),
+            sale_amount=Decimal("120000"), user=self.admin,
+        )
+
+        today = timezone.localdate()
+        self.assertEqual(
+            _compute_disposal_gain_loss(today.replace(day=1), today), Decimal("20000"),
+        )
+        self.assertTrue(get_balance_sheet_live()["is_balanced"])
+
     # ---- Snapshot freshness (lag_days) --------------------------------------
     # A snapshot copies all-time singletons and stamps last month's label on
     # them, so a LATE one silently contains the following month's activity and
@@ -798,3 +1101,172 @@ class BalanceSheetTests(AccountingTestBase):
         force_authenticate(request, user=self.admin)
         response = BalanceSheetView.as_view()(request)
         self.assertEqual(response.status_code, 404)
+
+
+# ---------------------------------------------------------------------------
+# profits.compute_month_figures_in_one_query equivalence
+# ---------------------------------------------------------------------------
+
+class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
+    """
+    The live current-month path now gets all ten month figures from ONE
+    query instead of ten single-row aggregates (~1s of Supabase round-trips
+    on every Income Statement / Balance Sheet load).
+
+    The ten individual _compute_* helpers remain the single definition of
+    each predicate and still drive the FROZEN monthly finalization, which is
+    written once and never recomputed. This test is the contract between the
+    two: if the combined query ever diverges from the helpers by so much as a
+    rounding step, it fails here rather than silently mis-stating profit.
+
+    Every figure is made non-zero on purpose — a test where all ten are 0
+    would pass no matter how badly the query was wired.
+    """
+
+    def _build_a_month_with_every_figure_nonzero(self):
+        from assets.services import (
+            create_asset, create_asset_category, dispose_asset, revalue_asset,
+        )
+        from cash_management.services import create_cash_adjustment
+        from recurring_expenses.services import (
+            create_recurring_expense, create_recurring_expense_assignment,
+            create_recurring_expense_category, create_recurring_expense_payment,
+        )
+
+        today = timezone.localdate()
+        period = f"{today.year:04d}-{today.month:02d}"
+
+        product = self.make_stocked_product(stock=50, unit_cost="50", selling_price="120")
+        self.make_confirmed_invoice(product, quantity=5)
+
+        cat = create_expense_category(name="Fuel", user=self.admin)
+        create_expense(
+            name="Diesel", category_id=cat.id, amount=Decimal("321.50"),
+            expense_date=today, user=self.admin,
+        )
+
+        rcat = create_recurring_expense_category(name="Rent", user=self.admin)
+        template = create_recurring_expense(
+            name="Shop Rent", category_id=rcat.id, amount=Decimal("777.25"),
+            start_date=today, user=self.admin,
+        )
+        assignment = create_recurring_expense_assignment(
+            recurring_expense_id=template.id, period=period, user=self.admin,
+        )
+        create_recurring_expense_payment(
+            assignment_id=assignment.id, amount=Decimal("777.25"),
+            payment_date=today, user=self.admin,
+        )
+
+        for kind, amount in (("lost", "150.75"), ("found", "60.25")):
+            create_cash_adjustment(
+                adjustment_type=kind, amount=Decimal(amount),
+                adjustment_date=today, reason="test", user=self.admin,
+            )
+
+        dep_cat = create_asset_category(
+            name="Machines", valuation_method="depreciation",
+            depreciation_rate=Decimal("0.12"), user=self.admin,
+        )
+        create_asset(
+            name="Old Lathe", category_id=dep_cat.id, acquisition_type="existing",
+            cost=Decimal("240000"),
+            acquisition_date=today.replace(year=today.year - 1), user=self.admin,
+        )
+
+        rev_cat = create_asset_category(
+            name="Vehicles", valuation_method="revaluation", user=self.admin,
+        )
+        sold = create_asset(
+            name="Old Van", category_id=rev_cat.id, acquisition_type="new",
+            cost=Decimal("90000"), acquisition_date=today, user=self.admin,
+        )
+        dispose_asset(
+            asset_id=sold.id, disposal_type="sold", disposal_date=today,
+            sale_amount=Decimal("95000"), user=self.admin,
+        )
+        scrapped = create_asset(
+            name="Dead Van", category_id=rev_cat.id, acquisition_type="new",
+            cost=Decimal("70000"), acquisition_date=today, user=self.admin,
+        )
+        dispose_asset(
+            asset_id=scrapped.id, disposal_type="scrapped",
+            disposal_date=today, user=self.admin,
+        )
+        revalue_asset(
+            asset_id=create_asset(
+                name="Plot", category_id=rev_cat.id, acquisition_type="new",
+                cost=Decimal("500000"), acquisition_date=today, user=self.admin,
+            ).id,
+            new_worth=Decimal("560000"), revaluation_date=today, user=self.admin,
+        )
+        return period
+
+    def test_combined_query_matches_the_ten_individual_helpers(self):
+        from profits.services import (
+            _compute_depreciation, _compute_disposal_gain_loss, _compute_expenses_paid,
+            _compute_found_cash, _compute_found_inventory, _compute_gst_paid,
+            _compute_lost_cash, _compute_lost_inventory, _month_bounds,
+            _compute_recurring_expenses_paid, _compute_wht_paid,
+            compute_month_figures_in_one_query,
+        )
+
+        period = self._build_a_month_with_every_figure_nonzero()
+        first_day, _ = _month_bounds(period)
+        last_day = timezone.localdate()
+
+        combined = compute_month_figures_in_one_query(first_day, last_day, period)
+        individual = {
+            "expenses_paid": _compute_expenses_paid(first_day, last_day),
+            "recurring_expenses_paid": _compute_recurring_expenses_paid(first_day, last_day),
+            "gst_paid": _compute_gst_paid(first_day, last_day),
+            "wht_paid": _compute_wht_paid(first_day, last_day),
+            "lost_cash": _compute_lost_cash(first_day, last_day),
+            "found_cash": _compute_found_cash(first_day, last_day),
+            "lost_inventory": _compute_lost_inventory(first_day, last_day),
+            "found_inventory": _compute_found_inventory(first_day, last_day),
+            "depreciation": _compute_depreciation(period),
+            "disposal_gain_loss": _compute_disposal_gain_loss(first_day, last_day),
+        }
+
+        for key, expected in individual.items():
+            self.assertEqual(
+                Decimal(combined[key]), Decimal(expected),
+                f"combined query disagrees with _compute_{key} "
+                f"({combined[key]} vs {expected})",
+            )
+
+        # Guard the guard: several figures must actually be non-zero, or the
+        # comparison above proves nothing.
+        nonzero = [k for k, v in individual.items() if Decimal(v) != 0]
+        self.assertGreaterEqual(
+            len(nonzero), 6,
+            f"only {nonzero} were non-zero — this test would pass trivially",
+        )
+
+    def test_combined_query_is_one_query(self):
+        """
+        Measures STEADY STATE, which is the only state that matters here: the
+        ProfitFlow singleton is created once in the system's lifetime, and on
+        the very first call the read-first fallback legitimately costs a few
+        extra queries (read miss -> get_or_create -> re-read). Every
+        subsequent call — i.e. every real page load — is one statement.
+        """
+        from profits.models import ProfitFlow
+        from profits.services import compute_month_figures_in_one_query, _month_bounds
+
+        period = self._build_a_month_with_every_figure_nonzero()
+        first_day, _ = _month_bounds(period)
+        today = timezone.localdate()
+
+        ProfitFlow.get_instance()   # bootstrap done, as it is in any live system
+        compute_month_figures_in_one_query(first_day, today, period)
+
+        with CaptureQueriesContext(connection) as ctx:
+            compute_month_figures_in_one_query(first_day, today, period)
+
+        self.assertEqual(
+            len(ctx.captured_queries), 1,
+            "the ten separate aggregates must collapse into exactly one "
+            f"statement; got {len(ctx.captured_queries)}",
+        )
