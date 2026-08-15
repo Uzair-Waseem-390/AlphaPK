@@ -10,12 +10,22 @@ import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import InlineAlert from '../../components/ui/InlineAlert';
 
+// Exact figures, never abbreviated. These tiles show real money — the cost of
+// your assets, what they're worth now, what's been written off — and "2.65M"
+// hides up to Rs 5,000 of difference behind a rounded label, which is not
+// something a financial figure should do. Thousands separators keep a
+// seven-figure number readable without losing a single rupee.
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
-    if (isNaN(num)) return '0';
-    if (Math.abs(num) >= 1000000) return `${(num / 1000000).toFixed(2)}M`;
-    if (Math.abs(num) >= 1000) return `${(num / 1000).toFixed(1)}K`;
-    return num.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 });
+    if (isNaN(num)) return '0.00';
+    return num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+};
+
+// Counts are whole numbers, but still get separators so a four-figure asset
+// count doesn't read as a mistake.
+const fmtCount = (value) => {
+    const num = Number(value);
+    return isNaN(num) ? '0' : num.toLocaleString('en-PK');
 };
 
 const KPI_STYLES = {
@@ -42,8 +52,10 @@ const StatTile = ({ label, value, tone = 'blue', subtitle, icon: Icon, isCount =
                 </div>
             )}
         </div>
-        <p className="text-2xl font-bold mt-2 tracking-tight">
-            {isCount ? (value ?? 0) : `Rs. ${fmt(value)}`}
+        {/* text-xl on narrow tiles so a full seven-figure amount still fits on
+            one line; tabular-nums keeps the digits aligned tile to tile. */}
+        <p className="text-xl lg:text-2xl font-bold mt-2 tracking-tight tabular-nums break-words">
+            {isCount ? fmtCount(value) : `Rs. ${fmt(value)}`}
         </p>
         {subtitle && <p className="text-xs text-white/70 mt-1">{subtitle}</p>}
     </motion.div>
