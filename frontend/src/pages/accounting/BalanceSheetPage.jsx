@@ -7,9 +7,7 @@ import { useBalanceSheet } from '../../hooks/useAccounting';
 import { printReport } from '../../utils/print';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
-import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
-import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import BackLink from '../../components/ui/BackLink';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -17,17 +15,6 @@ import InlineAlert from '../../components/ui/InlineAlert';
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
     return isNaN(num) ? '0.00' : num.toFixed(2);
-};
-
-// Last calendar month in YYYY-MM, using local getters (never UTC — see
-// instructions/frontend.md's date rule) — the only period that could
-// plausibly already have a Balance Sheet snapshot, since the catch-up only
-// ever freezes the single most-recently-finished month.
-const lastMonthPeriod = () => {
-    const d = new Date();
-    d.setDate(1);
-    d.setMonth(d.getMonth() - 1);
-    return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`;
 };
 
 const Line = ({ label, amount, bold }) => (
@@ -45,29 +32,19 @@ const BalanceSheetPage = () => {
     const { toast } = useToast();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
-    const [mode, setMode] = useState('today'); // 'today' | 'period'
-    const [period, setPeriod] = useState(lastMonthPeriod());
-    const [appliedParams, setAppliedParams] = useState({});
     const [printing, setPrinting] = useState(false);
 
-    const { data, loading, error, refetch } = useBalanceSheet(appliedParams);
+    const { data, loading, error, refetch } = useBalanceSheet({});
 
     if (!isAdmin) {
         navigate('/dashboard');
         return null;
     }
 
-    const handleView = () => {
-        setAppliedParams(mode === 'today' ? {} : { period });
-    };
-
     const handlePrint = async () => {
         setPrinting(true);
         try {
-            // Prints exactly the currently-applied view (Today, or the
-            // finished month last clicked "View"), not whatever's sitting
-            // unsaved in the picker.
-            await printReport('/accounting/balance-sheet/print/', appliedParams);
+            await printReport('/accounting/balance-sheet/print/', {});
         } catch (err) {
             toast.error(extractErrorMessage(err, 'Failed to print statement'));
         } finally {
@@ -84,57 +61,33 @@ const BalanceSheetPage = () => {
                         This is an internal estimate, not a certified financial statement.
                     </p>
                     <p className="text-sm text-amber-700 mt-0.5">
-                        Only "Today" and the single most recently finished month are available — older
-                        months were never snapshotted and can't be reconstructed accurately after the fact.
-                        Always double-check these numbers and consult a qualified accountant before making
-                        financial decisions based on this page.
+                        This always shows today's snapshot — older days were never recorded and can't be
+                        reconstructed accurately after the fact. Always double-check these numbers and
+                        consult a qualified accountant before making financial decisions based on this page.
                     </p>
                 </div>
             </div>
 
-            <div>
-                <BackLink to="/dashboard">Back to Dashboard</BackLink>
-                <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <Landmark className="w-5 h-5 text-white" />
+            <div className="flex items-start justify-between gap-4">
+                <div>
+                    <BackLink to="/dashboard">Back to Dashboard</BackLink>
+                    <div className="flex items-center gap-3 mt-2">
+                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
+                            <Landmark className="w-5 h-5 text-white" />
+                        </div>
+                        <h1 className="text-3xl font-bold text-neutral-900">Balance Sheet</h1>
                     </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Balance Sheet</h1>
+                    <p className="text-neutral-500 mt-1">
+                        A snapshot of everything your business owns, owes, and is worth, as of today.
+                    </p>
                 </div>
-                <p className="text-neutral-500 mt-1">
-                    A snapshot of everything your business owns, owes, and is worth, at one moment in time.
-                </p>
+                <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                    Print
+                </Button>
             </div>
 
-            <Card className="p-4">
-                <div className="flex flex-wrap items-end gap-3">
-                    <div className="flex gap-2">
-                        <Button variant={mode === 'today' ? 'primary' : 'secondary'} onClick={() => setMode('today')}>
-                            Today
-                        </Button>
-                        <Button variant={mode === 'period' ? 'primary' : 'secondary'} onClick={() => setMode('period')}>
-                            A Finished Month
-                        </Button>
-                    </div>
-                    {mode === 'period' && (
-                        <Input type="month" label="Month" value={period} onChange={(e) => setPeriod(e.target.value)} />
-                    )}
-                    <Button onClick={handleView}>View</Button>
-                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
-                        Print
-                    </Button>
-                </div>
-            </Card>
-
             {error && (
-                <InlineAlert
-                    variant="error"
-                    message={
-                        mode === 'period'
-                            ? `${error} Only the single most recently finished month is snapshotted automatically.`
-                            : error
-                    }
-                    onRetry={refetch}
-                />
+                <InlineAlert variant="error" message={error} onRetry={refetch} />
             )}
 
             {loading ? (
