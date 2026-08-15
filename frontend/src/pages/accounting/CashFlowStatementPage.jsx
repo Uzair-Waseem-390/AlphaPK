@@ -11,7 +11,6 @@ import Card from '../../components/ui/Card';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
-import BackLink from '../../components/ui/BackLink';
 import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
@@ -100,8 +99,7 @@ const CashFlowStatementPage = () => {
             </div>
 
             <div>
-                <BackLink to="/dashboard">Back to Dashboard</BackLink>
-                <div className="flex items-center gap-3 mt-2">
+                <div className="flex items-center gap-3">
                     <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
                         <ArrowLeftRight className="w-5 h-5 text-white" />
                     </div>

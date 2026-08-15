@@ -13,7 +13,6 @@ import Badge from '../../components/ui/Badge';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
-import BackLink from '../../components/ui/BackLink';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -106,8 +105,7 @@ const FixedAssetRegisterPage = () => {
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <BackLink to="/dashboard">Back to Dashboard</BackLink>
-                    <div className="flex items-center gap-3 mt-2">
+                    <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
                             <Building2 className="w-5 h-5 text-white" />
                         </div>
