@@ -91,8 +91,19 @@ def compute_month_figures_in_one_query(first_day, last_day, period: str) -> dict
 
     def scalar(qs, field):
         """One-row scalar sum of `field` over `qs`, safe on an empty table."""
+        # .order_by() FIRST, to clear the model's Meta.ordering.
+        #
+        # Without it Django appends those ordering columns to the generated
+        # SQL, and a .values().annotate() GROUP BY then references a column
+        # that is neither grouped nor aggregated. SQLite silently allows that;
+        # PostgreSQL rejects it outright:
+        #     ProgrammingError: column "u0.expense_date" must appear in the
+        #     GROUP BY clause or be used in an aggregate function
+        # Caught only by running this against real Postgres — every local
+        # SQLite test passed. Ordering is meaningless for a scalar sum anyway.
         grouped = (
-            qs.values(_g=Value(1, output_field=IntegerField()))
+            qs.order_by()
+            .values(_g=Value(1, output_field=IntegerField()))
             .annotate(_t=Sum(field))
             .values("_t")[:1]
         )

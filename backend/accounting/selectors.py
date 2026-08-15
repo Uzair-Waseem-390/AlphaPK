@@ -83,7 +83,12 @@ def _summary_from_queryset(qs, *, amount_field: str, count_key: str) -> dict:
     grand_total = Decimal("0")
     row_count = 0
 
-    for row in qs.values("_bucket").annotate(
+    # .order_by() clears the queryset's row ordering (_due_date, id) before
+    # grouping. Those columns are meaningless for a per-bucket total, and
+    # leaving them on makes PostgreSQL reject the GROUP BY for referencing a
+    # column that is neither grouped nor aggregated (SQLite allows it, so
+    # this only shows up against real Postgres).
+    for row in qs.order_by().values("_bucket").annotate(
         count=Count("id"), total=Sum(amount_field),
     ):
         bucket = totals[row["_bucket"]]
@@ -683,8 +688,14 @@ def _compute_equity_offsets() -> dict:
     def scalar(qs, field, *, filter=None):
         """One-row scalar sum, safe on an empty table (a bare Subquery would
         return NULL)."""
+        # .order_by() FIRST — clears Meta.ordering, which Django would
+        # otherwise append to the SQL and leave referenced by the GROUP BY
+        # without being grouped or aggregated. SQLite tolerates that;
+        # PostgreSQL raises ProgrammingError. See the identical guard in
+        # profits.services.compute_month_figures_in_one_query.
         grouped = (
-            qs.values(_g=Value(1, output_field=IntegerField()))
+            qs.order_by()
+            .values(_g=Value(1, output_field=IntegerField()))
             .annotate(_t=Sum(field, filter=filter))
             .values("_t")[:1]
         )
