@@ -131,8 +131,22 @@ def get_ar_aging_queryset(*, bucket: str = None):
     qs = (
         Invoice.objects
         .filter(
+            # is_data_entry invoices are INCLUDED on purpose. A customer
+            # opening balance is a real receivable: create_opening_balance_invoice
+            # writes a CONFIRMED invoice with credit_outstanding=amount and a
+            # real payment_due_date, and it feeds CashFlow.customer_outstanding —
+            # the very figure the Balance Sheet reports as Accounts Receivable.
+            # Excluding them here meant this report could never reconcile with
+            # the Balance Sheet, and money genuinely owed to the business was
+            # missing from the collections list. billing's own docstring says it
+            # outright: "opening balances are real carried-forward debt".
+            #
+            # Caveat worth knowing: these bucket by when the opening balance was
+            # ENTERED (payment_due_date = entry date + 7), not when the debt
+            # actually originated — no field records the original date. A long
+            # overdue pre-go-live debt therefore shows as Current until that
+            # window passes.
             status__in=[Invoice.Status.CONFIRMED, Invoice.Status.PARTIAL],
-            is_data_entry=False,
             credit_outstanding__gt=0,
         )
         .select_related("customer")
@@ -223,8 +237,19 @@ def get_ap_aging_queryset(*, bucket: str = None):
     qs = (
         PurchaseOrder.objects
         .filter(
+            # is_data_entry orders are INCLUDED on purpose — see the matching
+            # note in get_ar_aging_queryset. A supplier opening balance is a
+            # real payable (create_opening_balance_order sets
+            # payable_outstanding=amount and it feeds
+            # CashFlow.supplier_payable_outstanding, which the Balance Sheet
+            # reports as Accounts Payable).
+            #
+            # Opening STOCK orders are also is_data_entry, but they are NOT
+            # payables — create_opening_stock_order never calls
+            # _sync_order_payable, so payable_outstanding stays 0 and the
+            # `> 0` filter below already excludes them. That is why no
+            # is_data_entry test is needed to keep them out.
             status=PurchaseOrder.Status.CONFIRMED,
-            is_data_entry=False,
             payable_outstanding__gt=0,
         )
         .select_related("supplier")

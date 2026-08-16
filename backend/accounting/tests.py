@@ -1281,3 +1281,100 @@ class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
             "the ten separate aggregates must collapse into exactly one "
             f"statement; got {len(ctx.captured_queries)}",
         )
+
+
+# ---------------------------------------------------------------------------
+# Data-entry opening balances belong in the aging reports
+# ---------------------------------------------------------------------------
+
+class AgingIncludesDataEntryTests(AccountingTestBase):
+    """
+    Both aging reports used to filter is_data_entry=False, which silently
+    dropped every pre-go-live debt.
+
+    Those are real balances, not bookkeeping artifacts: a customer opening
+    balance is a CONFIRMED Invoice with credit_outstanding set, a supplier
+    opening balance is a CONFIRMED PurchaseOrder with payable_outstanding set,
+    and BOTH feed the CashFlow counters the Balance Sheet reports as Accounts
+    Receivable and Accounts Payable. So the aging reports could never
+    reconcile with the Balance Sheet, and money genuinely owed was missing
+    from the collections list.
+    """
+
+    def test_customer_opening_balance_appears_in_ar_aging(self):
+        ob = create_customer_opening_balance(
+            customer_id=self.customer.id, amount=Decimal("7500"), user=self.admin,
+        )
+        rows = get_ar_aging_rows()
+        matched = [r for r in rows if r["outstanding"] == Decimal("7500.0000")]
+        self.assertEqual(
+            len(matched), 1,
+            "a customer opening balance is a real receivable and must be listed",
+        )
+        self.assertEqual(matched[0]["customer_name"], self.customer.name)
+        self.assertEqual(ob.amount, Decimal("7500"))
+
+    def test_supplier_opening_balance_appears_in_ap_aging(self):
+        create_supplier_opening_balance(
+            supplier_id=self.supplier.id, amount=Decimal("4200"), user=self.admin,
+        )
+        rows = get_ap_aging_rows()
+        matched = [r for r in rows if r["outstanding"] == Decimal("4200.0000")]
+        self.assertEqual(len(matched), 1)
+        self.assertEqual(matched[0]["supplier_name"], self.supplier.name)
+
+    def test_ar_aging_total_reconciles_with_the_balance_sheet(self):
+        """The point of the fix: the report's grand total must equal the same
+        Accounts Receivable figure the Balance Sheet shows."""
+        product = self.make_stocked_product(stock=20)
+        self.make_confirmed_invoice(product, quantity=3)
+        create_customer_opening_balance(
+            customer_id=self.customer.id, amount=Decimal("7500"), user=self.admin,
+        )
+
+        summary = get_ar_aging_summary()
+        balance_sheet_ar = get_balance_sheet_live()["assets"]["accounts_receivable"]
+        self.assertEqual(
+            summary["grand_total"], balance_sheet_ar,
+            "A/R Aging total must match the Balance Sheet's Accounts Receivable",
+        )
+
+    def test_ap_aging_total_reconciles_with_the_balance_sheet(self):
+        product = self.make_stocked_product(stock=20)
+        self.make_confirmed_purchase_order(product, quantity=4)
+        create_supplier_opening_balance(
+            supplier_id=self.supplier.id, amount=Decimal("4200"), user=self.admin,
+        )
+
+        summary = get_ap_aging_summary()
+        balance_sheet_ap = get_balance_sheet_live()["liabilities"]["accounts_payable"]
+        self.assertEqual(
+            summary["grand_total"], balance_sheet_ap,
+            "A/P Aging total must match the Balance Sheet's Accounts Payable",
+        )
+
+    def test_opening_STOCK_order_stays_out_of_ap_aging(self):
+        """
+        Opening stock orders are is_data_entry too, but they are NOT payables —
+        create_opening_stock_order never calls _sync_order_payable, so
+        payable_outstanding stays 0 and the `> 0` filter excludes them. This
+        guards against the fix over-reaching and pulling inventory bootstrap
+        rows into a list of debts.
+        """
+        from purchases.models import PurchaseOrder, Supplier
+
+        product = self.make_stocked_product(stock=5)
+        sys_supplier = create_supplier(name="Opening Stock", code="SYS-OPENING", user=self.admin)
+        order = create_opening_stock_order(
+            supplier=sys_supplier,
+            items=[{"product_id": product.id, "quantity": 4,
+                    "unit_price": Decimal("25"), "shelf_id": self.shelf.id}],
+            user=self.admin,
+        )
+        order.refresh_from_db()
+        self.assertEqual(order.payable_outstanding, Decimal("0"),
+                         "opening stock must not create a payable")
+        self.assertNotIn(
+            order.id, {r["order_id"] for r in get_ap_aging_rows()},
+            "opening STOCK is not a debt and must not appear in A/P aging",
+        )
