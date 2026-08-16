@@ -23,6 +23,7 @@ export const profitsApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/profits/payouts/${query ? `?${query}` : ''}`);
         },
+        getById: (id) => api.get(`/profits/payouts/${id}/`),
         create: (shareId, data) => api.post(`/profits/monthly/shares/${shareId}/payouts/`, data),
         delete: (id) => api.delete(`/profits/payouts/${id}/`),
     },

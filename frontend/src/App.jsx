@@ -113,6 +113,7 @@ import BusinessWorthPage from './pages/profits/BusinessWorthPage';
 import MonthlyProfitsPage from './pages/profits/MonthlyProfitsPage';
 import MonthlyProfitDetailPage from './pages/profits/MonthlyProfitDetailPage';
 import InvestorPayoutsPage from './pages/profits/InvestorPayoutsPage';
+import InvestorPayoutDetailPage from './pages/profits/InvestorPayoutDetailPage';
 import ProfitInvestorsListPage from './pages/profits/ProfitInvestorsListPage';
 import ProfitInvestorDetailPage from './pages/profits/ProfitInvestorDetailPage';
 import BackupPage from './pages/backups/BackupPage';
@@ -922,6 +923,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InvestorPayoutsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/profits/payouts/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <InvestorPayoutDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

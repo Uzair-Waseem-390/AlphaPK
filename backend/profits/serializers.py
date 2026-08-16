@@ -66,6 +66,39 @@ class InvestorProfitPayoutReadSerializer(serializers.ModelSerializer):
         return PaymentAllocationReadSerializer(rows, many=True).data
 
 
+class InvestorProfitPayoutDetailSerializer(serializers.ModelSerializer):
+    """
+    GET /profits/payouts/<pk>/ only — deliberately NOT reused by
+    InvestorProfitPayoutReadSerializer's nested `payouts` field on
+    MonthlyProfitInvestorShareSerializer (see profits.selectors.
+    get_monthly_profit_by_period's Prefetch, which does not select_related
+    "share__monthly_profit" — adding investor_name/period there would
+    silently reintroduce a per-payout N+1 in an already-optimized view).
+    get_investor_profit_payout_by_id already select_related's
+    "share__monthly_profit"/"share__investor" for the single-object case
+    this serializer is used in, so these extra fields cost no extra query.
+    """
+    created_by    = serializers.StringRelatedField(read_only=True)
+    allocations   = serializers.SerializerMethodField()
+    investor_name = serializers.CharField(source="share.investor_name_snapshot", read_only=True)
+    period        = serializers.CharField(source="share.monthly_profit.period", read_only=True)
+    share         = serializers.IntegerField(source="share_id", read_only=True)
+
+    class Meta:
+        model  = InvestorProfitPayout
+        fields = [
+            "id", "share", "investor_name", "period", "amount", "payout_date",
+            "action_type", "note", "allocations", "linked_investor_transaction",
+            "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_allocations(self, obj):
+        from payment_methods.selectors import get_allocations_for_source
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+        return PaymentAllocationReadSerializer(get_allocations_for_source(obj), many=True).data
+
+
 class InvestorProfitPayoutListItemSerializer(serializers.ModelSerializer):
     investor_name = serializers.CharField(source="share.investor_name_snapshot", read_only=True)
     period        = serializers.CharField(source="share.monthly_profit.period", read_only=True)

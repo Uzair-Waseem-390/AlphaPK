@@ -28,6 +28,7 @@ from .selectors import (
 from .serializers import (
     CurrentMonthProfitSerializer,
     InvestorMonthlyShareListItemSerializer,
+    InvestorProfitPayoutDetailSerializer,
     InvestorProfitPayoutListItemSerializer,
     InvestorProfitPayoutReadSerializer,
     InvestorProfitPayoutWriteSerializer,
@@ -198,7 +199,7 @@ class InvestorProfitPayoutRetrieveDestroyView(generics.RetrieveDestroyAPIView):
     settled amounts, and (for a reinvest) the linked InvestorTransaction too.
     """
     permission_classes = [IsAdminOrSuperuser]
-    serializer_class   = InvestorProfitPayoutReadSerializer
+    serializer_class   = InvestorProfitPayoutDetailSerializer
 
     def get_object(self):
         return get_investor_profit_payout_by_id(self.kwargs["pk"])

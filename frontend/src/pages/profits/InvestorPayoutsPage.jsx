@@ -1,3 +1,4 @@
+import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useInvestorProfitPayouts } from '../../hooks/useProfits';
 import Badge from '../../components/ui/Badge';
@@ -26,6 +27,7 @@ const actionBadge = (actionType) =>
         : <Badge variant="success" size="sm">Payout</Badge>;
 
 const InvestorPayoutsPage = () => {
+    const navigate = useNavigate();
     const { user } = useAuth();
     const isAdmin = user?.role === 'admin' || user?.role === 'superuser';
 
@@ -87,7 +89,11 @@ const InvestorPayoutsPage = () => {
                 />
             ) : (
                 <>
-                    <Table columns={columns} data={payouts} />
+                    <Table
+                        columns={columns}
+                        data={payouts}
+                        onRowClick={(row) => navigate(`/profits/payouts/${row.id}`)}
+                    />
                     {meta.totalPages > 1 && (
                         <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />
                     )}

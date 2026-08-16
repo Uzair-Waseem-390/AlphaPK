@@ -21,12 +21,15 @@ from users.models import User
 
 from payment_methods.models import PaymentMethod
 
-from .models import MonthlyProfit, MonthlyProfitOwnerShare, ProfitFlow
+from .models import (
+    MonthlyProfit, MonthlyProfitInvestorShare, MonthlyProfitOwnerShare, ProfitFlow,
+)
 from .services import (
     _add_months, _finalize_month, catch_up_monthly_profits,
-    create_owner_profit_payout, delete_owner_profit_payout,
+    create_investor_profit_payout, create_owner_profit_payout,
+    delete_owner_profit_payout,
 )
-from .views import MonthlyProfitDetailView
+from .views import InvestorProfitPayoutRetrieveDestroyView, MonthlyProfitDetailView
 
 
 def make_admin(email="admin@example.com"):
@@ -255,3 +258,67 @@ class ProfitPayoutMethodAllocationTests(ProfitsTestBase):
                 source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,
             ).exists(),
         )
+
+
+class InvestorProfitPayoutDetailViewTests(ProfitsTestBase):
+    """GET /profits/payouts/<pk>/ — InvestorProfitPayoutDetailSerializer is
+    deliberately separate from InvestorProfitPayoutReadSerializer (used
+    nested in MonthlyProfitDetailView) so this endpoint can show
+    investor_name/period without adding a query the nested list doesn't
+    already pay for (see the serializer's own docstring)."""
+
+    def setUp(self):
+        super().setUp()
+        catch_up_monthly_profits()
+        from cash_management.services import create_investor
+        investor = create_investor(name="Zafar Capital", growth_rate=Decimal("0"), user=self.admin)
+        mp = MonthlyProfit.objects.get(period=self.period)
+        self.share = MonthlyProfitInvestorShare.objects.create(
+            monthly_profit=mp, investor=investor, investor_name_snapshot=investor.name,
+            share_percent_snapshot=Decimal("50"), share_amount=Decimal("50"),
+        )
+
+    def test_detail_view_returns_investor_name_and_period(self):
+        payout = create_investor_profit_payout(
+            share_id=self.share.id, amount=Decimal("20"), action_type="payout",
+            method_allocations=self.cash_split("20"), payout_date=timezone.now().date(), user=self.admin,
+        )
+        request = self.factory.get(f"/profits/payouts/{payout.id}/")
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = InvestorProfitPayoutRetrieveDestroyView.as_view()(request, pk=payout.id)
+            response.render()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["investor_name"], "Zafar Capital")
+        self.assertEqual(response.data["period"], self.period)
+        self.assertEqual(response.data["share"], self.share.id)
+        self.assertEqual(len(response.data["allocations"]), 1)
+        self.assertLessEqual(len(ctx.captured_queries), 5)
+
+    def test_monthly_detail_query_count_unaffected_by_new_serializer(self):
+        # Confirms the new detail-only serializer didn't touch the nested
+        # investor payouts path (MonthlyProfitDetailView reuses
+        # InvestorProfitPayoutReadSerializer, not the new one).
+        create_investor_profit_payout(
+            share_id=self.share.id, amount=Decimal("10"), action_type="payout",
+            method_allocations=self.cash_split("10"), payout_date=timezone.now().date(), user=self.admin,
+        )
+
+        def detail():
+            request = self.factory.get(f"/profits/monthly/{self.period}/")
+            force_authenticate(request, user=self.admin)
+            return MonthlyProfitDetailView.as_view()(request, period=self.period)
+
+        with CaptureQueriesContext(connection) as ctx_small:
+            response = detail()
+        self.assertEqual(response.status_code, 200)
+
+        for _ in range(2):
+            create_investor_profit_payout(
+                share_id=self.share.id, amount=Decimal("5"), action_type="payout",
+                method_allocations=self.cash_split("5"), payout_date=timezone.now().date(), user=self.admin,
+            )
+        with CaptureQueriesContext(connection) as ctx_large:
+            response = detail()
+        self.assertEqual(len(ctx_small.captured_queries), len(ctx_large.captured_queries))
