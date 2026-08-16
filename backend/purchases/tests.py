@@ -31,7 +31,8 @@ from .services import (
 from .views import (
     AutoAllocateShelvesView, DraftPurchaseOrderListView, InventoryListView,
     InventoryStatsView, LowStockInventoryListView, OutOfStockInventoryListView,
-    PurchaseOrderListCreateView,
+    PurchaseOrderListCreateView, PurchaseOrderPaymentSummaryView,
+    SupplierPaymentListCreateView,
 )
 
 
@@ -301,6 +302,59 @@ class QueryCountStabilityTests(PurchasesTestBase):
             p = self.make_product(f"P30{i}", f"Product 30{i}")
             sync_inventory(product=p, quantity_delta=5, user=self.admin)
         grown = self.count_queries(view, "/purchases/inventory/")
+        self.assertEqual(baseline, grown)
+
+
+class SupplierPaymentAllocationQueryCountTests(PurchasesTestBase):
+    """Phase 3's SupplierPaymentReadSerializer.allocations must not N+1 —
+    one query for the whole page's allocations, not one per payment
+    (architecture.md's STRICT 200ms/O(1)-per-page rule)."""
+
+    def count_queries(self, view, url, **view_kwargs):
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request, **view_kwargs)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        return len(ctx.captured_queries)
+
+    def test_supplier_payment_list_query_count_flat_as_payment_count_grows(self):
+        product = self.make_product("SP001")
+        order = self.make_confirmed_order(product, quantity=10, unit_price="50")
+        create_supplier_payment(
+            order_id=order.id, amount=Decimal("50"), method_allocations=self.cash_split("50"),
+            payment_date=timezone.now().date(), user=self.admin,
+        )
+        view = SupplierPaymentListCreateView.as_view()
+        url = f"/purchases/orders/{order.id}/payments/"
+        baseline = self.count_queries(view, url, order_id=order.id)
+
+        for _ in range(4):
+            create_supplier_payment(
+                order_id=order.id, amount=Decimal("10"), method_allocations=self.cash_split("10"),
+                payment_date=timezone.now().date(), user=self.admin,
+            )
+        grown = self.count_queries(view, url, order_id=order.id)
+        self.assertEqual(baseline, grown)
+
+    def test_payment_summary_query_count_flat_as_payment_count_grows(self):
+        product = self.make_product("SP002")
+        order = self.make_confirmed_order(product, quantity=10, unit_price="50")
+        create_supplier_payment(
+            order_id=order.id, amount=Decimal("50"), method_allocations=self.cash_split("50"),
+            payment_date=timezone.now().date(), user=self.admin,
+        )
+        view = PurchaseOrderPaymentSummaryView.as_view()
+        url = f"/purchases/orders/{order.id}/payment-summary/"
+        baseline = self.count_queries(view, url, pk=order.id)
+
+        for _ in range(4):
+            create_supplier_payment(
+                order_id=order.id, amount=Decimal("10"), method_allocations=self.cash_split("10"),
+                payment_date=timezone.now().date(), user=self.admin,
+            )
+        grown = self.count_queries(view, url, pk=order.id)
         self.assertEqual(baseline, grown)
 
 

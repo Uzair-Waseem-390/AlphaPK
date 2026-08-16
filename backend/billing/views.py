@@ -329,6 +329,27 @@ class PaymentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return get_payments_for_invoice(self.kwargs["invoice_id"])
 
+    def list(self, request, *args, **kwargs):
+        # Batch-fetch every payment's allocations in ONE query for the
+        # current page (not one per payment) — PaymentReadSerializer.
+        # get_allocations reads from this context instead of querying
+        # live per object. Same fix as the N+1 caught in profits' detail
+        # view; PaymentReadSerializer is also used nested/listed elsewhere
+        # (InvoicePaymentSummarySerializer, here), so it needed it too.
+        from payment_methods.selectors import get_allocations_by_source_ids
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else queryset
+        context = self.get_serializer_context()
+        context["payment_allocations"] = get_allocations_by_source_ids(
+            "billing.payment", [p.id for p in rows],
+        )
+        serializer = self.get_serializer(rows, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -498,6 +519,20 @@ class InvoicePaymentSummaryView(generics.RetrieveAPIView):
 
     def get_object(self):
         return get_invoice_payment_summary(self.kwargs["pk"])
+
+    def retrieve(self, request, *args, **kwargs):
+        # Same batched-allocations fix as PaymentListCreateView.list() —
+        # this invoice's nested `payments` list would otherwise N+1 one
+        # allocations query per payment.
+        from payment_methods.selectors import get_allocations_by_source_ids
+
+        instance = self.get_object()
+        context = self.get_serializer_context()
+        context["payment_allocations"] = get_allocations_by_source_ids(
+            "billing.payment", [p.id for p in instance.payments.all()],
+        )
+        serializer = self.get_serializer(instance, context=context)
+        return Response(serializer.data)
 
 
 class CustomerOutstandingView(generics.RetrieveAPIView):

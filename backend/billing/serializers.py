@@ -460,9 +460,19 @@ class PaymentReadSerializer(serializers.ModelSerializer):
         read_only_fields = fields
 
     def get_allocations(self, obj):
-        from payment_methods.selectors import get_allocations_for_source
         from payment_methods.serializers import PaymentAllocationReadSerializer
-        return PaymentAllocationReadSerializer(get_allocations_for_source(obj), many=True).data
+
+        # Prefer the batch-prefetched map (list/nested contexts — see
+        # PaymentListCreateView.list() / InvoicePaymentSummaryView) over a
+        # live per-object query, which would N+1 across every payment on
+        # the page/invoice.
+        prefetched = self.context.get("payment_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
 
 
 class PaymentWriteSerializer(serializers.ModelSerializer):

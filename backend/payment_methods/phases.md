@@ -478,14 +478,127 @@ extra call needed here.
 
 ---
 
-## Phase 5 — Remaining 9 source models
+## Phase 5 — Remaining 10 source models
 
-The rest of `cash_flow/cash.md`'s 14 source models not yet covered:
-opening cash entry, expense, tax payment, WHT payment, cash lost/found
-(`CashAdjustment`), investor/owner transaction, asset purchase/sale,
-recurring expense payment. Same mandatory-selection treatment as Phase 3,
-rolled out a few models at a time (own sub-approval per batch — this spans
-6 different apps).
+Correction to the earlier "9" estimate: Phase 3 covered 2 of the 14
+`cash_flow/cash.md` source models (`billing.Payment`,
+`purchases.SupplierPayment`) and Phase 4 covered 2 more
+(`profits.InvestorProfitPayout`, `profits.OwnerProfitPayout`) — 10 remain,
+across 6 apps. Same mandatory-selection treatment as Phase 3 throughout:
+`method_allocations` required, wired into `record_allocations`/
+`reverse_allocations` next to the existing `record_cash_movement`/
+`reverse_cash_movement` calls, in the same transaction.
+
+Split into 5 independently-approvable batches — smallest/lowest-risk
+first, so each is reviewable on its own instead of one 10-model change:
+
+### Batch A — `cash_management` (3 models, resolves the Phase 4 dependency)
+
+| Function | Model | Direction |
+|---|---|---|
+| `create_cash_adjustment` / `delete_cash_adjustment` | `CashAdjustment` | inflow (found) / outflow (lost) — direction depends on `adjustment_type`, decided per-call same as today |
+| `create_investor_transaction` / `delete_investor_transaction` | `InvestorTransaction` | inflow (investment) / outflow (withdrawal) |
+| `create_owner_transaction` / `delete_owner_transaction` | `OwnerTransaction` | inflow (contribution) / outflow (drawing) |
+
+**This batch must also update `profits/services.py`'s two reinvest call
+sites** (`create_investor_transaction`/`create_owner_transaction` calls
+inside `create_investor_profit_payout`/`create_owner_profit_payout`) in
+the *same* change — passing `method_allocations=[(cash, amount)]`
+explicitly, resolving the cross-phase dependency flagged in Phase 4's plan.
+Skipping this would make reinvest suddenly demand a method pick, which is
+exactly the behavior Phase 4 turned off.
+
+`create_investor_transaction` has an `is_data_entry` flag that already
+skips the `cash_in_hand` sync entirely (opening-balance capital that was
+never really in the till) — mirror that: `is_data_entry=True` calls also
+skip the method requirement, since there's no real cash movement to
+allocate.
+
+### Batch B — `taxes` (2 models, simplest batch — no update path exists)
+
+| Function | Model | Direction |
+|---|---|---|
+| `create_tax_payment` / `delete_tax_payment` | `TaxPayment` | outflow |
+| `create_wht_payment` / `delete_wht_payment` | `WHTPayment` | outflow |
+
+Both are the plainest shape in the whole rollout: create → deduct, delete
+→ restore, no edit/update function, no advance/cap complexity. Good
+batch to build first as the template the others follow.
+
+### Batch C — `assets` (2 models, conditional — not every row moves cash)
+
+| Function | Model | Direction | Condition |
+|---|---|---|---|
+| `create_asset` | `Asset` | outflow | only when `acquisition_type == "new"` (an "existing" asset never touches cash — `method_allocations` not required in that case) |
+| `dispose_asset` | `AssetDisposal` | inflow | only when `disposal_type == "sold"` (scrapped is an audit record only) |
+
+Mirrors the conditional pattern Phase 3/4 already established
+(`payment_type == "advance"`, `action_type == "payout"`) — required only
+on the branch that actually moves cash.
+
+### Batch D — `recurring_expenses` (1 model)
+
+| Function | Model | Direction |
+|---|---|---|
+| `create_recurring_expense_payment` / `delete_recurring_expense_payment` | `RecurringExpenseAssignmentPayment` | outflow |
+
+Same plain shape as Batch B — outflow only, existing overpayment guard
+(`amount > outstanding`) untouched, `record_allocations`'s balance check
+is a new, additional rejection reason layered on top, same as Phase 3's
+supplier payments.
+
+### Batch E — `cash_flow` + `data_entry` (2 models)
+
+| Function | Model | Direction |
+|---|---|---|
+| `create_expense` / `update_expense` / `delete_expense` | `Expense` | outflow |
+| `create_opening_cash` | `OpeningCashEntry` | inflow |
+
+`update_expense` is the one function in this whole phase with an amount
+EDIT path (not just create/delete) — needs `refresh_allocations`, same
+shape as Phase 3's advance-amount edits, but simpler (no pro-rata cap
+case, the user just re-picks the split for the new amount directly).
+
+`OpeningCashEntry` is a one-time bootstrap flow (`data_entry` is
+documented elsewhere as "a removable bootstrap app" — optional post-go-live).
+Worth confirming before building: does it get the full mandatory-method
+treatment like everything else, or is it low-value enough to leave
+optional/defaulted-to-Cash since it's rarely used after initial setup?
+Flagging as a decision point rather than assuming.
+
+### Cutting across all 5 batches
+
+- Serializer pattern: every write serializer gets `method_allocations`
+  (required unconditionally, or required only on the cash-moving branch
+  for Batch C) — same `MethodAllocationInputSerializer` used since Phase 3.
+- Read serializer pattern: every read serializer gets an `allocations`
+  field. **Watch for the N+1 this phase's own Phase 4 build hit** — any
+  of these models shown in a nested/list context (not just a standalone
+  retrieve) needs the batched `get_allocations_by_source_ids` +
+  serializer-context pattern from `MonthlyProfitDetailView`, not a live
+  per-object query in `get_allocations`. Check each list/detail view this
+  phase touches for that shape before shipping.
+- View pattern: same `_as_splits()` helper, one per app (already exists in
+  `billing/views.py`, `purchases/views.py`, `profits/views.py` — Batches
+  A/B/C/D/E each need their own copy, or this becomes the first real case
+  for promoting `_as_splits` into a shared home, e.g.
+  `payment_methods/views.py`, imported everywhere instead of copy-pasted
+  a 5th/6th/7th time).
+
+### Tests
+
+- One create/delete round-trip per model, with a split and with a
+  single method, matching Phase 3/4's shape.
+- Conditional-branch tests for Batch C (existing-acquisition asset needs
+  no method; new-acquisition does; scrapped disposal needs no method;
+  sold does).
+- Batch A's reinvest-still-silent regression test — after this batch
+  lands, re-run Phase 4's `test_reinvest_needs_no_method_allocations_and_
+  defaults_to_cash` and confirm it still passes unchanged (proves the
+  cross-phase dependency was actually resolved, not just documented).
+- Full project regression after each batch (not just at the end of
+  Phase 5) — 5 checkpoints instead of 1, so a break is caught against the
+  batch that caused it.
 
 ---
 

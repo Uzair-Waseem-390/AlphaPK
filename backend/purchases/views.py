@@ -473,6 +473,23 @@ class SupplierPaymentListCreateView(generics.ListCreateAPIView):
     def get_queryset(self):
         return get_payments_for_order(self.kwargs["order_id"])
 
+    def list(self, request, *args, **kwargs):
+        # Batch-fetch every payment's allocations in ONE query for the
+        # current page — same fix as billing.PaymentListCreateView.list().
+        from payment_methods.selectors import get_allocations_by_source_ids
+
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else queryset
+        context = self.get_serializer_context()
+        context["supplier_payment_allocations"] = get_allocations_by_source_ids(
+            "purchases.supplierpayment", [p.id for p in rows],
+        )
+        serializer = self.get_serializer(rows, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
     def create(self, request, *args, **kwargs):
         serializer = self.get_serializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -511,6 +528,20 @@ class PurchaseOrderPaymentSummaryView(generics.RetrieveAPIView):
 
     def get_object(self):
         return get_order_payment_summary(self.kwargs["pk"])
+
+    def retrieve(self, request, *args, **kwargs):
+        # Same batched-allocations fix as billing.InvoicePaymentSummaryView
+        # — this order's nested `payments` list would otherwise N+1 one
+        # allocations query per payment.
+        from payment_methods.selectors import get_allocations_by_source_ids
+
+        instance = self.get_object()
+        context = self.get_serializer_context()
+        context["supplier_payment_allocations"] = get_allocations_by_source_ids(
+            "purchases.supplierpayment", [p.id for p in instance.payments.all()],
+        )
+        serializer = self.get_serializer(instance, context=context)
+        return Response(serializer.data)
 
 
 class SupplierPayableSummaryView(generics.RetrieveAPIView):
