@@ -384,13 +384,97 @@ the funds.
 
 ## Phase 4 — Profit settlement exception
 
-- **Give (payout)** — mandatory method selection (split allowed), same as
-  any other outflow, through the Phase 2 engine.
-- **Reinvest** — both legs (the payout-out, the investment-in) are forced
-  to `Cash` automatically, no picker shown to the user, per your
-  instruction — no real money crosses accounts here, it's a bookkeeping
-  swap of equity. Still goes through the Phase 2 engine internally so
-  `Cash.balance` and the allocation ledger stay accurate.
+Traced both payout functions in `profits/services.py` —
+`create_investor_profit_payout` and `create_owner_profit_payout` — which
+are exact mirrors of each other (one against `MonthlyProfitInvestorShare`,
+one against `MonthlyProfitOwnerShare`). Both already branch on
+`action_type` (`payout` vs `reinvest`), and reinvest already calls into
+`cash_management.services.create_investor_transaction` /
+`create_owner_transaction` internally to book the offsetting inflow — so
+the "give vs reinvest" split this phase needs is exactly the branch that
+already exists, just adding the method dimension to it.
+
+### Give (payout) — mandatory method selection
+
+`method_allocations` becomes a required param, validated only when
+`action_type == "payout"`. Wired into `record_allocations(payout,
+direction="outflow", splits=method_allocations, total_amount=amount,
+date=payout_date, user=user)`, right next to the existing
+`record_cash_movement(payout)` call — same "every cash-touching feature
+wires both together" rule as everywhere else. Split allowed, same as any
+other outflow; rejected if the chosen method(s) can't cover it.
+
+### Reinvest — silent, both legs default to Cash
+
+No picker shown to the user, per your instruction — the money never
+physically leaves, it's a bookkeeping swap of equity (profit share →
+capital). `method_allocations` is not required or read for this branch;
+the function resolves the protected `Cash` `PaymentMethod` itself and
+calls `record_allocations(payout, direction="outflow", splits=[(cash,
+amount)], ...)` for the payout's own leg.
+
+**Cross-phase dependency, flagged now so it isn't a surprise later:**
+reinvest's *inflow* leg happens inside `create_investor_transaction`/
+`create_owner_transaction` (in `cash_management/services.py`) — functions
+this phase does not touch. Right now they take no `method_allocations` at
+all, so the inflow leg records no allocation (fine — no source model
+existed for that path before Phase 5). Once Phase 5 makes
+`InvestorTransaction`/`OwnerTransaction` require a method like every other
+source, this reinvest call site must be updated in the *same* change to
+pass the Cash default explicitly (`method_allocations=[(cash, amount)]`)
+— otherwise reinvest would suddenly demand a method pick from the user,
+which is exactly what this phase is turning off. Noting it here so Phase
+5's plan accounts for it up front instead of it being discovered as a
+regression.
+
+### API changes
+
+- `InvestorProfitPayoutWriteSerializer`/`OwnerProfitPayoutWriteSerializer`:
+  add `method_allocations` (same `MethodAllocationInputSerializer`,
+  `required=False`), with a `validate()` requiring it only when
+  `action_type == "payout"` — mirrors the exact pattern already used for
+  `InvoiceCreateSerializer`'s advance-amount/method_allocations pairing in
+  Phase 3.
+- Read serializers gain an `allocations` field (same
+  `SerializerMethodField` pattern as `PaymentReadSerializer`) so the give
+  path shows its real split; reinvest rows will just show the single Cash
+  allocation.
+
+### Delete path
+
+`delete_investor_profit_payout`/`delete_owner_profit_payout` call
+`reverse_allocations(payout)` next to the existing
+`reverse_cash_movement(payout)` — covers both action types uniformly,
+since both always wrote exactly one payout-leg allocation set (single
+Cash leg for reinvest, user's chosen split for payout). The reinvest
+inflow leg's own reversal already cascades automatically today via the
+existing `delete_investor_transaction(...)`/`delete_owner_transaction(...)`
+call inside these functions — once Phase 5 wires that function's own
+`reverse_allocations`, it fires for free through this same cascade, no
+extra call needed here.
+
+### Frontend
+
+- Payout form: method picker (with split) shown ONLY when "Give" is
+  selected; hidden entirely when "Reinvest" is selected — the toggle
+  between the two actions should visibly hide/show the picker, not just
+  leave it optional, so it's clear to the user reinvest doesn't ask.
+
+### Tests
+
+- Give with a single method and with a split — payout's own allocation
+  matches, method balance moves.
+- Give with an insufficient method — rejected, no payout row, no share
+  balance change (mirrors the Phase 3 supplier-payment rejection test
+  shape).
+- Reinvest — no `method_allocations` passed by the caller at all, payout's
+  Cash allocation is created automatically, Cash balance drops by the
+  outflow leg (the offsetting inflow leg is out of scope until Phase 5,
+  so Cash's net effect from a reinvest stays what it already was: the
+  payout-out is real, the transaction-in isn't allocation-tracked yet).
+- Delete reverses the payout's own allocation for both action types.
+- Regression: full `profits`/`cash_management` suites unaffected in dollar
+  terms — only the method dimension is new.
 
 ---
 

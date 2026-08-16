@@ -532,7 +532,8 @@ def catch_up_monthly_profits(user=None) -> None:
 
 @transaction.atomic
 def create_investor_profit_payout(
-    *, share_id: int, amount: Decimal, action_type: str, payout_date, note: str = "", user,
+    *, share_id: int, amount: Decimal, action_type: str, payout_date,
+    method_allocations: list = None, note: str = "", user,
 ) -> InvestorProfitPayout:
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -541,6 +542,8 @@ def create_investor_profit_payout(
         raise ValidationError({"amount": "Amount must be greater than zero."})
     if action_type not in (InvestorProfitPayout.ActionType.PAYOUT, InvestorProfitPayout.ActionType.REINVEST):
         raise ValidationError({"action_type": "Must be 'payout' or 'reinvest'."})
+    if action_type == InvestorProfitPayout.ActionType.PAYOUT and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected for a payout."})
 
     share = get_object_or_404(
         MonthlyProfitInvestorShare.objects.select_for_update().select_related("investor", "monthly_profit"),
@@ -563,10 +566,28 @@ def create_investor_profit_payout(
     sync_investor_profit_payout_made(amount=amount, user=user)
     record_cash_movement(payout)
 
+    from payment_methods.services import record_allocations
+
     if action_type == InvestorProfitPayout.ActionType.PAYOUT:
+        record_allocations(
+            payout, direction="outflow", splits=method_allocations,
+            total_amount=amount, date=payout_date, user=user,
+        )
         share.amount_paid_out += amount
         _adjust_profitflow(total_paid_out_to_investors_delta=+amount, user=user)
     else:
+        # Reinvest — no real money crosses accounts (it's a bookkeeping
+        # swap of equity), so the user is never asked for a method here;
+        # both legs default silently to the protected Cash account. This
+        # is the payout's own outflow leg — the offsetting inflow leg
+        # (create_investor_transaction below) isn't allocation-tracked
+        # until Phase 5 wires cash_management the same way.
+        from payment_methods.models import PaymentMethod
+        cash, _ = PaymentMethod.objects.get_or_create(name="Cash", defaults={"is_protected": True})
+        record_allocations(
+            payout, direction="outflow", splits=[(cash, amount)],
+            total_amount=amount, date=payout_date, user=user,
+        )
         # Reinvest: the same amount immediately comes back in as a genuine
         # new investment — real capital growth, not a payout-in-disguise.
         from cash_management.models import InvestorTransaction
@@ -610,6 +631,9 @@ def delete_investor_profit_payout(*, pk: int, user) -> None:
     sync_investor_profit_payout_reversed(amount=amount, user=user)
     reverse_cash_movement(payout)
 
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payout)
+
     if payout.action_type == InvestorProfitPayout.ActionType.PAYOUT:
         share.amount_paid_out = max(Decimal("0"), share.amount_paid_out - amount)
         _adjust_profitflow(total_paid_out_to_investors_delta=-amount, user=user)
@@ -630,7 +654,8 @@ def delete_investor_profit_payout(*, pk: int, user) -> None:
 
 @transaction.atomic
 def create_owner_profit_payout(
-    *, owner_share_id: int, amount: Decimal, action_type: str, payout_date, note: str = "", user,
+    *, owner_share_id: int, amount: Decimal, action_type: str, payout_date,
+    method_allocations: list = None, note: str = "", user,
 ) -> OwnerProfitPayout:
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -639,6 +664,8 @@ def create_owner_profit_payout(
         raise ValidationError({"amount": "Amount must be greater than zero."})
     if action_type not in (OwnerProfitPayout.ActionType.PAYOUT, OwnerProfitPayout.ActionType.REINVEST):
         raise ValidationError({"action_type": "Must be 'payout' or 'reinvest'."})
+    if action_type == OwnerProfitPayout.ActionType.PAYOUT and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected for a payout."})
 
     owner_share = get_object_or_404(
         MonthlyProfitOwnerShare.objects.select_for_update().select_related("monthly_profit"),
@@ -661,10 +688,28 @@ def create_owner_profit_payout(
     sync_owner_profit_payout_made(amount=amount, user=user)
     record_cash_movement(payout)
 
+    from payment_methods.services import record_allocations
+
     if action_type == OwnerProfitPayout.ActionType.PAYOUT:
+        record_allocations(
+            payout, direction="outflow", splits=method_allocations,
+            total_amount=amount, date=payout_date, user=user,
+        )
         owner_share.amount_paid_out += amount
         _adjust_profitflow(total_paid_out_to_owner_delta=+amount, user=user)
     else:
+        # Reinvest — no real money crosses accounts (it's a bookkeeping
+        # swap of equity), so the user is never asked for a method here;
+        # both legs default silently to the protected Cash account. This
+        # is the payout's own outflow leg — the offsetting inflow leg
+        # (create_owner_transaction below) isn't allocation-tracked until
+        # Phase 5 wires cash_management the same way.
+        from payment_methods.models import PaymentMethod
+        cash, _ = PaymentMethod.objects.get_or_create(name="Cash", defaults={"is_protected": True})
+        record_allocations(
+            payout, direction="outflow", splits=[(cash, amount)],
+            total_amount=amount, date=payout_date, user=user,
+        )
         # Reinvest: the same amount immediately comes back in as a genuine
         # owner contribution — real capital, not a payout-in-disguise.
         from cash_management.models import OwnerTransaction
@@ -706,6 +751,9 @@ def delete_owner_profit_payout(*, pk: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_owner_profit_payout_reversed
     sync_owner_profit_payout_reversed(amount=amount, user=user)
     reverse_cash_movement(payout)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payout)
 
     if payout.action_type == OwnerProfitPayout.ActionType.PAYOUT:
         owner_share.amount_paid_out = max(Decimal("0"), owner_share.amount_paid_out - amount)

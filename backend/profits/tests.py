@@ -19,6 +19,8 @@ from purchases.services import (
 from rates.services import create_rate
 from users.models import User
 
+from payment_methods.models import PaymentMethod
+
 from .models import MonthlyProfit, MonthlyProfitOwnerShare, ProfitFlow
 from .services import (
     _add_months, _finalize_month, catch_up_monthly_profits,
@@ -92,6 +94,11 @@ class ProfitsTestBase(TestCase):
             expense_date=timezone.now().date().replace(year=y, month=m, day=20), user=self.admin,
         )
 
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+
+    def cash_split(self, amount):
+        return [(self.cash, Decimal(amount))]
+
 
 class MonthlyProfitFinalizationTests(ProfitsTestBase):
     def test_catch_up_finalizes_month_with_exact_numbers(self):
@@ -125,6 +132,7 @@ class MonthlyProfitFinalizationTests(ProfitsTestBase):
 
         payout = create_owner_profit_payout(
             owner_share_id=owner_share.id, amount=Decimal("40"), action_type="payout",
+            method_allocations=self.cash_split("40"),
             payout_date=timezone.now().date(), user=self.admin,
         )
         owner_share.refresh_from_db()
@@ -150,6 +158,7 @@ class MonthDetailQueryStabilityTests(ProfitsTestBase):
         owner_share = MonthlyProfitOwnerShare.objects.get(monthly_profit__period=self.period)
         create_owner_profit_payout(
             owner_share_id=owner_share.id, amount=Decimal("10"), action_type="payout",
+            method_allocations=self.cash_split("10"),
             payout_date=timezone.now().date(), user=self.admin,
         )
 
@@ -161,6 +170,7 @@ class MonthDetailQueryStabilityTests(ProfitsTestBase):
         for _ in range(2):
             create_owner_profit_payout(
                 owner_share_id=owner_share.id, amount=Decimal("10"), action_type="payout",
+                method_allocations=self.cash_split("10"),
                 payout_date=timezone.now().date(), user=self.admin,
             )
 
@@ -170,3 +180,71 @@ class MonthDetailQueryStabilityTests(ProfitsTestBase):
         # The filtered Prefetch serves the payout lists — query count must not
         # scale with payout (or share) count.
         self.assertEqual(len(ctx_small.captured_queries), len(ctx_large.captured_queries))
+
+
+class ProfitPayoutMethodAllocationTests(ProfitsTestBase):
+    """Phase 4: give (payout) requires a method split through the Phase 2
+    engine; reinvest silently defaults both its own outflow leg and the
+    (Phase 5-pending) inflow leg to Cash, no user prompt."""
+
+    def setUp(self):
+        super().setUp()
+        catch_up_monthly_profits()
+        self.owner_share = MonthlyProfitOwnerShare.objects.get(monthly_profit__period=self.period)
+
+    def test_payout_without_method_allocations_rejected(self):
+        from rest_framework.exceptions import ValidationError
+        with self.assertRaises(ValidationError):
+            create_owner_profit_payout(
+                owner_share_id=self.owner_share.id, amount=Decimal("10"), action_type="payout",
+                payout_date=timezone.now().date(), user=self.admin,
+            )
+
+    def test_payout_records_allocation_and_moves_method_balance(self):
+        from payment_methods.models import PaymentAllocation
+
+        payout = create_owner_profit_payout(
+            owner_share_id=self.owner_share.id, amount=Decimal("15"), action_type="payout",
+            method_allocations=self.cash_split("15"), payout_date=timezone.now().date(), user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("999985"))
+        self.assertEqual(
+            PaymentAllocation.objects.filter(
+                source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,
+            ).count(),
+            1,
+        )
+
+    def test_reinvest_needs_no_method_allocations_and_defaults_to_cash(self):
+        from payment_methods.models import PaymentAllocation, PaymentMethod
+
+        payout = create_owner_profit_payout(
+            owner_share_id=self.owner_share.id, amount=Decimal("20"), action_type="reinvest",
+            payout_date=timezone.now().date(), user=self.admin,
+        )
+        alloc = PaymentAllocation.objects.get(
+            source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,
+        )
+        self.assertEqual(alloc.payment_method_id, self.cash.id)
+        self.assertEqual(alloc.direction, "outflow")
+        self.assertEqual(alloc.amount, Decimal("20"))
+        # Cash was already seeded by setUp — reinvest resolves the SAME
+        # protected row, not a second one.
+        self.assertEqual(PaymentMethod.objects.filter(name="Cash").count(), 1)
+
+    def test_delete_payout_reverses_allocation(self):
+        from payment_methods.models import PaymentAllocation
+
+        payout = create_owner_profit_payout(
+            owner_share_id=self.owner_share.id, amount=Decimal("15"), action_type="payout",
+            method_allocations=self.cash_split("15"), payout_date=timezone.now().date(), user=self.admin,
+        )
+        delete_owner_profit_payout(pk=payout.pk, user=self.admin)
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000000"))
+        self.assertFalse(
+            PaymentAllocation.objects.filter(
+                source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,
+            ).exists(),
+        )

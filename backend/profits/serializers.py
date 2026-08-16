@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from payment_methods.serializers import MethodAllocationInputSerializer
+
 from .models import (
     InvestorProfitPayout, MonthlyProfit, MonthlyProfitInvestorShare,
     MonthlyProfitOwnerShare, OwnerProfitPayout,
@@ -38,15 +40,30 @@ class OwnershipSplitSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class InvestorProfitPayoutReadSerializer(serializers.ModelSerializer):
-    created_by = serializers.StringRelatedField(read_only=True)
+    created_by  = serializers.StringRelatedField(read_only=True)
+    allocations = serializers.SerializerMethodField()
 
     class Meta:
         model  = InvestorProfitPayout
         fields = [
-            "id", "amount", "payout_date", "action_type", "note",
+            "id", "amount", "payout_date", "action_type", "note", "allocations",
             "linked_investor_transaction", "created_by", "created_at",
         ]
         read_only_fields = fields
+
+    def get_allocations(self, obj):
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+
+        # Prefer the batch-prefetched map (nested/list contexts — see
+        # MonthlyProfitDetailView) over a live per-object query, which
+        # would N+1 across every payout in a share's history.
+        prefetched = self.context.get("investor_payout_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
 
 
 class InvestorProfitPayoutListItemSerializer(serializers.ModelSerializer):
@@ -64,15 +81,26 @@ class InvestorProfitPayoutListItemSerializer(serializers.ModelSerializer):
 
 
 class InvestorProfitPayoutWriteSerializer(serializers.Serializer):
-    amount       = serializers.DecimalField(max_digits=18, decimal_places=4)
-    action_type  = serializers.ChoiceField(choices=InvestorProfitPayout.ActionType.choices)
-    payout_date  = serializers.DateField()
+    amount              = serializers.DecimalField(max_digits=18, decimal_places=4)
+    action_type         = serializers.ChoiceField(choices=InvestorProfitPayout.ActionType.choices)
+    payout_date         = serializers.DateField()
+    method_allocations  = MethodAllocationInputSerializer(
+        many=True, required=False,
+        help_text="Required when action_type=payout. Not used for reinvest — both legs default silently to Cash.",
+    )
     note         = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
+
+    def validate(self, attrs):
+        if attrs.get("action_type") == InvestorProfitPayout.ActionType.PAYOUT and not attrs.get("method_allocations"):
+            raise serializers.ValidationError(
+                {"method_allocations": "At least one method must be selected for a payout."}
+            )
+        return attrs
 
 
 class MonthlyProfitInvestorShareSerializer(serializers.ModelSerializer):
@@ -96,15 +124,30 @@ class MonthlyProfitInvestorShareSerializer(serializers.ModelSerializer):
 
 
 class OwnerProfitPayoutReadSerializer(serializers.ModelSerializer):
-    created_by = serializers.StringRelatedField(read_only=True)
+    created_by  = serializers.StringRelatedField(read_only=True)
+    allocations = serializers.SerializerMethodField()
 
     class Meta:
         model  = OwnerProfitPayout
         fields = [
-            "id", "amount", "payout_date", "action_type", "note",
+            "id", "amount", "payout_date", "action_type", "note", "allocations",
             "linked_owner_transaction", "created_by", "created_at",
         ]
         read_only_fields = fields
+
+    def get_allocations(self, obj):
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+
+        # Prefer the batch-prefetched map (nested/list contexts — see
+        # MonthlyProfitDetailView) over a live per-object query, which
+        # would N+1 across every payout in a share's history.
+        prefetched = self.context.get("owner_payout_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
 
 
 class OwnerProfitPayoutListItemSerializer(serializers.ModelSerializer):
@@ -121,15 +164,26 @@ class OwnerProfitPayoutListItemSerializer(serializers.ModelSerializer):
 
 
 class OwnerProfitPayoutWriteSerializer(serializers.Serializer):
-    amount       = serializers.DecimalField(max_digits=18, decimal_places=4)
-    action_type  = serializers.ChoiceField(choices=OwnerProfitPayout.ActionType.choices)
-    payout_date  = serializers.DateField()
+    amount              = serializers.DecimalField(max_digits=18, decimal_places=4)
+    action_type         = serializers.ChoiceField(choices=OwnerProfitPayout.ActionType.choices)
+    payout_date         = serializers.DateField()
+    method_allocations  = MethodAllocationInputSerializer(
+        many=True, required=False,
+        help_text="Required when action_type=payout. Not used for reinvest — both legs default silently to Cash.",
+    )
     note         = serializers.CharField(required=False, allow_blank=True, default="")
 
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
+
+    def validate(self, attrs):
+        if attrs.get("action_type") == OwnerProfitPayout.ActionType.PAYOUT and not attrs.get("method_allocations"):
+            raise serializers.ValidationError(
+                {"method_allocations": "At least one method must be selected for a payout."}
+            )
+        return attrs
 
 
 class MonthlyProfitOwnerShareSerializer(serializers.ModelSerializer):

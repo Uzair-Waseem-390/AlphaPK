@@ -3,6 +3,15 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from .permissions import IsAdminOrSuperuser
+
+
+def _as_splits(method_allocations):
+    """MethodAllocationInputSerializer's validated_data is a list of
+    {"payment_method": <PaymentMethod>, "amount": Decimal} dicts — services
+    take [(payment_method, amount), ...] tuples."""
+    if not method_allocations:
+        return None
+    return [(d["payment_method"], d["amount"]) for d in method_allocations]
 from .selectors import (
     get_all_investor_profit_payouts,
     get_all_monthly_profits,
@@ -95,8 +104,29 @@ class MonthlyProfitDetailView(APIView):
     permission_classes = [IsAdminOrSuperuser]
 
     def get(self, request, period):
+        from payment_methods.selectors import get_allocations_by_source_ids
+
         obj = get_monthly_profit_by_period(period)
-        serializer = MonthlyProfitDetailSerializer(obj)
+
+        # Batch-fetch every payout's allocations in 2 queries total (one per
+        # source model), NOT one per payout — the prefetched payout ids come
+        # straight from get_monthly_profit_by_period's cache, no extra query
+        # to gather them. Threaded through context so the nested read
+        # serializers look these up instead of querying per object.
+        investor_payout_ids = [
+            p.id for share in obj.investor_shares.all() for p in share.payouts.all()
+        ]
+        owner_payout_ids = [p.id for p in obj.owner_share.payouts.all()] if hasattr(obj, "owner_share") else []
+
+        context = {
+            "investor_payout_allocations": get_allocations_by_source_ids(
+                "profits.investorprofitpayout", investor_payout_ids,
+            ),
+            "owner_payout_allocations": get_allocations_by_source_ids(
+                "profits.ownerprofitpayout", owner_payout_ids,
+            ),
+        }
+        serializer = MonthlyProfitDetailSerializer(obj, context=context)
         return Response(serializer.data)
 
 
@@ -154,6 +184,7 @@ class InvestorProfitPayoutCreateView(APIView):
             amount=d["amount"],
             action_type=d["action_type"],
             payout_date=d["payout_date"],
+            method_allocations=_as_splits(d.get("method_allocations")),
             note=d.get("note", ""),
             user=request.user,
         )
@@ -213,6 +244,7 @@ class OwnerProfitPayoutCreateView(APIView):
             amount=d["amount"],
             action_type=d["action_type"],
             payout_date=d["payout_date"],
+            method_allocations=_as_splits(d.get("method_allocations")),
             note=d.get("note", ""),
             user=request.user,
         )
