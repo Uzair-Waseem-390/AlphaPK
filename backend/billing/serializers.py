@@ -450,12 +450,15 @@ class PaymentReadSerializer(serializers.ModelSerializer):
     created_by     = serializers.StringRelatedField(read_only=True)
     method_display = serializers.CharField(source="get_method_display", read_only=True)
     allocations    = serializers.SerializerMethodField()
+    bill_number    = serializers.CharField(source="invoice.bill_number", read_only=True)
+    customer_name  = serializers.CharField(source="invoice.customer.name", read_only=True)
 
     class Meta:
         model = Payment
         fields = [
-            "id", "invoice", "reference_number", "amount", "method", "method_display",
-            "allocations", "payment_date", "note", "created_by", "created_at",
+            "id", "invoice", "bill_number", "customer_name", "reference_number", "amount",
+            "method", "method_display", "allocations", "payment_date", "note",
+            "created_by", "created_at",
         ]
         read_only_fields = fields
 

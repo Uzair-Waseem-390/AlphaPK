@@ -1,6 +1,8 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 
+from payment_methods.mixins import AllocationsListMixin
+
 from .models import Invoice
 from .permissions import IsAdminOrSuperuser, IsAdminOrSuperuserOrReadOnly, IsAuthenticated
 from .selectors import (
@@ -365,12 +367,16 @@ class PaymentListCreateView(generics.ListCreateAPIView):
         return Response(PaymentReadSerializer(payment).data, status=status.HTTP_201_CREATED)
 
 
-class PaymentDestroyView(generics.DestroyAPIView):
+class PaymentDestroyView(generics.RetrieveDestroyAPIView):
     """
-    DELETE /billing/payments/<pk>/
-    Soft-deletes a payment. Admin + superuser only.
+    GET    /billing/payments/<pk>/  — single payment, by id (not filtered
+           through the /billing/payments/ search list — see
+           PaymentDetailPage.jsx, which used to fetch up to 500 rows and
+           find() client-side just to open one payment).
+    DELETE /billing/payments/<pk>/  — soft-deletes a payment. Admin + superuser only.
     """
     permission_classes = [IsAdminOrSuperuser]
+    serializer_class    = PaymentReadSerializer
 
     def get_object(self):
         return get_payment_by_id(self.kwargs["pk"])
@@ -801,7 +807,7 @@ class AllOutstandingInvoicesView(generics.ListAPIView):
 from .selectors import get_all_invoice_payments
 
 
-class AllInvoicePaymentsView(generics.ListAPIView):
+class AllInvoicePaymentsView(AllocationsListMixin, generics.ListAPIView):
     """
     GET /billing/payments/
     Search all billing payments across all invoices.
@@ -816,6 +822,8 @@ class AllInvoicePaymentsView(generics.ListAPIView):
     """
     permission_classes = [IsAuthenticated]
     serializer_class   = PaymentReadSerializer
+    allocations_source_model = "billing.payment"
+    allocations_context_key  = "payment_allocations"
 
     def get_queryset(self):
         p = self.request.query_params

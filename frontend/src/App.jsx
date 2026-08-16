@@ -103,6 +103,7 @@ import CashAdjustmentsPage from './pages/cashManagement/CashAdjustmentsPage';
 import CashAdjustmentDetailPage from './pages/cashManagement/CashAdjustmentDetailPage';
 import InvestorsPage from './pages/cashManagement/InvestorsPage';
 import InvestorDetailPage from './pages/cashManagement/InvestorDetailPage';
+import InvestorTransactionDetailPage from './pages/cashManagement/InvestorTransactionDetailPage';
 import InvestorGrowthHistoryPage from './pages/cashManagement/InvestorGrowthHistoryPage';
 import OwnerTransactionsPage from './pages/cashManagement/OwnerTransactionsPage';
 import OwnerTransactionDetailPage from './pages/cashManagement/OwnerTransactionDetailPage';
@@ -813,6 +814,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <InvestorDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/cash-management/investor-transactions/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <InvestorTransactionDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

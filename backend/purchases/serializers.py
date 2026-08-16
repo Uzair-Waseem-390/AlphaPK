@@ -429,12 +429,15 @@ class SupplierPaymentReadSerializer(serializers.ModelSerializer):
     created_by     = serializers.StringRelatedField(read_only=True)
     method_display = serializers.CharField(source="get_method_display", read_only=True)
     allocations    = serializers.SerializerMethodField()
+    order_number   = serializers.CharField(source="order.order_number", read_only=True)
+    supplier_name  = serializers.CharField(source="order.supplier.name", read_only=True)
 
     class Meta:
         model  = SupplierPayment
         fields = [
-            "id", "order", "reference_number", "amount", "method", "method_display",
-            "allocations", "payment_date", "note", "created_by", "created_at",
+            "id", "order", "order_number", "supplier_name", "reference_number", "amount",
+            "method", "method_display", "allocations", "payment_date", "note",
+            "created_by", "created_at",
         ]
         read_only_fields = fields
 

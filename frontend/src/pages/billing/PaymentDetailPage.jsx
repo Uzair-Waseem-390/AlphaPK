@@ -95,17 +95,7 @@ const PaymentDetailPage = () => {
         setError(null);
         setNotFound(false);
         try {
-            // No dedicated single-payment GET-by-id endpoint exists; the list
-            // endpoint is fetched and filtered client-side to locate this payment.
-            const paymentsRes = await billingApi.payments.getAll({ page_size: 500 });
-            const allPayments = paymentsRes?.results ?? paymentsRes ?? [];
-            const foundPayment = allPayments.find(p => p.id === parseInt(paymentId, 10));
-
-            if (!foundPayment) {
-                setNotFound(true);
-                setPayment(null);
-                return;
-            }
+            const foundPayment = await billingApi.payments.getById(paymentId);
 
             setPayment(foundPayment);
 
@@ -117,6 +107,11 @@ const PaymentDetailPage = () => {
                 }
             }
         } catch (err) {
+            if (err?.response?.status === 404) {
+                setNotFound(true);
+                setPayment(null);
+                return;
+            }
             setError(extractErrorMessage(err, 'Failed to load payment details.'));
             setPayment(null);
         } finally {

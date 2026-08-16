@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
@@ -16,7 +16,6 @@ import { SlidersHorizontal, Eye, Wallet, X } from 'lucide-react';
 const GlobalPaymentsPage = () => {
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
-    const [orderDetails, setOrderDetails] = useState({});
 
     const fetchPaymentsPage = (params) => {
         const p = { ...params };
@@ -30,30 +29,6 @@ const GlobalPaymentsPage = () => {
         data: payments, meta, page, setPage, loading, initialLoading, error: listError, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
-
-    // Fetch order details for the payments on the current page to get supplier name
-    useEffect(() => {
-        if (!payments || payments.length === 0) {
-            setOrderDetails({});
-            return;
-        }
-        let cancelled = false;
-        (async () => {
-            const orderIds = [...new Set(payments.map(p => p.order).filter(id => id))];
-            const orderPromises = orderIds.map(id => purchasesApi.orders.getById(id));
-            const orderResults = await Promise.allSettled(orderPromises);
-
-            const orderMap = {};
-            orderResults.forEach((result) => {
-                if (result.status === 'fulfilled') {
-                    const order = result.value;
-                    orderMap[order.id] = order;
-                }
-            });
-            if (!cancelled) setOrderDetails(orderMap);
-        })();
-        return () => { cancelled = true; };
-    }, [payments]);
 
     const handleApplyFilters = (filterValues) => {
         setFilters(filterValues);
@@ -72,26 +47,14 @@ const GlobalPaymentsPage = () => {
     const columns = [
         { key: 'reference_number', label: 'Reference', width: '140px' },
         {
-            key: 'order',
+            key: 'order_number',
             label: 'Order #',
-            render: (value) => {
-                if (value) {
-                    const order = orderDetails[value];
-                    return order?.order_number || value;
-                }
-                return 'N/A';
-            }
+            render: (value) => value || 'N/A',
         },
         {
-            key: 'order',
+            key: 'supplier_name',
             label: 'Supplier',
-            render: (value) => {
-                if (value) {
-                    const order = orderDetails[value];
-                    return order?.supplier?.name || 'N/A';
-                }
-                return 'N/A';
-            }
+            render: (value) => value || 'N/A',
         },
         {
             key: 'amount',

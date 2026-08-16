@@ -482,7 +482,7 @@ def get_payments_for_order(order_id: int, *, reference: str = None) -> QuerySet:
     from .models import SupplierPayment
     qs = SupplierPayment.objects.filter(
         order_id=order_id, is_deleted=False,
-    ).select_related("created_by").order_by("-payment_date")
+    ).select_related("created_by", "order__supplier").order_by("-payment_date")
     if _clean(reference):
         qs = qs.filter(search_q(_clean(reference), "reference_number"))
     return qs
@@ -606,7 +606,7 @@ def get_order_payment_summary(order_id: int) -> PurchaseOrder:
     # items__product prefetch was never serialized here — dropped.
     return get_object_or_404(
         PurchaseOrder.objects.select_related("supplier").prefetch_related(
-            Prefetch("payments", queryset=SupplierPayment.objects.select_related("created_by")),
+            Prefetch("payments", queryset=SupplierPayment.objects.select_related("created_by", "order__supplier")),
         ),
         pk=order_id, is_deleted=False,
     )

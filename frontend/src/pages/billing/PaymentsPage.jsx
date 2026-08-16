@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -67,7 +67,6 @@ const PaymentsPage = () => {
     const navigate = useNavigate();
     const [searchTerm, setSearchTerm] = useState('');
     const [showFilters, setShowFilters] = useState(false);
-    const [invoiceDetails, setInvoiceDetails] = useState({});
 
     const fetchPaymentsPage = (params) => {
         const p = { ...params };
@@ -79,30 +78,6 @@ const PaymentsPage = () => {
         data: payments, meta, setPage, loading, error, refetch,
         filters, setFilters,
     } = usePaginatedList(fetchPaymentsPage, {}, 25, [searchTerm]);
-
-    useEffect(() => {
-        // Fetch invoice details for each payment on the current page (backend
-        // list only returns the invoice id, not the nested bill/customer).
-        let cancelled = false;
-        const fetchInvoiceDetails = async () => {
-            const invoiceIds = [...new Set(payments.map(p => p.invoice).filter(id => id))];
-            if (invoiceIds.length === 0) {
-                setInvoiceDetails({});
-                return;
-            }
-            const invoiceResults = await Promise.all(
-                invoiceIds.map(id => billingApi.invoices.getById(id).catch(() => null))
-            );
-            if (cancelled) return;
-            const invoiceMap = {};
-            invoiceResults.forEach((invoice, index) => {
-                if (invoice) invoiceMap[invoiceIds[index]] = invoice;
-            });
-            setInvoiceDetails(invoiceMap);
-        };
-        fetchInvoiceDetails();
-        return () => { cancelled = true; };
-    }, [payments]);
 
     const handleApplyFilters = (filterValues) => {
         setFilters(filterValues);
@@ -131,24 +106,14 @@ const PaymentsPage = () => {
             ),
         },
         {
-            key: 'invoice',
+            key: 'bill_number',
             label: 'Bill #',
-            render: (value) => {
-                if (value && invoiceDetails[value]) {
-                    return invoiceDetails[value].bill_number || 'N/A';
-                }
-                return value || 'N/A';
-            }
+            render: (value) => value || 'N/A',
         },
         {
-            key: 'invoice',
+            key: 'customer_name',
             label: 'Customer',
-            render: (value) => {
-                if (value && invoiceDetails[value]) {
-                    return invoiceDetails[value].customer?.name || 'N/A';
-                }
-                return 'N/A';
-            }
+            render: (value) => value || 'N/A',
         },
         {
             key: 'amount',

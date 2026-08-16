@@ -115,7 +115,7 @@ def get_invoice_item_with_allocations_by_id(pk: int) -> InvoiceItem:
 def get_payments_for_invoice(invoice_id: int, *, reference: str = None) -> QuerySet:
     qs = Payment.objects.filter(
         invoice_id=invoice_id, is_deleted=False
-    ).select_related("created_by")
+    ).select_related("created_by", "invoice__customer")
     if reference:
         qs = qs.filter(search_q(reference, "reference_number"))
     return qs
@@ -150,7 +150,9 @@ def get_all_invoice_payments(
 
 
 def get_payment_by_id(pk: int) -> Payment:
-    return get_object_or_404(Payment, pk=pk, is_deleted=False)
+    return get_object_or_404(
+        Payment.objects.select_related("created_by", "invoice__customer"), pk=pk, is_deleted=False,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -271,7 +273,7 @@ def get_invoice_payment_summary(invoice_id: int) -> Invoice:
     # items__product prefetch was never serialized here — dropped.
     return get_object_or_404(
         Invoice.objects.select_related("customer").prefetch_related(
-            Prefetch("payments", queryset=Payment.objects.select_related("created_by")),
+            Prefetch("payments", queryset=Payment.objects.select_related("created_by", "invoice__customer")),
         ),
         pk=invoice_id,
         is_deleted=False,

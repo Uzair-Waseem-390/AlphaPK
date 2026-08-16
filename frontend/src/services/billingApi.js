@@ -100,6 +100,7 @@ export const billingApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/billing/payments/${query ? `?${query}` : ''}`);
         },
+        getById: (paymentId) => api.get(`/billing/payments/${paymentId}/`),
         getByInvoice: (invoiceId, params = {}) => {
             const query = new URLSearchParams(params).toString();
             return api.get(`/billing/invoices/${invoiceId}/payments/${query ? `?${query}` : ''}`);

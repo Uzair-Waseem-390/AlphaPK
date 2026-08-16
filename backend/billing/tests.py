@@ -27,8 +27,8 @@ from .services import (
     update_invoice_items, update_return_items,
 )
 from .views import (
-    CustomerListCreateView, DraftInvoiceListView, DueInvoiceListView,
-    InvoiceAutoAllocateShelvesView, InvoiceConfirmView,
+    AllInvoicePaymentsView, CustomerListCreateView, DraftInvoiceListView,
+    DueInvoiceListView, InvoiceAutoAllocateShelvesView, InvoiceConfirmView,
     InvoiceDueDateUpdateView, InvoiceListCreateView,
     InvoicePaymentSummaryView, InvoiceRetrieveUpdateDestroyView,
     PaymentListCreateView, ReturnAcceptView, ReturnListCreateView,
@@ -686,6 +686,44 @@ class PaymentAllocationQueryCountTests(BillingTestBase):
             )
         grown = self.count_queries(view, url, pk=invoice.id)
         self.assertEqual(baseline, grown)
+
+    def test_all_payments_list_query_count_flat_as_payment_count_grows(self):
+        # AllInvoicePaymentsView (/billing/payments/, the global payments
+        # search page) was missing the batched-allocations fix every sibling
+        # payment view already had — each row was querying its own
+        # PaymentAllocation set live, an N+1 as the page grows.
+        self._make_paid_invoice(3)
+        view = AllInvoicePaymentsView.as_view()
+        url = "/billing/payments/"
+        baseline = self.count_queries(view, url)
+
+        for i in range(4, 8):
+            self._make_paid_invoice(i)
+        grown = self.count_queries(view, url)
+        self.assertEqual(baseline, grown)
+
+    def test_payment_detail_view_returns_single_payment_cheaply(self):
+        # PaymentDestroyView.get() (GET /billing/payments/<pk>/) replaces
+        # PaymentDetailPage.jsx's old client-side fetch of up to 500 rows —
+        # confirm it returns the right row, with bill_number/customer_name
+        # populated, in a small fixed number of queries.
+        from .views import PaymentDestroyView
+
+        invoice = self._make_paid_invoice(9)
+        payment = invoice.payments.first()
+
+        view = PaymentDestroyView.as_view()
+        request = self.factory.get(f"/billing/payments/{payment.id}/")
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request, pk=payment.id)
+            response.render()
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.data["id"], payment.id)
+        self.assertEqual(response.data["bill_number"], invoice.bill_number)
+        self.assertEqual(response.data["customer_name"], invoice.customer.name)
+        self.assertLessEqual(len(ctx.captured_queries), 5)
 
 
 class InvoiceDateFilterTests(BillingTestBase):

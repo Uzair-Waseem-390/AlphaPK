@@ -296,7 +296,11 @@ const InvestorDetailPage = () => {
                     />
                 ) : (
                     <>
-                        <Table columns={columns} data={transactions} />
+                        <Table
+                            columns={columns}
+                            data={transactions}
+                            onRowClick={(row) => navigate(`/cash-management/investor-transactions/${row.id}`)}
+                        />
                         {meta.totalPages > 1 && (
                             <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />
                         )}

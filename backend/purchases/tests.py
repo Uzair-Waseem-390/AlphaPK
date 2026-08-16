@@ -357,6 +357,54 @@ class SupplierPaymentAllocationQueryCountTests(PurchasesTestBase):
         grown = self.count_queries(view, url, pk=order.id)
         self.assertEqual(baseline, grown)
 
+    def _make_paid_order(self, n):
+        product = self.make_product(f"SP1{n}")
+        order = self.make_confirmed_order(product, quantity=10, unit_price="50")
+        create_supplier_payment(
+            order_id=order.id, amount=Decimal("50"), method_allocations=self.cash_split("50"),
+            payment_date=timezone.now().date(), user=self.admin,
+        )
+        return order
+
+    def test_all_payments_list_query_count_flat_as_payment_count_grows(self):
+        # AllSupplierPaymentsView (/purchases/payments/, the global payments
+        # search page) was missing the batched-allocations fix every sibling
+        # payment view already had — each row was querying its own
+        # PaymentAllocation set live, an N+1 as the page grows.
+        from .views import AllSupplierPaymentsView
+
+        order = self._make_paid_order(1)
+        view = AllSupplierPaymentsView.as_view()
+        url = "/purchases/payments/"
+        baseline = self.count_queries(view, url)
+
+        for i in range(2, 6):
+            self._make_paid_order(i)
+        grown = self.count_queries(view, url)
+        self.assertEqual(baseline, grown)
+
+    def test_order_number_and_supplier_name_present_without_extra_queries(self):
+        # SupplierPaymentReadSerializer.order_number/supplier_name replace
+        # the frontend's old per-row purchasesApi.orders.getById() fan-out
+        # (GlobalPaymentsPage.jsx) — confirm they're populated and that
+        # adding them didn't add a query (order__supplier was already/now
+        # select_related on this queryset).
+        from .views import SupplierPaymentListCreateView
+
+        order = self._make_paid_order(9)
+        view = SupplierPaymentListCreateView.as_view()
+        url = f"/purchases/orders/{order.id}/payments/"
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request, order_id=order.id)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        row = response.data["results"][0]
+        self.assertEqual(row["order_number"], order.order_number)
+        self.assertEqual(row["supplier_name"], order.supplier.name)
+        self.assertLessEqual(len(ctx.captured_queries), 5)
+
 
 class StockMovementCounterTests(PurchasesTestBase):
     def test_counters_match_backfill_after_full_cycle(self):

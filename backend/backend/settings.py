@@ -179,15 +179,15 @@ REST_FRAMEWORK = {
         "rest_framework.permissions.IsAuthenticated",
     ),
     "DEFAULT_PAGINATION_CLASS": "backend.paginations.StandardResultsSetPagination",
-    "NUM_PROXIES": 1,  # Crucial for Server side: Tells DRF we're behind 1 proxy so it gets the real client IP, not server's internal IP
-    "DEFAULT_THROTTLE_CLASSES": [
-        "rest_framework.throttling.AnonRateThrottle",
-        "rest_framework.throttling.UserRateThrottle"
-    ],
-    "DEFAULT_THROTTLE_RATES": {
-        "anon": "20/minute",   # 20 requests per minute for unauthenticated users
-        "user": "120/minute"   # 120 requests per minute for authenticated users
-    }
+    # "NUM_PROXIES": 1,  # Crucial for Server side: Tells DRF we're behind 1 proxy so it gets the real client IP, not server's internal IP
+    # "DEFAULT_THROTTLE_CLASSES": [
+    #     "rest_framework.throttling.AnonRateThrottle",
+    #     "rest_framework.throttling.UserRateThrottle"
+    # ],
+    # "DEFAULT_THROTTLE_RATES": {
+    #     "anon": "20/minute",   # 20 requests per minute for unauthenticated users
+    #     "user": "120/minute"   # 120 requests per minute for authenticated users
+    # }
 }
  
 # ---- SimpleJWT settings ----

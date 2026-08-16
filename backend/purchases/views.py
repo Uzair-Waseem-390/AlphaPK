@@ -5,6 +5,8 @@ from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin
+
 from .models import PurchaseOrder
 from .pdf_service import (
     delete_purchase_order_pdf, generate_purchase_order_pdf_bytes,
@@ -898,7 +900,7 @@ class AllOutstandingOrdersView(generics.ListAPIView):
 from .selectors import get_all_supplier_payments
 
 
-class AllSupplierPaymentsView(generics.ListAPIView):
+class AllSupplierPaymentsView(AllocationsListMixin, generics.ListAPIView):
     """
     GET /purchases/payments/
     Search all supplier payments across all orders.
@@ -913,6 +915,8 @@ class AllSupplierPaymentsView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = SupplierPaymentReadSerializer
+    allocations_source_model = "purchases.supplierpayment"
+    allocations_context_key  = "supplier_payment_allocations"
 
     def get_queryset(self):
         p = self.request.query_params
