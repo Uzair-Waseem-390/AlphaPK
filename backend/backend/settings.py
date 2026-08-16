@@ -53,6 +53,7 @@ EXTERNAL_APPS = [
     'credit_score',
     'activity_log',
     'accounting',
+    'payment_methods',
 ]
 
 INSTALLED_APPS += EXTERNAL_APPS
