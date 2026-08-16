@@ -137,6 +137,7 @@ import RecurringExpenseTemplatesPage from './pages/recurringExpenses/RecurringEx
 import RecurringExpensePostDuesPage from './pages/recurringExpenses/RecurringExpensePostDuesPage';
 import RecurringExpenseAssignmentsPage from './pages/recurringExpenses/RecurringExpenseAssignmentsPage';
 import RecurringExpenseAssignmentDetailPage from './pages/recurringExpenses/RecurringExpenseAssignmentDetailPage';
+import RecurringExpensePaymentDetailPage from './pages/recurringExpenses/RecurringExpensePaymentDetailPage';
 import RecurringExpenseMonthlyStatsPage from './pages/recurringExpenses/RecurringExpenseMonthlyStatsPage';
 
 // Data Entry (superuser-only bootstrap tool)
@@ -1028,6 +1029,14 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <RecurringExpenseAssignmentDetailPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/recurring-expenses/payments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <RecurringExpensePaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

@@ -51,6 +51,7 @@ export const recurringExpensesApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/recurring-expenses/payments/${query ? `?${query}` : ''}`);
         },
+        getById: (id) => api.get(`/recurring-expenses/payments/${id}/`),
         create: (data) => api.post('/recurring-expenses/payments/', data),
         delete: (id) => api.delete(`/recurring-expenses/payments/${id}/`),
     },

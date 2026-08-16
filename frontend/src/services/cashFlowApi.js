@@ -31,6 +31,7 @@ export const cashFlowApi = {
             const query = new URLSearchParams(params).toString();
             return api.get(`/cash-flow/expenses/${query ? `?${query}` : ''}`);
         },
+        getById: (id) => api.get(`/cash-flow/expenses/${id}/`),
         create: (data) => api.post('/cash-flow/expenses/', data),
         update: (id, data) => api.patch(`/cash-flow/expenses/${id}/`, data),
         delete: (id) => api.delete(`/cash-flow/expenses/${id}/`),

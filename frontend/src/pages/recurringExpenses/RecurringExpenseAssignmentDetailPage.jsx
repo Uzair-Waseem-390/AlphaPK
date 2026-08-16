@@ -263,7 +263,11 @@ const RecurringExpenseAssignmentDetailPage = () => {
                     />
                 ) : (
                     <>
-                        <Table columns={columns} data={payments} />
+                        <Table
+                            columns={columns}
+                            data={payments}
+                            onRowClick={(row) => navigate(`/recurring-expenses/payments/${row.id}`)}
+                        />
                         {meta.totalPages > 1 && (
                             <Pagination currentPage={meta.currentPage} totalPages={meta.totalPages} onPageChange={setPage} />
                         )}
