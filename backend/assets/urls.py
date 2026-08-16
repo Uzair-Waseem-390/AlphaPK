@@ -6,6 +6,8 @@ from .views import (
     AssetDisposalListView,
     AssetDisposeView,
     AssetListCreateView,
+    AssetPaymentListView,
+    AssetPaymentRetrieveView,
     AssetRetrieveView,
     AssetRevalueView,
     AssetStatsView,
@@ -27,4 +29,7 @@ urlpatterns = [
     path("items/<int:pk>/dispose/", AssetDisposeView.as_view(), name="asset-dispose"),
 
     path("disposals/", AssetDisposalListView.as_view(), name="asset-disposal-list"),
+
+    path("payments/", AssetPaymentListView.as_view(), name="asset-payment-list"),
+    path("payments/<int:pk>/", AssetPaymentRetrieveView.as_view(), name="asset-payment-detail"),
 ]

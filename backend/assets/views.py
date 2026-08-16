@@ -3,14 +3,17 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 
 from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+from payment_methods.selectors import get_allocations_by_source_ids
 
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_asset_categories,
     get_all_asset_disposals,
+    get_all_asset_payments,
     get_all_assets,
     get_asset_by_id,
     get_asset_category_by_id,
+    get_asset_payment_by_id,
     get_asset_stats,
     get_asset_valuation_entries,
 )
@@ -21,12 +24,33 @@ from .serializers import (
     AssetCreateSerializer,
     AssetDisposalReadSerializer,
     AssetDisposeSerializer,
+    AssetPaymentReadSerializer,
     AssetReadSerializer,
     AssetRevalueSerializer,
     AssetStatsSerializer,
     AssetValuationEntryReadSerializer,
 )
 from .services import create_asset, create_asset_category, dispose_asset, revalue_asset, update_asset_category
+
+
+def _batch_asset_payment_allocations(page_rows) -> dict:
+    """AssetPayment rows can point at either assets.asset or
+    assets.assetdisposal via source_model/source_id — batch-fetch each
+    distinct source_model separately (at most 2, never per-row), then key
+    the combined result by AssetPayment.id (not source_id, which is NOT
+    unique across the two source tables)."""
+    ids_by_model = {}
+    for p in page_rows:
+        ids_by_model.setdefault(p.source_model, []).append(p.source_id)
+
+    by_model = {
+        source_model: get_allocations_by_source_ids(source_model, source_ids)
+        for source_model, source_ids in ids_by_model.items()
+    }
+    return {
+        p.id: by_model.get(p.source_model, {}).get(p.source_id, [])
+        for p in page_rows
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -225,3 +249,47 @@ class AssetDisposalListView(AllocationsListMixin, generics.ListAPIView):
             disposal_type = p.get("disposal_type"),
             category_id   = p.get("category_id"),
         )
+
+
+# ---------------------------------------------------------------------------
+# AssetPayment — unified purchases+sales feed
+# ---------------------------------------------------------------------------
+
+class AssetPaymentListView(generics.ListAPIView):
+    """
+    GET /assets/payments/ — every real cash-moving asset event (purchases
+    AND sales), newest first, from the AssetPayment event table.
+
+    Filter params: payment_type (purchase|sale), date_from, date_to, search
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = AssetPaymentReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_asset_payments(
+            payment_type = p.get("payment_type"),
+            date_from    = p.get("date_from"),
+            date_to      = p.get("date_to"),
+            search       = p.get("search"),
+        )
+
+    def list(self, request, *args, **kwargs):
+        queryset = self.filter_queryset(self.get_queryset())
+        page = self.paginate_queryset(queryset)
+        rows = page if page is not None else queryset
+        context = self.get_serializer_context()
+        context["asset_payment_allocations"] = _batch_asset_payment_allocations(rows)
+        serializer = self.get_serializer(rows, many=True, context=context)
+        if page is not None:
+            return self.get_paginated_response(serializer.data)
+        return Response(serializer.data)
+
+
+class AssetPaymentRetrieveView(generics.RetrieveAPIView):
+    """GET /assets/payments/<pk>/ — single asset payment, by id."""
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class   = AssetPaymentReadSerializer
+
+    def get_object(self):
+        return get_asset_payment_by_id(self.kwargs["pk"])

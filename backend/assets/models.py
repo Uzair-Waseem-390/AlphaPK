@@ -209,6 +209,71 @@ class AssetDisposal(models.Model):
 
 
 # ---------------------------------------------------------------------------
+# AssetPayment  (event table — one row per real cash-moving asset event)
+# ---------------------------------------------------------------------------
+
+class AssetPayment(models.Model):
+    """
+    One row per real cash-moving asset event: a "new" acquisition (outflow,
+    written by assets.services.create_asset) or a "sold" disposal (inflow,
+    written by assets.services.dispose_asset). Written once, at creation
+    time, right next to payment_methods.services.record_allocations for
+    that same event — same "only this code writes it" convention as
+    cash_flow.CashMovement.
+
+    Exists so GET /assets/payments/ can list purchases+sales in ONE indexed,
+    paginated query instead of live-merging Asset and AssetDisposal in
+    Python on every request (architecture.md: a multi-source drill-down view
+    needs an event table, not a per-request cross-model merge).
+
+    source_model/source_id key back into payment_methods.PaymentAllocation
+    for the real per-method split — they snapshot which original row
+    (assets.asset or assets.assetdisposal) record_allocations was called
+    against, since that's a DIFFERENT object than `asset` for sale rows.
+
+    Neither Asset nor AssetDisposal support edit/delete after creation
+    (confirmed in assets.services — no update_asset/delete_asset path), so
+    this table is create-only: no soft-delete/reverse/refresh path needed,
+    same reasoning as AssetDisposal itself having none.
+    """
+
+    class PaymentType(models.TextChoices):
+        PURCHASE = "purchase", "Purchase"
+        SALE     = "sale", "Sale"
+
+    class Direction(models.TextChoices):
+        INFLOW  = "inflow", "Inflow"
+        OUTFLOW = "outflow", "Outflow"
+
+    asset        = models.ForeignKey(Asset, on_delete=models.CASCADE, related_name="payments")
+    payment_type = models.CharField(max_length=10, choices=PaymentType.choices)
+    direction    = models.CharField(max_length=10, choices=Direction.choices)
+    amount       = models.DecimalField(max_digits=18, decimal_places=4)
+    date         = models.DateField(db_index=True)
+
+    source_model = models.CharField(max_length=60, help_text="app_label.model_name of the row that caused this payment (assets.asset or assets.assetdisposal).")
+    source_id    = models.BigIntegerField()
+
+    created_by = models.ForeignKey(
+        settings.AUTH_USER_MODEL, null=True, on_delete=models.SET_NULL,
+        related_name="asset_payments_created",
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        verbose_name        = "Asset Payment"
+        verbose_name_plural  = "Asset Payments"
+        ordering             = ["-date", "-created_at"]
+        indexes = [
+            models.Index(fields=["-date", "-created_at"], name="idx_assetpayment_date"),
+            models.Index(fields=["payment_type", "-date"], name="idx_assetpayment_type_date"),
+        ]
+
+    def __str__(self):
+        return f"{self.asset.name} — {self.get_payment_type_display()} {self.amount}"
+
+
+# ---------------------------------------------------------------------------
 # AssetFlow  (singleton — mirrors cash_flow.CashFlow / taxes.TaxFlow / cash_management.CashManagementFlow)
 # ---------------------------------------------------------------------------
 

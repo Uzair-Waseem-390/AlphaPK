@@ -2,7 +2,7 @@ from rest_framework import serializers
 
 from payment_methods.serializers import MethodAllocationInputSerializer
 
-from .models import Asset, AssetCategory, AssetDisposal, AssetValuationEntry
+from .models import Asset, AssetCategory, AssetDisposal, AssetPayment, AssetValuationEntry
 
 
 def _allocations_field(obj, context, context_key):
@@ -145,6 +145,53 @@ class AssetDisposalReadSerializer(serializers.ModelSerializer):
 
     def get_allocations(self, obj):
         return _allocations_field(obj, self.context, "asset_disposal_allocations")
+
+
+class AssetPaymentReadSerializer(serializers.ModelSerializer):
+    asset_name    = serializers.CharField(source="asset.name", read_only=True)
+    category_name = serializers.CharField(source="asset.category.name", read_only=True)
+    created_by    = serializers.StringRelatedField(read_only=True)
+    allocations   = serializers.SerializerMethodField()
+    gain_loss     = serializers.SerializerMethodField()
+    reason        = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = AssetPayment
+        fields = [
+            "id", "asset", "asset_name", "category_name", "payment_type", "direction",
+            "amount", "date", "gain_loss", "reason", "allocations",
+            "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_gain_loss(self, obj):
+        if obj.payment_type != AssetPayment.PaymentType.SALE:
+            return None
+        disposal = getattr(obj.asset, "disposal", None)
+        return disposal.gain_loss if disposal else None
+
+    def get_reason(self, obj):
+        if obj.payment_type != AssetPayment.PaymentType.SALE:
+            return None
+        disposal = getattr(obj.asset, "disposal", None)
+        return disposal.reason if disposal else ""
+
+    def get_allocations(self, obj):
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+
+        # Prefer the batch-prefetched map (list context — see
+        # AssetPaymentListView.list()) over a live per-object query. Keyed
+        # by AssetPayment.id, NOT source_id — Asset.pk and AssetDisposal.pk
+        # are independent sequences and can collide.
+        prefetched = self.context.get("asset_payment_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.models import PaymentAllocation
+            rows = PaymentAllocation.objects.filter(
+                source_model=obj.source_model, source_id=obj.source_id, is_deleted=False,
+            ).select_related("payment_method").order_by("id")
+        return PaymentAllocationReadSerializer(rows, many=True).data
 
 
 class AssetDisposeSerializer(serializers.Serializer):

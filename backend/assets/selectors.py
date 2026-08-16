@@ -3,7 +3,7 @@ from django.shortcuts import get_object_or_404
 
 from backend.search import search_q
 
-from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetValuationEntry
+from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetPayment, AssetValuationEntry
 from .services import _catch_up_asset_depreciation, catch_up_all_asset_depreciation
 
 
@@ -103,6 +103,35 @@ def get_all_asset_disposals(*, disposal_type: str = None, category_id: str = Non
     if _clean(category_id):
         qs = qs.filter(asset__category_id=_clean(category_id))
     return qs.order_by("-disposal_date", "-created_at")
+
+
+# ---------------------------------------------------------------------------
+# AssetPayment — the unified purchases+sales feed (event table, see model
+# docstring). One indexed query per page, regardless of history size.
+# ---------------------------------------------------------------------------
+
+def get_all_asset_payments(
+    *, payment_type: str = None, date_from: str = None, date_to: str = None, search: str = None,
+) -> QuerySet:
+    qs = AssetPayment.objects.select_related(
+        "asset", "asset__category", "asset__disposal", "created_by",
+    )
+    if _clean(payment_type):
+        qs = qs.filter(payment_type=_clean(payment_type))
+    if _clean(date_from):
+        qs = qs.filter(date__gte=_clean(date_from))
+    if _clean(date_to):
+        qs = qs.filter(date__lte=_clean(date_to))
+    if _clean(search):
+        qs = qs.filter(search_q(_clean(search), "asset__name"))
+    return qs.order_by("-date", "-created_at")
+
+
+def get_asset_payment_by_id(pk: int) -> AssetPayment:
+    return get_object_or_404(
+        AssetPayment.objects.select_related("asset", "asset__category", "asset__disposal", "created_by"),
+        pk=pk,
+    )
 
 
 # ---------------------------------------------------------------------------

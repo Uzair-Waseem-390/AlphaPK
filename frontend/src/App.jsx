@@ -125,6 +125,8 @@ import AssetCategoriesPage from './pages/assets/AssetCategoriesPage';
 import AssetItemsPage from './pages/assets/AssetItemsPage';
 import AssetDetailPage from './pages/assets/AssetDetailPage';
 import AssetDisposalsPage from './pages/assets/AssetDisposalsPage';
+import AssetPaymentsPage from './pages/assets/AssetPaymentsPage';
+import AssetPaymentDetailPage from './pages/assets/AssetPaymentDetailPage';
 
 // Payment Methods pages
 import PaymentMethodsListPage from './pages/paymentMethods/PaymentMethodsListPage';
@@ -889,6 +891,22 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <AssetDisposalsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/payments" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetPaymentsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/assets/payments/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <AssetPaymentDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

@@ -11,13 +11,15 @@ from users.models import User
 
 from payment_methods.models import PaymentMethod
 
-from .models import AssetFlow, AssetValuationEntry
+from .models import AssetFlow, AssetPayment, AssetValuationEntry
 from .selectors import get_all_assets, get_asset_stats
 from .services import (
     _add_months, create_asset, create_asset_category, dispose_asset,
     update_asset_category,
 )
-from .views import AssetDisposalListView, AssetListCreateView
+from .views import (
+    AssetDisposalListView, AssetListCreateView, AssetPaymentListView, AssetPaymentRetrieveView,
+)
 
 
 def make_admin(email="admin@example.com"):
@@ -353,6 +355,136 @@ class AssetAllocationQueryCountTests(AssetsTestBase):
             )
         grown = self.count_queries(view, "/assets/disposals/")
         self.assertEqual(baseline, grown)
+
+
+class AssetPaymentTests(AssetsTestBase):
+    """AssetPayment event table: written for 'new' acquisitions and 'sold'
+    disposals only, never for 'existing'/'scrapped' (no cash moves)."""
+
+    def setUp(self):
+        super().setUp()
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
+
+    def cash_split(self, amount):
+        return [(self.cash, Decimal(amount))]
+
+    def test_new_asset_writes_purchase_payment(self):
+        asset = create_asset(
+            name="Forklift", category_id=self.category.id, acquisition_type="new",
+            cost=Decimal("500"), acquisition_date=timezone.localdate(),
+            method_allocations=self.cash_split("500"), user=self.admin,
+        )
+        payment = AssetPayment.objects.get(asset=asset)
+        self.assertEqual(payment.payment_type, AssetPayment.PaymentType.PURCHASE)
+        self.assertEqual(payment.direction, AssetPayment.Direction.OUTFLOW)
+        self.assertEqual(payment.amount, Decimal("500"))
+        self.assertEqual(payment.source_model, "assets.asset")
+        self.assertEqual(payment.source_id, asset.id)
+
+    def test_existing_asset_writes_no_payment(self):
+        # self.asset (from AssetsTestBase.setUp) is acquisition_type=existing.
+        self.assertFalse(AssetPayment.objects.filter(asset=self.asset).exists())
+
+    def test_sold_disposal_writes_sale_payment(self):
+        asset = create_asset(
+            name="Van", category_id=self.category.id, acquisition_type="new",
+            cost=Decimal("300"), acquisition_date=timezone.localdate(),
+            method_allocations=self.cash_split("300"), user=self.admin,
+        )
+        disposal = dispose_asset(
+            asset_id=asset.id, disposal_type="sold", disposal_date=timezone.localdate(),
+            sale_amount=Decimal("200"), method_allocations=self.cash_split("200"), user=self.admin,
+        )
+        sale_payment = AssetPayment.objects.get(asset=asset, payment_type=AssetPayment.PaymentType.SALE)
+        self.assertEqual(sale_payment.direction, AssetPayment.Direction.INFLOW)
+        self.assertEqual(sale_payment.amount, Decimal("200"))
+        self.assertEqual(sale_payment.source_model, "assets.assetdisposal")
+        self.assertEqual(sale_payment.source_id, disposal.id)
+        # Purchase payment from acquisition should still exist alongside it.
+        self.assertEqual(AssetPayment.objects.filter(asset=asset).count(), 2)
+
+    def test_scrapped_disposal_writes_no_sale_payment(self):
+        asset = create_asset(
+            name="Old Chair", category_id=self.category.id, acquisition_type="existing",
+            cost=Decimal("50"), acquisition_date=timezone.localdate(), user=self.admin,
+        )
+        dispose_asset(
+            asset_id=asset.id, disposal_type="scrapped", disposal_date=timezone.localdate(), user=self.admin,
+        )
+        self.assertFalse(AssetPayment.objects.filter(asset=asset).exists())
+
+
+class AssetPaymentAPITests(AssetsTestBase):
+    def setUp(self):
+        super().setUp()
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
+
+    def cash_split(self, amount):
+        return [(self.cash, Decimal(amount))]
+
+    def count_queries(self, view, url, **kwargs):
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request, **kwargs)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        return response, len(ctx.captured_queries)
+
+    def test_list_query_count_flat_across_purchases_and_sales(self):
+        view = AssetPaymentListView.as_view()
+        assets = [
+            create_asset(
+                name=f"Item {i}", category_id=self.category.id, acquisition_type="new",
+                cost=Decimal("100"), acquisition_date=timezone.localdate(),
+                method_allocations=self.cash_split("100"), user=self.admin,
+            )
+            for i in range(3)
+        ]
+        dispose_asset(
+            asset_id=assets[0].id, disposal_type="sold", disposal_date=timezone.localdate(),
+            sale_amount=Decimal("60"), method_allocations=self.cash_split("60"), user=self.admin,
+        )
+        _, baseline = self.count_queries(view, "/assets/payments/")
+
+        for a in assets[1:]:
+            dispose_asset(
+                asset_id=a.id, disposal_type="sold", disposal_date=timezone.localdate(),
+                sale_amount=Decimal("60"), method_allocations=self.cash_split("60"), user=self.admin,
+            )
+        response, grown = self.count_queries(view, "/assets/payments/")
+        self.assertEqual(baseline, grown)
+        # 3 purchases + 3 sales = 6 rows on the page.
+        self.assertEqual(response.data["count"], 6)
+
+    def test_detail_view_returns_sale_specific_fields(self):
+        asset = create_asset(
+            name="Truck", category_id=self.category.id, acquisition_type="new",
+            cost=Decimal("1000"), acquisition_date=timezone.localdate(),
+            method_allocations=self.cash_split("1000"), user=self.admin,
+        )
+        dispose_asset(
+            asset_id=asset.id, disposal_type="sold", disposal_date=timezone.localdate(),
+            sale_amount=Decimal("700"), method_allocations=self.cash_split("700"),
+            reason="Upgrading fleet", user=self.admin,
+        )
+        sale_payment = AssetPayment.objects.get(asset=asset, payment_type=AssetPayment.PaymentType.SALE)
+
+        view = AssetPaymentRetrieveView.as_view()
+        response, query_count = self.count_queries(view, f"/assets/payments/{sale_payment.id}/", pk=sale_payment.id)
+
+        self.assertEqual(response.data["payment_type"], "sale")
+        self.assertEqual(response.data["reason"], "Upgrading fleet")
+        self.assertIsNotNone(response.data["gain_loss"])
+        self.assertEqual(len(response.data["allocations"]), 1)
+        self.assertLessEqual(query_count, 6)
+
+        purchase_payment = AssetPayment.objects.get(asset=asset, payment_type=AssetPayment.PaymentType.PURCHASE)
+        purchase_response, _ = self.count_queries(
+            view, f"/assets/payments/{purchase_payment.id}/", pk=purchase_payment.id,
+        )
+        self.assertIsNone(purchase_response.data["gain_loss"])
+        self.assertIsNone(purchase_response.data["reason"])
 
 
 # ---------------------------------------------------------------------------

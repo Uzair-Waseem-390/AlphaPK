@@ -4,7 +4,7 @@ from decimal import ROUND_HALF_UP, Decimal
 from django.db import IntegrityError, transaction
 from django.utils import timezone
 
-from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetValuationEntry
+from .models import Asset, AssetCategory, AssetDisposal, AssetFlow, AssetPayment, AssetValuationEntry
 
 
 def _add_months(year: int, month: int, delta: int) -> tuple:
@@ -12,6 +12,19 @@ def _add_months(year: int, month: int, delta: int) -> tuple:
     cash_flow.selectors._add_months exactly."""
     total = (year * 12 + (month - 1)) + delta
     return total // 12, (total % 12) + 1
+
+
+def _record_asset_payment(asset, *, source, payment_type, direction, amount, date, user) -> AssetPayment:
+    """Writes one AssetPayment event row. `source` is the SAME row
+    payment_methods.services.record_allocations was called against right
+    before this (the Asset itself for a purchase, the AssetDisposal for a
+    sale) — source_model/source_id snapshot it so the payment's real method
+    split can be looked back up later."""
+    return AssetPayment.objects.create(
+        asset=asset, payment_type=payment_type, direction=direction, amount=amount, date=date,
+        source_model=f"{source._meta.app_label}.{source._meta.model_name}", source_id=source.pk,
+        created_by=user,
+    )
 
 
 # ---------------------------------------------------------------------------
@@ -349,6 +362,11 @@ def create_asset(
             total_amount=cost, date=acquisition_date, user=user,
         )
 
+        _record_asset_payment(
+            asset, source=asset, payment_type=AssetPayment.PaymentType.PURCHASE,
+            direction=AssetPayment.Direction.OUTFLOW, amount=cost, date=acquisition_date, user=user,
+        )
+
     _catch_up_asset_depreciation(asset, user=user)
 
     return asset
@@ -470,6 +488,11 @@ def dispose_asset(
         record_allocations(
             disposal, direction="inflow", splits=method_allocations,
             total_amount=sale_amount, date=disposal_date, user=user,
+        )
+
+        _record_asset_payment(
+            asset, source=disposal, payment_type=AssetPayment.PaymentType.SALE,
+            direction=AssetPayment.Direction.INFLOW, amount=sale_amount, date=disposal_date, user=user,
         )
 
     _adjust_asset_flow(**flow_kwargs)

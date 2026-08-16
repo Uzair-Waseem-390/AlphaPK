@@ -2,7 +2,7 @@ import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     ShieldAlert, Building2, Tag, Package, Trash2,
-    Wallet, TrendingDown, TrendingUp, Layers, ArrowRight,
+    Wallet, TrendingDown, TrendingUp, Layers, ArrowRight, Receipt,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useAssetStats } from '../../hooks/useAssets';
@@ -146,7 +146,7 @@ const AssetsPage = () => {
                 </>
             )}
 
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <NavCard
                     index={0}
                     to="/assets/categories"
@@ -170,6 +170,14 @@ const AssetsPage = () => {
                     title="Disposals"
                     description="Audit trail of every asset that's been scrapped or sold."
                     cta="View Disposals"
+                />
+                <NavCard
+                    index={3}
+                    to="/assets/payments"
+                    icon={Receipt}
+                    title="Payments"
+                    description="Every real cash movement from assets — purchases and sales, in one place."
+                    cta="View Payments"
                 />
             </div>
         </div>

@@ -126,3 +126,12 @@ export const useAssetDisposals = (initialFilters = {}) => {
 
     return { data, meta, loading, error, filters, setFilters, page, setPage, refetch };
 };
+
+// Hook for the unified asset payments feed (purchases + sales, read-only).
+export const useAssetPayments = (initialFilters = {}) => {
+    const {
+        data, meta, loading, error, filters, setFilters, page, setPage, refetch,
+    } = usePaginatedList((params) => assetsApi.payments.getAll(params), initialFilters);
+
+    return { data, meta, loading, error, filters, setFilters, page, setPage, refetch };
+};

@@ -35,4 +35,11 @@ export const assetsApi = {
             return api.get(`/assets/disposals/${query ? `?${query}` : ''}`);
         },
     },
+    payments: {
+        getAll: (params = {}) => {
+            const query = new URLSearchParams(params).toString();
+            return api.get(`/assets/payments/${query ? `?${query}` : ''}`);
+        },
+        getById: (id) => api.get(`/assets/payments/${id}/`),
+    },
 };
