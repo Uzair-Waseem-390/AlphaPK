@@ -23,48 +23,124 @@ a later phase starts until the current one is confirmed working. Phase 0
 
 ## Phase 1 — Core models + CRUD + existing-data backfill
 
-**Models** (`payment_methods/models.py`):
-- `PaymentMethod` — `name` (unique, editable), `account_number` (optional),
-  `balance` (O(1) running total, same pattern as `CashFlow.cash_in_hand`),
-  `is_protected` (True only on the seeded `Cash` row — blocks rename/
-  delete), soft-delete fields, audit fields (created_by/updated_by/
-  deleted_by, timestamps).
-- `PaymentAllocation` — `payment_method` (FK, PROTECT), `source_model`,
-  `source_id`, `direction` (inflow/outflow), `amount`, `date`, `is_deleted`.
-  One row per method used in a transaction — a split payment produces 2+
-  rows sharing the same `(source_model, source_id)`.
-- `AccountTransfer` — `from_method`, `to_method` (FK, PROTECT), `amount`,
-  `date`, `note`, `created_by`, soft-delete. Moves balance between two
-  methods only; never touches `cash_in_hand`.
+### Models (`payment_methods/models.py`)
 
-**Migrations**: standard schema migration, plus a data migration (or
-management command — following this codebase's convention of using
-management commands for anything derived from live data, not baked into
-a migration) that:
-1. Seeds the protected `Cash` `PaymentMethod` row.
-2. Sets `Cash.balance = CashFlow.get_instance().cash_in_hand` (already
-   accurate — `normalize_payment_methods_to_cash` already put every
-   historical payment on `"cash"`).
-3. Backfills one `PaymentAllocation` per active `CashMovement` row,
-   pointing at `Cash`, mirroring its `amount`/`direction`/`source_model`/
-   `source_id` — so historical transactions are itemized, not left as an
-   unexplained lump sum.
-4. Prints a verification line: `Cash.balance == cash_in_hand == sum(Cash's
-   PaymentAllocation rows)` — all three must agree, same cross-check
-   pattern `CashFlow`/`CashMovement` already use.
+Follows this codebase's standard pattern: soft-delete `AuditMixin`
+(created_by/updated_by/deleted_by, timestamps, is_deleted,
+SoftDeleteManager/AllObjectsManager — copied into this app the same way
+billing/purchases each keep their own copy), and a stored, service-updated
+running balance (same shape as `cash_management.Investor.net_stake` /
+`CashFlow.cash_in_hand` — never recomputed at read time).
 
-**API**: CRUD for `PaymentMethod` only (create, edit name/account_number,
-soft-delete). Delete blocked unless `balance == 0`; always blocked on the
-protected `Cash` row. List/detail endpoints (detail includes the method's
-own transaction history via its `PaymentAllocation` rows).
+```python
+class PaymentMethod(AuditMixin):
+    name           = CharField(max_length=100, unique=True)
+    account_number = CharField(max_length=100, blank=True, default="")
+    balance        = DecimalField(max_digits=20, decimal_places=4, default=0,
+                          help_text="Running balance for this method. Only ever "
+                          "written by payment_methods.services — never at read time.")
+    is_protected   = BooleanField(default=False,
+                          help_text="True only on the seeded Cash row. Blocks "
+                          "rename, is_protected changes, and delete at the service layer.")
 
-**Not in scope yet**: no other app wired in. Billing/purchases/etc. keep
-working exactly as they do today — no mandatory method selection anywhere
-yet. `cash_in_hand` computation untouched.
+    class Meta:
+        ordering = ["name"]
+```
 
-**Tests**: model constraints, soft-delete-only-if-zero-balance, protected
-`Cash` immutability (can't rename/delete/edit `is_protected`), backfill
-idempotency (safe to re-run), the three-way balance cross-check.
+```python
+class PaymentAllocation(models.Model):
+    payment_method = ForeignKey(PaymentMethod, on_delete=PROTECT, related_name="allocations")
+    source_model   = CharField(max_length=60)   # "billing.payment", "cash_flow.expense", ...
+    source_id      = BigIntegerField()
+    direction      = CharField(max_length=10, choices=[("inflow","Inflow"),("outflow","Outflow")])
+    amount         = DecimalField(max_digits=20, decimal_places=4)
+    date           = DateField()
+    is_deleted     = BooleanField(default=False, db_index=True)
+    created_at     = DateTimeField(auto_now_add=True)
+
+    class Meta:
+        indexes = [
+            models.Index(fields=["source_model", "source_id"], name="idx_alloc_source"),
+            models.Index(fields=["payment_method", "is_deleted"], name="idx_alloc_method_active"),
+        ]
+```
+
+No `UniqueConstraint(source_model, source_id)` here (unlike `CashMovement`)
+— a split source legitimately produces multiple rows sharing that pair.
+
+```python
+class AccountTransfer(AuditMixin):
+    from_method = ForeignKey(PaymentMethod, on_delete=PROTECT, related_name="transfers_out")
+    to_method   = ForeignKey(PaymentMethod, on_delete=PROTECT, related_name="transfers_in")
+    amount      = DecimalField(max_digits=20, decimal_places=4)
+    date        = DateField()
+    note        = CharField(max_length=255, blank=True, default="")
+```
+
+Model built in Phase 1; its create/list/detail API and balance-moving
+logic are Phase 6 — kept out of scope here so Phase 1 stays reviewable on
+its own.
+
+### Migrations
+
+1. `0001_initial` — the three tables above.
+2. A management command (not a baked-in data migration, matching this
+   codebase's convention — `backfill_cashflow`, `backfill_cash_movements`
+   are commands, not migrations, because their output depends on live
+   data, not schema): `seed_and_backfill_payment_methods.py`.
+   - Idempotent, safe to re-run: `get_or_create`s the protected `Cash` row
+     (`is_protected=True`) rather than failing if it already exists.
+   - Sets `Cash.balance = CashFlow.get_instance().cash_in_hand`.
+   - For every active `CashMovement` row, `get_or_create`s one matching
+     `PaymentAllocation` (`payment_method=Cash`, mirrored
+     amount/direction/source_model/source_id/date) — `get_or_create`
+     keyed on `(source_model, source_id, payment_method)` makes re-runs a
+     no-op instead of duplicating rows.
+   - Prints the three numbers side by side for manual verification:
+     `Cash.balance`, `CashFlow.cash_in_hand`, `sum(active PaymentAllocation
+     for Cash)` — build isn't done until all three agree.
+
+### Services (`payment_methods/services.py`) — Phase 1 scope only
+
+- `create_method(name, account_number, user)` — rejects duplicate names.
+- `update_method(method, name=None, account_number=None, user=None)` —
+  raises if `method.is_protected`.
+- `soft_delete_method(method, user)` — raises if `method.is_protected`,
+  raises if `method.balance != 0`.
+- No balance-moving logic yet (that's the Phase 2 allocation engine and
+  Phase 6 transfer service) — Phase 1 only creates/edits/deletes the
+  method rows themselves and runs the backfill.
+
+### API
+
+- `PaymentMethodViewSet` (list/retrieve/create/update/soft-delete),
+  `IsAdminOrSuperuser` (matches `cash_management`'s permission pattern —
+  accounts are an admin-level concern like Investors).
+- Detail serializer includes the method's own transaction history by
+  joining its active `PaymentAllocation` rows (read-only in Phase 1 —
+  nothing writes new allocations yet outside the backfill).
+- `admin.py` registration for both models (ops visibility / manual
+  inspection, matching every other app in this codebase).
+
+### Explicitly NOT in Phase 1
+
+- No allocation-writing engine yet (Phase 2).
+- No other app (billing, purchases, expenses, ...) wired in — they keep
+  working exactly as today.
+- No transfer API (model exists, endpoints don't yet).
+- `cash_in_hand` computation completely untouched.
+
+### Tests
+
+- `PaymentMethod`: unique name constraint, protected-row rename/delete
+  blocked, delete blocked while `balance != 0`, delete allowed at exactly
+  `balance == 0`.
+- Backfill command: creates exactly one `Cash` row on first run, is a
+  no-op on a second run (row counts unchanged), the three-way balance
+  cross-check passes against a seeded local dataset.
+- API: non-admin roles get 403; admin can create/edit/delete methods
+  through the normal flow; protected-row edit/delete attempts return a
+  clean 400, not a 500.
 
 ---
 

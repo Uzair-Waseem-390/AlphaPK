@@ -26,6 +26,7 @@ urlpatterns = [
     path("api/credit-score/", include("credit_score.urls")),
     path("api/activity-log/", include("activity_log.urls")),
     path("api/accounting/", include("accounting.urls")),
+    path("api/payment-methods/", include("payment_methods.urls")),
     path("api/system/catch-up/", TriggerAllCatchUpsView.as_view(), name="trigger-all-catchups"),
     path("api/ping/", PingView.as_view(), name="ping"),
 ]
