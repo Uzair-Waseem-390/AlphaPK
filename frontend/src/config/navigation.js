@@ -131,6 +131,7 @@ export const navGroups = [
             { name: 'Categories', path: '/assets/categories', icon: Tag },
             { name: 'Assets', path: '/assets/items', icon: Package },
             { name: 'Disposals', path: '/assets/disposals', icon: Trash2 },
+            { name: 'Payments', path: '/assets/payments', icon: Receipt },
         ],
     },
     {
