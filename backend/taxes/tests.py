@@ -43,7 +43,7 @@ class TaxesTestBase(TestCase):
         # from an empty till would vanish and hide round-trip errors.
         from cash_flow.services import sync_invoice_payment_received
         sync_invoice_payment_received(amount=Decimal("1000"), user=self.admin)
-        self.cash_method = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash_method = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash_split(self, amount):
         return [(self.cash_method, Decimal(amount))]

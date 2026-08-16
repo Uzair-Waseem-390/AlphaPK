@@ -128,7 +128,7 @@ class AssetAllocationTests(AssetsTestBase):
 
     def setUp(self):
         super().setUp()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]
@@ -212,7 +212,7 @@ class AssetAllocationAPITests(AssetsTestBase):
 
     def setUp(self):
         super().setUp()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def test_create_new_asset_without_method_allocations_returns_400(self):
         from .views import AssetListCreateView
@@ -293,7 +293,7 @@ class AssetAllocationQueryCountTests(AssetsTestBase):
 
     def setUp(self):
         super().setUp()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]

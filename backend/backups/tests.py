@@ -37,7 +37,7 @@ class CollectBackupDataTests(TestCase):
         from payment_methods.models import PaymentMethod
 
         create_opening_cash(amount=Decimal("100"), user=self.admin)
-        cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
         cat = create_expense_category(name="Utilities", user=self.admin)
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("10"),

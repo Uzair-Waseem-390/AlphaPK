@@ -604,12 +604,111 @@ Flagging as a decision point rather than assuming.
 
 ## Phase 6 — Transfers
 
-- `AccountTransfer` create/list/detail API (model already exists from
-  Phase 1) — atomic balance move via the Phase 2 engine's sibling function,
-  validates `from_method` has enough balance, blocked between a method and
-  itself.
-- Frontend: dedicated transfer action/page ("move 100 from Cash to
-  JazzCash").
+The `AccountTransfer` model already exists (Phase 1) with `from_method`,
+`to_method` (both `PROTECT`), `amount`, `date`, `note`. The key design
+insight: a transfer's two legs — money leaving `from_method`, money
+landing in `to_method` — are each exactly what `record_allocations`
+already knows how to write and balance-check. Rather than build a second,
+parallel balance-moving engine, `transfer_between_methods` calls the
+Phase 2 engine **twice** against the same `AccountTransfer` row as its
+`source`, reusing 100% of its locking, validation, and insufficient-
+balance rejection — no new balance-math code at all.
+
+### `transfer_between_methods(*, from_method_id, to_method_id, amount, date, note="", user)`
+
+```python
+@transaction.atomic
+def transfer_between_methods(*, from_method_id, to_method_id, amount, date, note="", user):
+    if from_method_id == to_method_id:
+        raise ValidationError({"to_method": "Cannot transfer a method to itself."})
+    if amount <= 0:
+        raise ValidationError({"amount": "Amount must be greater than zero."})
+
+    from_method = get_object_or_404(PaymentMethod, pk=from_method_id, is_deleted=False)
+    to_method   = get_object_or_404(PaymentMethod, pk=to_method_id, is_deleted=False)
+
+    # Pre-lock BOTH rows together, sorted by pk — see deadlock note below.
+    _lock_methods(sorted([from_method_id, to_method_id]))
+
+    transfer = AccountTransfer.objects.create(
+        from_method=from_method, to_method=to_method, amount=amount,
+        date=date, note=note, created_by=user, updated_by=user,
+    )
+
+    record_allocations(transfer, direction="outflow", splits=[(from_method, amount)],
+                        total_amount=amount, date=date, user=user)
+    record_allocations(transfer, direction="inflow", splits=[(to_method, amount)],
+                        total_amount=amount, date=date, user=user)
+
+    return transfer
+```
+
+**Deadlock note** — the plan explicitly calls this out because Phase 2's
+own ordered-locking rule exists for exactly this scenario: if
+`transfer_between_methods` just called `record_allocations` twice without
+pre-locking, each call would lock only its own method in isolation. Two
+concurrent transfers in *opposite* directions between the same two methods
+(A→B and B→A) would then lock in opposite orders and deadlock. Pre-locking
+`sorted([from_method_id, to_method_id])` in one call up front — before
+either `record_allocations` call — makes the two inner locks no-ops
+(already held by the same transaction) and guarantees every transfer
+locks these two rows in the same global order, regardless of direction.
+
+**Balance check comes free**: the outflow `record_allocations` call
+already rejects if `from_method` can't cover `amount`, with the same
+"JazzCash only has X" error shape every other outflow uses. Nothing new
+to test there beyond confirming it fires for transfers too.
+
+**`cash_in_hand` is untouched** — no `sync_*`/`record_cash_movement` call
+anywhere in this function. Confirmed by design: a transfer moves which
+account holds the money, not whether the business has it.
+
+### `delete_account_transfer(*, pk, user)`
+
+Also close to free: soft-delete the `AccountTransfer` row, then call the
+existing `reverse_allocations(transfer)` — it already finds both legs
+(same `source_model`/`source_id`, one per method), locks both methods
+together (its own internal `_lock_methods`), and reverses each by its
+recorded direction. No new reversal logic needed.
+
+### API
+
+- `AccountTransferListCreateView` (`AllocationsListMixin`, same batched-
+  context N+1 guard as every other Phase 3–5 list view — a transfer's two
+  legs are worth showing per-row same as anywhere else).
+- `AccountTransferRetrieveDestroyView` — `GET`/`DELETE`.
+- `AccountTransferWriteSerializer`: `from_method`, `to_method`, `amount`,
+  `date`, `note` — no `method_allocations` field needed here, unlike every
+  other Phase 3–5 source — the whole point of a transfer IS picking the
+  two methods directly.
+- `AccountTransferReadSerializer`: adds `allocations` (both legs) for
+  symmetry with every other read serializer, though for a transfer this
+  is informational — the two `PaymentAllocation` rows literally mirror
+  `from_method`/`to_method`/`amount` already on the row itself.
+
+### Tests
+
+- Successful transfer moves both methods' balances by exactly `amount`,
+  writes exactly 2 `PaymentAllocation` rows (one outflow, one inflow) tied
+  to the same transfer.
+- Self-transfer (`from_method_id == to_method_id`) rejected.
+- Insufficient `from_method` balance rejected, same error shape as every
+  other outflow rejection — and confirms **zero** balance change on
+  either method (all-or-nothing, matching Phase 2's guarantee).
+- Delete reverses both methods' balances back exactly and soft-deletes
+  both `PaymentAllocation` legs.
+- Lock-ordering regression: assert `transfer_between_methods` always
+  locks `[from_method_id, to_method_id]` sorted by pk regardless of which
+  direction the transfer runs — mirrors Phase 2's own lock-ordering test,
+  guards the deadlock fix specifically, not just the balance math.
+- Query-count test for the list view, same shape as every other Phase 3–5
+  batch.
+
+### Frontend
+
+- Dedicated transfer action/page ("move 100 from Cash to JazzCash") — a
+  simple two-method-picker + amount form, no split UI needed (a transfer
+  has exactly one from and one to, by definition).
 
 ---
 

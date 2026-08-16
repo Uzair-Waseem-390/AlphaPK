@@ -1,6 +1,6 @@
 from django.shortcuts import get_object_or_404
 
-from .models import PaymentAllocation, PaymentMethod
+from .models import AccountTransfer, PaymentAllocation, PaymentMethod
 
 
 def get_all_payment_methods(*, search: str = None):
@@ -46,3 +46,21 @@ def get_allocations_by_source_ids(source_model: str, source_ids):
     ).select_related("payment_method").order_by("id"):
         by_id.setdefault(alloc.source_id, []).append(alloc)
     return by_id
+
+
+def get_all_account_transfers(*, from_method_id: int = None, to_method_id: int = None):
+    qs = AccountTransfer.objects.filter(is_deleted=False).select_related(
+        "from_method", "to_method", "created_by",
+    )
+    if from_method_id:
+        qs = qs.filter(from_method_id=from_method_id)
+    if to_method_id:
+        qs = qs.filter(to_method_id=to_method_id)
+    return qs
+
+
+def get_account_transfer_by_id(pk: int) -> AccountTransfer:
+    return get_object_or_404(
+        AccountTransfer.objects.select_related("from_method", "to_method", "created_by"),
+        pk=pk, is_deleted=False,
+    )

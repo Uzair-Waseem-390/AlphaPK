@@ -60,7 +60,7 @@ class CashFlowTestBase(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.admin = make_admin()
-        self.cash_method = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash_method = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash(self):
         return CashFlow.get_instance().cash_in_hand

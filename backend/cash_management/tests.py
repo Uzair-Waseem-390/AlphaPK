@@ -40,7 +40,7 @@ class InvestorGrowthCatchUpTests(TestCase):
         self.admin = make_admin()
         from data_entry.services import create_opening_cash
         create_opening_cash(amount=Decimal("50000"), user=self.admin)
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
         # 12%/year → 1%/month, invested 1000.
         self.investor = create_investor(name="Bilal", growth_rate=Decimal("0.12"), user=self.admin)
@@ -99,7 +99,7 @@ class DeleteInvestorGuardTests(TestCase):
         admin = make_admin()
         from data_entry.services import create_opening_cash
         create_opening_cash(amount=Decimal("10000"), user=admin)
-        cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
         investor = create_investor(name="Bilal", user=admin)
         create_investor_transaction(
@@ -139,7 +139,7 @@ class CashManagementAllocationTests(TestCase):
 
     def setUp(self):
         self.admin = make_admin()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]
@@ -232,7 +232,7 @@ class CashManagementAllocationQueryCountTests(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.admin = make_admin()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]

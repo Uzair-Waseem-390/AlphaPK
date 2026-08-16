@@ -1,6 +1,6 @@
 from rest_framework import serializers
 
-from .models import PaymentAllocation, PaymentMethod
+from .models import AccountTransfer, PaymentAllocation, PaymentMethod
 
 
 class PaymentMethodReadSerializer(serializers.ModelSerializer):
@@ -56,3 +56,43 @@ class MethodAllocationInputSerializer(serializers.Serializer):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
         return value
+
+
+class AccountTransferReadSerializer(serializers.ModelSerializer):
+    from_method_name = serializers.CharField(source="from_method.name", read_only=True)
+    to_method_name    = serializers.CharField(source="to_method.name", read_only=True)
+    created_by        = serializers.StringRelatedField(read_only=True)
+    allocations       = serializers.SerializerMethodField()
+
+    class Meta:
+        model  = AccountTransfer
+        fields = [
+            "id", "from_method", "from_method_name", "to_method", "to_method_name",
+            "amount", "date", "note", "allocations", "created_by", "created_at",
+        ]
+        read_only_fields = fields
+
+    def get_allocations(self, obj):
+        prefetched = self.context.get("account_transfer_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from .selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
+
+
+class AccountTransferWriteSerializer(serializers.ModelSerializer):
+    class Meta:
+        model  = AccountTransfer
+        fields = ["from_method", "to_method", "amount", "date", "note"]
+
+    def validate_amount(self, value):
+        if value <= 0:
+            raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+    def validate(self, attrs):
+        if attrs.get("from_method") and attrs.get("to_method") and attrs["from_method"] == attrs["to_method"]:
+            raise serializers.ValidationError({"to_method": "Cannot transfer a method to itself."})
+        return attrs

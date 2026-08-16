@@ -88,7 +88,7 @@ class ProfitsTestBase(TestCase):
         from cash_flow.services import create_expense, create_expense_category
         from data_entry.services import create_opening_cash
         create_opening_cash(amount=Decimal("10000"), user=self.admin)
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
         cat = create_expense_category(name="Utilities", user=self.admin)
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("100"),

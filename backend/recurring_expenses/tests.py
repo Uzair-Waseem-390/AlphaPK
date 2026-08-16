@@ -51,7 +51,7 @@ class RecurringExpensesTestBase(TestCase):
         # Seed cash — cash_in_hand floors at 0, so payments from an empty
         # till would vanish and hide round-trip errors.
         sync_invoice_payment_received(amount=Decimal("100000"), user=self.admin)
-        self.cash_method = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+        self.cash_method = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000000")})[0]
 
     def flow(self):
         return RecurringExpenseFlow.get_instance()

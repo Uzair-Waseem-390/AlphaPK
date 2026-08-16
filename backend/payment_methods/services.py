@@ -5,7 +5,7 @@ from django.shortcuts import get_object_or_404
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 
-from .models import PaymentAllocation, PaymentMethod
+from .models import AccountTransfer, PaymentAllocation, PaymentMethod
 
 # ---------------------------------------------------------------------------
 # Phase 1 scope only: create/edit/soft-delete PaymentMethod rows themselves.
@@ -260,3 +260,72 @@ def prorate_splits(legs, new_total: Decimal):
         result[remainders[i % len(remainders)]][1] += step
 
     return [(method, amount) for method, amount in result]
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Transfers. Moves balance directly between two methods; never
+# touches cash_in_hand (no sync_*/record_cash_movement call anywhere below
+# — no real cash enters or leaves the business, only which account holds
+# it changes). Reuses the Phase 2 engine's own locking/validation/
+# insufficient-balance rejection instead of a second balance-moving path.
+# ---------------------------------------------------------------------------
+
+@transaction.atomic
+def transfer_between_methods(
+    *, from_method_id: int, to_method_id: int, amount: Decimal, date, note: str = "", user,
+) -> AccountTransfer:
+    """
+    Records a transfer and moves balance from from_method to to_method.
+    Implemented as two record_allocations calls against the SAME
+    AccountTransfer row as source (one outflow leg, one inflow leg) — the
+    balance check on the outflow leg is the Phase 2 engine's own, not
+    reimplemented here.
+
+    Pre-locks BOTH methods together, sorted by pk, before either
+    record_allocations call. Without this, each call would lock only its
+    own method in isolation, and two concurrent transfers running in
+    OPPOSITE directions between the same two methods (A→B and B→A) would
+    lock in opposite orders and deadlock. Locking both up front — in the
+    same global order every transfer uses — makes the two inner locks
+    no-ops (already held by this transaction) and rules that out.
+    """
+    if from_method_id == to_method_id:
+        raise ValidationError({"to_method": "Cannot transfer a method to itself."})
+    if amount is None or amount <= 0:
+        raise ValidationError({"amount": "Amount must be greater than zero."})
+
+    from_method = get_object_or_404(PaymentMethod, pk=from_method_id, is_deleted=False)
+    to_method   = get_object_or_404(PaymentMethod, pk=to_method_id, is_deleted=False)
+
+    _lock_methods(sorted([from_method_id, to_method_id]))
+
+    transfer = AccountTransfer.objects.create(
+        from_method=from_method, to_method=to_method, amount=amount,
+        date=date, note=note, created_by=user, updated_by=user,
+    )
+
+    record_allocations(
+        transfer, direction="outflow", splits=[(from_method, amount)],
+        total_amount=amount, date=date, user=user,
+    )
+    record_allocations(
+        transfer, direction="inflow", splits=[(to_method, amount)],
+        total_amount=amount, date=date, user=user,
+    )
+
+    return transfer
+
+
+@transaction.atomic
+def delete_account_transfer(*, pk: int, user) -> None:
+    """Soft-deletes a transfer and reverses both legs' balance effect —
+    reverse_allocations already finds both (same source, one per method)
+    and locks/reverses them together, so no new reversal logic is needed."""
+    transfer = get_object_or_404(AccountTransfer, pk=pk, is_deleted=False)
+
+    transfer.is_deleted = True
+    transfer.deleted_at = timezone.now()
+    transfer.deleted_by = user
+    transfer.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
+
+    reverse_allocations(transfer)

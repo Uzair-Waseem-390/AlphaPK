@@ -1,18 +1,26 @@
 from rest_framework import generics, status
 from rest_framework.response import Response
 
+from .mixins import AllocationsListMixin
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
+    get_account_transfer_by_id,
+    get_all_account_transfers,
     get_all_payment_methods,
     get_payment_method_allocations,
     get_payment_method_by_id,
 )
 from .serializers import (
+    AccountTransferReadSerializer,
+    AccountTransferWriteSerializer,
     PaymentAllocationReadSerializer,
     PaymentMethodReadSerializer,
     PaymentMethodWriteSerializer,
 )
-from .services import create_method, soft_delete_method, update_method
+from .services import (
+    create_method, delete_account_transfer, soft_delete_method,
+    transfer_between_methods, update_method,
+)
 
 
 class PaymentMethodListCreateView(generics.ListCreateAPIView):
@@ -75,3 +83,59 @@ class PaymentMethodAllocationListView(generics.ListAPIView):
 
     def get_queryset(self):
         return get_payment_method_allocations(payment_method_id=self.kwargs["pk"])
+
+
+# ---------------------------------------------------------------------------
+# AccountTransfer (Phase 6)
+# ---------------------------------------------------------------------------
+
+class AccountTransferListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
+    """
+    GET  /payment-methods/transfers/  — every transfer, newest first
+    POST /payment-methods/transfers/  — move balance directly from one
+         method to another; never touches cash_in_hand
+
+    Filter params for GET: from_method_id, to_method_id
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "payment_methods.accounttransfer"
+    allocations_context_key  = "account_transfer_allocations"
+
+    def get_serializer_class(self):
+        return AccountTransferWriteSerializer if self.request.method == "POST" else AccountTransferReadSerializer
+
+    def get_queryset(self):
+        p = self.request.query_params
+        return get_all_account_transfers(
+            from_method_id=p.get("from_method_id"), to_method_id=p.get("to_method_id"),
+        )
+
+    def create(self, request, *args, **kwargs):
+        serializer = self.get_serializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        d = serializer.validated_data
+        obj = transfer_between_methods(
+            from_method_id = d["from_method"].pk,
+            to_method_id   = d["to_method"].pk,
+            amount         = d["amount"],
+            date           = d["date"],
+            note           = d.get("note", ""),
+            user           = request.user,
+        )
+        return Response(AccountTransferReadSerializer(obj).data, status=status.HTTP_201_CREATED)
+
+
+class AccountTransferRetrieveDestroyView(generics.RetrieveDestroyAPIView):
+    """
+    GET    /payment-methods/transfers/<pk>/
+    DELETE /payment-methods/transfers/<pk>/ — reverses both methods' balances
+    """
+    permission_classes = [IsAdminOrSuperuser]
+    serializer_class    = AccountTransferReadSerializer
+
+    def get_object(self):
+        return get_account_transfer_by_id(self.kwargs["pk"])
+
+    def destroy(self, request, *args, **kwargs):
+        delete_account_transfer(pk=self.kwargs["pk"], user=request.user)
+        return Response({"detail": "Transfer reversed and both balances restored."}, status=status.HTTP_200_OK)

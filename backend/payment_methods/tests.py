@@ -1,18 +1,24 @@
 from decimal import Decimal
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from users.models import User
 
-from .models import PaymentAllocation, PaymentMethod
+from .models import AccountTransfer, PaymentAllocation, PaymentMethod
 from .services import (
-    create_method, record_allocations, refresh_allocations,
-    reverse_allocations, soft_delete_method, update_method,
+    create_method, delete_account_transfer, record_allocations,
+    refresh_allocations, reverse_allocations, soft_delete_method,
+    transfer_between_methods, update_method,
 )
-from .views import PaymentMethodListCreateView, PaymentMethodRetrieveUpdateDestroyView
+from .views import (
+    AccountTransferListCreateView, PaymentMethodListCreateView,
+    PaymentMethodRetrieveUpdateDestroyView,
+)
 
 
 def make_admin(email="admin@example.com"):
@@ -149,7 +155,7 @@ class SeedAndBackfillCommandTests(TestCase):
         from cash_management.services import create_investor, create_investor_transaction
 
         create_opening_cash(amount=Decimal("20000"), user=self.admin)
-        cash_method = PaymentMethod.objects.create(name="Cash")
+        cash_method = PaymentMethod.objects.get_or_create(name="Cash")[0]
         investor = create_investor(name="Bilal", user=self.admin)
         create_investor_transaction(
             investor_id=investor.id, transaction_type="investment",
@@ -260,7 +266,7 @@ def make_dummy_source(pk=1):
 class AllocationEngineTests(TestCase):
     def setUp(self):
         self.admin = make_admin()
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000"))
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000")})[0]
         self.jazzcash = PaymentMethod.objects.create(name="JazzCash", balance=Decimal("1000"))
 
     def test_single_method_inflow(self):
@@ -426,3 +432,182 @@ class AllocationEngineTests(TestCase):
         from .services import _lock_methods
         locked = _lock_methods([self.jazzcash.pk, self.cash.pk])
         self.assertEqual(list(locked.keys()), sorted([self.jazzcash.pk, self.cash.pk]))
+
+
+# ---------------------------------------------------------------------------
+# Phase 6 — Transfers
+# ---------------------------------------------------------------------------
+
+class AccountTransferServiceTests(TestCase):
+    def setUp(self):
+        self.admin = make_admin()
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000")})[0]
+        self.jazzcash = PaymentMethod.objects.create(name="JazzCash", balance=Decimal("500"))
+
+    def test_transfer_moves_both_balances_and_writes_two_allocations(self):
+        transfer = transfer_between_methods(
+            from_method_id=self.cash.id, to_method_id=self.jazzcash.id,
+            amount=Decimal("300"), date="2026-01-01", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("700"))
+        self.assertEqual(self.jazzcash.balance, Decimal("800"))
+
+        allocations = PaymentAllocation.objects.filter(
+            source_model="payment_methods.accounttransfer", source_id=transfer.id, is_deleted=False,
+        )
+        self.assertEqual(allocations.count(), 2)
+        self.assertEqual(
+            {(a.payment_method_id, a.direction) for a in allocations},
+            {(self.cash.id, "outflow"), (self.jazzcash.id, "inflow")},
+        )
+
+    def test_self_transfer_rejected(self):
+        with self.assertRaises(ValidationError):
+            transfer_between_methods(
+                from_method_id=self.cash.id, to_method_id=self.cash.id,
+                amount=Decimal("100"), date="2026-01-01", user=self.admin,
+            )
+
+    def test_insufficient_balance_rejected_and_nothing_changes(self):
+        with self.assertRaises(ValidationError) as ctx:
+            transfer_between_methods(
+                from_method_id=self.jazzcash.id, to_method_id=self.cash.id,
+                amount=Decimal("999999"), date="2026-01-01", user=self.admin,
+            )
+        self.assertIn("JazzCash", str(ctx.exception.detail))
+
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000"))
+        self.assertEqual(self.jazzcash.balance, Decimal("500"))
+        self.assertFalse(AccountTransfer.objects.exists())
+
+    def test_transfer_never_touches_cash_in_hand(self):
+        from cash_flow.models import CashFlow
+        before = CashFlow.get_instance().cash_in_hand
+        transfer_between_methods(
+            from_method_id=self.cash.id, to_method_id=self.jazzcash.id,
+            amount=Decimal("100"), date="2026-01-01", user=self.admin,
+        )
+        self.assertEqual(CashFlow.get_instance().cash_in_hand, before)
+
+    def test_delete_reverses_both_balances(self):
+        transfer = transfer_between_methods(
+            from_method_id=self.cash.id, to_method_id=self.jazzcash.id,
+            amount=Decimal("300"), date="2026-01-01", user=self.admin,
+        )
+        delete_account_transfer(pk=transfer.pk, user=self.admin)
+
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000"))
+        self.assertEqual(self.jazzcash.balance, Decimal("500"))
+        self.assertFalse(
+            PaymentAllocation.objects.filter(
+                source_model="payment_methods.accounttransfer", source_id=transfer.id, is_deleted=False,
+            ).exists(),
+        )
+
+    def test_lock_order_is_sorted_regardless_of_transfer_direction(self):
+        # Guards the deadlock fix specifically: A→B and B→A must both lock
+        # in the SAME order ([min(pk), max(pk)]), not the order the two
+        # method ids happen to appear in the call.
+        lo, hi = sorted([self.cash.id, self.jazzcash.id])
+
+        from unittest.mock import patch
+        from . import services as pm_services
+
+        original = pm_services._lock_methods
+        captured = []
+
+        def spy(ids):
+            captured.append(list(ids))
+            return original(ids)
+
+        with patch.object(pm_services, "_lock_methods", side_effect=spy):
+            transfer_between_methods(
+                from_method_id=self.jazzcash.id, to_method_id=self.cash.id,
+                amount=Decimal("50"), date="2026-01-01", user=self.admin,
+            )
+        # The pre-lock call (first) must be sorted [lo, hi] even though this
+        # transfer runs JazzCash→Cash (the "wrong" order if unsorted).
+        self.assertEqual(captured[0], [lo, hi])
+
+
+class AccountTransferAPITests(TestCase):
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin = make_admin()
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("1000")})[0]
+        self.jazzcash = PaymentMethod.objects.create(name="JazzCash", balance=Decimal("500"))
+
+    def test_create_transfer_via_api(self):
+        request = self.factory.post("/payment-methods/transfers/", {
+            "from_method": self.cash.id, "to_method": self.jazzcash.id,
+            "amount": "200", "date": "2026-01-01",
+        }, format="json")
+        force_authenticate(request, user=self.admin)
+        response = AccountTransferListCreateView.as_view()(request)
+        self.assertEqual(response.status_code, 201)
+        self.assertEqual(len(response.data["allocations"]), 2)
+
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("800"))
+        self.assertEqual(self.jazzcash.balance, Decimal("700"))
+
+    def test_self_transfer_returns_400(self):
+        request = self.factory.post("/payment-methods/transfers/", {
+            "from_method": self.cash.id, "to_method": self.cash.id,
+            "amount": "200", "date": "2026-01-01",
+        }, format="json")
+        force_authenticate(request, user=self.admin)
+        response = AccountTransferListCreateView.as_view()(request)
+        self.assertEqual(response.status_code, 400)
+
+    def test_insufficient_balance_returns_400_not_500(self):
+        request = self.factory.post("/payment-methods/transfers/", {
+            "from_method": self.jazzcash.id, "to_method": self.cash.id,
+            "amount": "999999", "date": "2026-01-01",
+        }, format="json")
+        force_authenticate(request, user=self.admin)
+        response = AccountTransferListCreateView.as_view()(request)
+        self.assertEqual(response.status_code, 400)
+
+
+class AccountTransferQueryCountTests(TestCase):
+    """architecture.md's STRICT O(1)-per-page rule — the allocations field
+    on the transfer list view must not N+1 as row count grows."""
+
+    def setUp(self):
+        self.factory = APIRequestFactory()
+        self.admin = make_admin()
+        self.cash = PaymentMethod.objects.get_or_create(name="Cash", defaults={"balance": Decimal("100000")})[0]
+        self.jazzcash = PaymentMethod.objects.create(name="JazzCash", balance=Decimal("100000"))
+
+    def count_queries(self, view, url):
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        return len(ctx.captured_queries)
+
+    def test_transfer_list_query_count_flat(self):
+        view = AccountTransferListCreateView.as_view()
+        transfer_between_methods(
+            from_method_id=self.cash.id, to_method_id=self.jazzcash.id,
+            amount=Decimal("10"), date="2026-01-01", user=self.admin,
+        )
+        baseline = self.count_queries(view, "/payment-methods/transfers/")
+
+        for _ in range(4):
+            transfer_between_methods(
+                from_method_id=self.cash.id, to_method_id=self.jazzcash.id,
+                amount=Decimal("10"), date="2026-01-01", user=self.admin,
+            )
+        grown = self.count_queries(view, "/payment-methods/transfers/")
+        self.assertEqual(baseline, grown)
