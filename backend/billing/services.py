@@ -917,6 +917,7 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
     # _sync_invoice_payment_summary would sum the uncapped Payment.amount
     # and silently raise cash_received/credit_outstanding back up.
     if advance > invoice.grand_total:
+        uncapped_advance = advance
         advance = invoice.grand_total
         invoice.advance_amount = advance
         invoice.save(update_fields=["advance_amount"])
@@ -928,8 +929,33 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
         if advance_payment:
             advance_payment.amount = advance
             advance_payment.save(update_fields=["amount"])
-            from cash_flow.services import refresh_cash_movement
+            # The FULL uncapped advance went into cash_in_hand when the draft
+            # was created (sync_invoice_advance_payment_created). Capping it
+            # here used to update the invoice, the Payment row and the drawer
+            # event but NOT the cash counter — so the capped-off difference
+            # stayed in cash_in_hand permanently, silently, and unbounded
+            # (a 5,000 advance on an order later reduced to 850 left cash
+            # overstated by 4,150).
+            #
+            # Treated as "the advance was recorded wrong, correct it" rather
+            # than "the customer overpaid and is owed a refund" — the same
+            # treatment _update_advance_payment already applies when an
+            # advance is edited down on a draft, so confirming is now
+            # consistent with editing instead of being a special case.
+            #
+            # Paired with refresh_cash_movement inside the same
+            # `if advance_payment` block and the same atomic transaction:
+            # cash-in-hand.md requires an event and its cash sync to move
+            # together. (No Payment row means the advance was already
+            # reversed by sync_invoice_advance_payment_deleted, so syncing
+            # again here would double-subtract.)
+            from cash_flow.services import (
+                refresh_cash_movement, sync_invoice_advance_payment_updated,
+            )
             refresh_cash_movement(advance_payment)
+            sync_invoice_advance_payment_updated(
+                old_amount=uncapped_advance, new_amount=advance, user=user,
+            )
 
     credit_outstanding = max(Decimal("0"), invoice.grand_total - advance)
     invoice.cash_received      = advance

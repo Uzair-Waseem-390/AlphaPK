@@ -764,32 +764,56 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
         self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.PARTIAL)
 
     def test_confirm_caps_advance_exceeding_grand_total(self):
+        """
+        Reaches the capped state the way a real user does — take a big advance
+        on a draft, then reduce the order — instead of forcing it with raw
+        .update(). The old version wrote advance_amount=500 straight to the DB
+        while cash had only received 100, a state no service call can produce,
+        and then asserted behaviour for it.
+
+        Cash MUST follow the cap. The full advance went into cash_in_hand at
+        draft creation; trimming the advance without trimming the cash left
+        the difference in the counter permanently and silently. Same treatment
+        _update_advance_payment already gives an advance edited down on a
+        draft, so confirming is no longer a special case.
+        """
         from cash_flow.models import CashFlow
 
         product = self.make_stocked_product(stock=10, unit_cost="50", selling_price="100")
+
+        # Draft for 5 units (500) with a matching 500 advance.
         invoice = create_invoice(
             customer_id=self.customer.id,
-            items=[{"product_id": product.id, "quantity": 1}],  # grand_total 100
-            payment_type="advance", advance_amount=Decimal("100"),
+            items=[{"product_id": product.id, "quantity": 5}],
+            payment_type="advance", advance_amount=Decimal("500"),
             user=self.admin,
         )
-        # Simulate the advance having been recorded before line items grew smaller
-        # than the advance — directly shrink grand_total's future value by using
-        # a 1-quantity item with a 100 advance is already exactly at the edge, so
-        # bump the advance past what confirm will compute.
-        Invoice.objects.filter(pk=invoice.pk).update(advance_amount=Decimal("500"))
-        Payment.objects.filter(invoice=invoice).update(amount=Decimal("500"))
+        cash_after_advance = CashFlow.objects.get(pk=1).cash_in_hand
+
+        # Customer cuts the order down to 1 unit (100) before it's confirmed.
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": product.id, "quantity": 1}],
+            user=self.admin,
+        )
+        invoice.refresh_from_db()
+        self.assertEqual(invoice.advance_amount, Decimal("500"),
+                         "the advance is untouched by an item edit")
 
         self.allocate_invoice_items(invoice)
-        cash_before_confirm = CashFlow.objects.get(pk=1).cash_in_hand
         invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
 
         self.assertEqual(invoice.grand_total, Decimal("100"))
         self.assertEqual(invoice.advance_amount, Decimal("100"))  # capped
         self.assertEqual(invoice.credit_outstanding, Decimal("0"))
         self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.PAID)
-        # Confirming never moves cash_in_hand — only draft-creation/delete/edit do.
-        self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before_confirm)
+
+        # Cash trims by the capped-off 400, rather than keeping it forever.
+        self.assertEqual(
+            CashFlow.objects.get(pk=1).cash_in_hand,
+            cash_after_advance - Decimal("400"),
+            "cash_in_hand must drop by the amount the advance was capped by",
+        )
 
         # The underlying advance Payment row must be capped too, or a later
         # _sync_invoice_payment_summary call would sum the uncapped amount.
@@ -1053,3 +1077,146 @@ class InvoiceAutoAllocateShelvesViewTests(BillingTestBase):
         self.assertEqual(response.data["allocations"][0]["shelf_id"], self.shelf.id)
         self.assertEqual(response.data["allocations"][0]["quantity"], 5)
         self.assertEqual(response.data["shortfall"], 0)
+
+
+# ---------------------------------------------------------------------------
+# Capping an advance at confirmation must trim cash_in_hand too
+# ---------------------------------------------------------------------------
+
+class AdvanceCapTrimsCashTests(BillingTestBase):
+    """
+    An advance is collected against a DRAFT, before the order is final. If the
+    order then shrinks, confirm_invoice caps the advance at grand_total — and
+    that cap used to update the invoice, the Payment row and the drawer event
+    but NOT CashFlow.cash_in_hand. The full advance had already been added at
+    draft creation, so the capped-off difference stayed in the cash total
+    permanently, with no error and nothing to notice it by.
+
+    Unbounded, not a rounding artifact: a 5,000 advance on an order later
+    reduced to 850 left cash overstated by 4,150.
+
+    Invariant held here: cash_in_hand must always equal the net of the
+    CashMovement event table (cash-in-hand.md — the drawer reads only the
+    events, so any divergence means the total on screen stops matching the
+    movements listed beneath it).
+    """
+
+    def _counter_vs_events(self):
+        from django.db.models import Sum
+
+        from cash_flow.models import CashFlow, CashMovement
+
+        cf = CashFlow.get_instance()
+        inflow = CashMovement.objects.filter(
+            is_deleted=False, direction="inflow",
+        ).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        outflow = CashMovement.objects.filter(
+            is_deleted=False, direction="outflow",
+        ).aggregate(t=Sum("amount"))["t"] or Decimal("0")
+        return cf.cash_in_hand, inflow - outflow
+
+    def _draft_then_shrink(self, product, *, advance, start_qty, end_qty):
+        """Take an advance on a draft, then reduce the order — the real path
+        into a capped confirmation."""
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": start_qty}],
+            payment_type="advance", advance_amount=Decimal(advance),
+            user=self.admin,
+        )
+        if end_qty != start_qty:
+            update_invoice_items(
+                invoice_id=invoice.id,
+                items=[{"product_id": product.id, "quantity": end_qty}],
+                user=self.admin,
+            )
+            invoice.refresh_from_db()
+        self.allocate_invoice_items(invoice)
+        return confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+    def test_cash_trims_by_exactly_the_capped_off_amount(self):
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product(stock=60, unit_cost="50", selling_price="100")
+        before = CashFlow.get_instance().cash_in_hand
+
+        # 50 units (5,000) advance, order cut to 8 units (800).
+        invoice = self._draft_then_shrink(product, advance="5000", start_qty=50, end_qty=8)
+
+        self.assertEqual(invoice.grand_total, Decimal("800.0000"))
+        self.assertEqual(invoice.advance_amount, Decimal("800.0000"))
+        self.assertEqual(
+            CashFlow.get_instance().cash_in_hand - before, Decimal("800.0000"),
+            "cash should have risen by the capped 800, not the 5,000 taken",
+        )
+
+    def test_counter_and_event_table_agree_after_a_capped_confirm(self):
+        product = self.make_stocked_product(stock=60, unit_cost="50", selling_price="100")
+        self._draft_then_shrink(product, advance="5000", start_qty=50, end_qty=8)
+
+        counter, events = self._counter_vs_events()
+        self.assertEqual(
+            counter, events,
+            f"cash counter {counter} disagrees with the event table {events}",
+        )
+
+    def test_advance_below_total_is_left_alone(self):
+        """Guards over-correction: nothing to cap, so nothing to reverse."""
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product(stock=20, unit_cost="50", selling_price="100")
+        before = CashFlow.get_instance().cash_in_hand
+        invoice = self._draft_then_shrink(product, advance="300", start_qty=5, end_qty=5)
+
+        self.assertEqual(invoice.grand_total, Decimal("500.0000"))
+        self.assertEqual(invoice.advance_amount, Decimal("300.0000"))
+        self.assertEqual(invoice.credit_outstanding, Decimal("200.0000"))
+        self.assertEqual(CashFlow.get_instance().cash_in_hand - before, Decimal("300.0000"))
+
+        counter, events = self._counter_vs_events()
+        self.assertEqual(counter, events)
+
+    def test_advance_exactly_equal_to_total_is_left_alone(self):
+        """Boundary: the cap triggers on `>`, never on `>=`."""
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product(stock=20, unit_cost="50", selling_price="100")
+        before = CashFlow.get_instance().cash_in_hand
+        invoice = self._draft_then_shrink(product, advance="300", start_qty=3, end_qty=3)
+
+        self.assertEqual(invoice.grand_total, Decimal("300.0000"))
+        self.assertEqual(invoice.advance_amount, Decimal("300.0000"))
+        self.assertEqual(invoice.credit_outstanding, Decimal("0.0000"))
+        self.assertEqual(CashFlow.get_instance().cash_in_hand - before, Decimal("300.0000"))
+
+        counter, events = self._counter_vs_events()
+        self.assertEqual(counter, events)
+
+    def test_sub_rupee_rounding_excess_is_trimmed_too(self):
+        """
+        The real production case: BILL-2026-0164 totalled 29,999.996 against a
+        round 30,000 advance, because 30,000/130 can't be held in 4 decimals.
+        The 0.004 left behind is the entire reason the books were off. Same
+        code path, smallest possible amount — it must trim as well.
+        """
+        from cash_flow.models import CashFlow
+
+        product = self.make_stocked_product(stock=20, unit_cost="50", selling_price="100")
+        before = CashFlow.get_instance().cash_in_hand
+
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 2}],   # 200
+            payment_type="advance", advance_amount=Decimal("200.0040"),
+            user=self.admin,
+        )
+        self.allocate_invoice_items(invoice)
+        invoice = confirm_invoice(invoice_id=invoice.id, user=self.admin)
+
+        self.assertEqual(invoice.advance_amount, Decimal("200.0000"))
+        self.assertEqual(
+            CashFlow.get_instance().cash_in_hand - before, Decimal("200.0000"),
+            "the 0.004 excess must be trimmed, not left in the cash total",
+        )
+        counter, events = self._counter_vs_events()
+        self.assertEqual(counter, events)
