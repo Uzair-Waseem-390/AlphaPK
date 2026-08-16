@@ -727,7 +727,7 @@ recorded direction. No new reversal logic needed.
 
 - Full regression: billing, purchases, cash_flow, accounting, profits,
   assets, cash_management, taxes, recurring_expenses, payment_methods,
-  data_entry test suites — run 2026-08-16.
+  data_entry test suites — run 2026-08-16, 286 tests, all passing.
 - New standing invariant check (`cash_in_hand == sum(all PaymentMethod
   balances)`, alongside the Balance Sheet `is_balanced` check) —
   **deliberately NOT built**, per explicit instruction ("don't need to
