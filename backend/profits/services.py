@@ -578,10 +578,7 @@ def create_investor_profit_payout(
     else:
         # Reinvest — no real money crosses accounts (it's a bookkeeping
         # swap of equity), so the user is never asked for a method here;
-        # both legs default silently to the protected Cash account. This
-        # is the payout's own outflow leg — the offsetting inflow leg
-        # (create_investor_transaction below) isn't allocation-tracked
-        # until Phase 5 wires cash_management the same way.
+        # both legs default silently to the protected Cash account.
         from payment_methods.models import PaymentMethod
         cash, _ = PaymentMethod.objects.get_or_create(name="Cash", defaults={"is_protected": True})
         record_allocations(
@@ -590,6 +587,11 @@ def create_investor_profit_payout(
         )
         # Reinvest: the same amount immediately comes back in as a genuine
         # new investment — real capital growth, not a payout-in-disguise.
+        # method_allocations passed explicitly (Cash, same as the outflow
+        # leg above) since create_investor_transaction requires one now —
+        # this is the resolution of the cross-phase dependency Phase 4
+        # flagged: without this, reinvest would suddenly demand a user
+        # method pick, which is exactly the behavior Phase 4 turned off.
         from cash_management.models import InvestorTransaction
         from cash_management.services import create_investor_transaction
 
@@ -598,6 +600,7 @@ def create_investor_profit_payout(
             transaction_type=InvestorTransaction.TransactionType.INVESTMENT,
             amount=amount,
             transaction_date=payout_date,
+            method_allocations=[(cash, amount)],
             note=f"Reinvested profit share — {share.monthly_profit.period} (payout #{payout.id})",
             user=user,
         )
@@ -700,10 +703,7 @@ def create_owner_profit_payout(
     else:
         # Reinvest — no real money crosses accounts (it's a bookkeeping
         # swap of equity), so the user is never asked for a method here;
-        # both legs default silently to the protected Cash account. This
-        # is the payout's own outflow leg — the offsetting inflow leg
-        # (create_owner_transaction below) isn't allocation-tracked until
-        # Phase 5 wires cash_management the same way.
+        # both legs default silently to the protected Cash account.
         from payment_methods.models import PaymentMethod
         cash, _ = PaymentMethod.objects.get_or_create(name="Cash", defaults={"is_protected": True})
         record_allocations(
@@ -712,6 +712,9 @@ def create_owner_profit_payout(
         )
         # Reinvest: the same amount immediately comes back in as a genuine
         # owner contribution — real capital, not a payout-in-disguise.
+        # method_allocations passed explicitly (Cash, same as the outflow
+        # leg above) since create_owner_transaction requires one now — the
+        # resolution of the cross-phase dependency Phase 4 flagged.
         from cash_management.models import OwnerTransaction
         from cash_management.services import create_owner_transaction
 
@@ -719,6 +722,7 @@ def create_owner_profit_payout(
             transaction_type=OwnerTransaction.TransactionType.CONTRIBUTION,
             amount=amount,
             transaction_date=payout_date,
+            method_allocations=[(cash, amount)],
             note=f"Reinvested profit share — {owner_share.monthly_profit.period} (payout #{payout.id})",
             user=user,
         )

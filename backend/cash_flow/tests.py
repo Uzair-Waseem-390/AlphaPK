@@ -112,7 +112,7 @@ class CashMovementOracleTests(CashFlowTestBase):
         # Backdated business date — exercises the drawer's date filter.
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("500"),
-            expense_date=date(2026, 1, 15), user=u,
+            expense_date=date(2026, 1, 15), method_allocations=self.cash_split("500"), user=u,
         )
 
         supplier = create_supplier(name="Karachi Metals", code="SUP1", user=u)
@@ -122,24 +122,24 @@ class CashMovementOracleTests(CashFlowTestBase):
             method_allocations=self.cash_split("1500"), payment_date=today, user=u,
         )
 
-        create_tax_payment(amount=Decimal("200"), payment_date=today, note="Q1 GST", user=u)
-        create_wht_payment(amount=Decimal("100"), payment_date=today, user=u)
+        create_tax_payment(amount=Decimal("200"), payment_date=today, method_allocations=self.cash_split("200"), note="Q1 GST", user=u)
+        create_wht_payment(amount=Decimal("100"), payment_date=today, method_allocations=self.cash_split("100"), user=u)
 
-        create_cash_adjustment(amount=Decimal("50"), adjustment_type="lost", adjustment_date=today, reason="till miscount", user=u)
-        create_cash_adjustment(amount=Decimal("20"), adjustment_type="found", adjustment_date=today, user=u)
+        create_cash_adjustment(amount=Decimal("50"), adjustment_type="lost", adjustment_date=today, method_allocations=self.cash_split("50"), reason="till miscount", user=u)
+        create_cash_adjustment(amount=Decimal("20"), adjustment_type="found", adjustment_date=today, method_allocations=self.cash_split("20"), user=u)
 
         investor = create_investor(name="Bilal", user=u)
         create_investor_transaction(
             investor_id=investor.id, transaction_type="investment",
-            amount=Decimal("1000"), transaction_date=today, user=u,
+            amount=Decimal("1000"), transaction_date=today, method_allocations=self.cash_split("1000"), user=u,
         )
-        create_owner_transaction(transaction_type="contribution", amount=Decimal("800"), transaction_date=today, user=u)
-        create_owner_transaction(transaction_type="drawing", amount=Decimal("300"), transaction_date=today, note="personal", user=u)
+        create_owner_transaction(transaction_type="contribution", amount=Decimal("800"), transaction_date=today, method_allocations=self.cash_split("800"), user=u)
+        create_owner_transaction(transaction_type="drawing", amount=Decimal("300"), transaction_date=today, method_allocations=self.cash_split("300"), note="personal", user=u)
 
         asset_cat = create_asset_category(name="Machinery", valuation_method="none", user=u)
         new_asset = create_asset(
             name="Generator", category_id=asset_cat.id, acquisition_type="new",
-            cost=Decimal("700"), acquisition_date=today, user=u,
+            cost=Decimal("700"), acquisition_date=today, method_allocations=self.cash_split("700"), user=u,
         )
         # 'existing' asset — must NOT appear in the drawer.
         create_asset(
@@ -148,7 +148,7 @@ class CashMovementOracleTests(CashFlowTestBase):
         )
         dispose_asset(
             asset_id=new_asset.id, disposal_type="sold", disposal_date=today,
-            sale_amount=Decimal("400"), user=u,
+            sale_amount=Decimal("400"), method_allocations=self.cash_split("400"), user=u,
         )
 
         rec_cat = create_recurring_expense_category(name="Salaries", user=u)
@@ -161,7 +161,7 @@ class CashMovementOracleTests(CashFlowTestBase):
         )
         create_recurring_expense_payment(
             assignment_id=assignment.id, amount=Decimal("250"),
-            payment_date=today, user=u,
+            payment_date=today, method_allocations=self.cash_split("250"), user=u,
         )
 
     def test_event_table_matches_source_oracle_exactly(self):
@@ -242,7 +242,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
 
         expense = create_expense(
             name="Internet", category_id=self.category.id, amount=Decimal("2000"),
-            expense_date=timezone.now().date(), user=self.admin,
+            expense_date=timezone.now().date(), method_allocations=self.cash_split("2000"), user=self.admin,
         )
         self.assertEqual(self.cash(), cash_start - Decimal("2000"))
         self.assertEqual(CashFlow.get_instance().total_expenses_count, 1)
@@ -252,7 +252,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
         self.assertEqual(event.description, "Expense: Internet (Utilities)")
 
         # Edit name + amount — cash adjusts by the difference, event follows.
-        update_expense(pk=expense.pk, name="Fiber Internet", amount=Decimal("1500"), user=self.admin)
+        update_expense(pk=expense.pk, name="Fiber Internet", amount=Decimal("1500"), method_allocations=self.cash_split("1500"), user=self.admin)
         self.assertEqual(self.cash(), cash_start - Decimal("1500"))
         event.refresh_from_db()
         self.assertEqual(event.amount, Decimal("1500.0000"))
@@ -272,7 +272,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
 
         create_expense(
             name="Internet", category_id=self.category.id, amount=Decimal("100"),
-            expense_date=timezone.now().date(), user=self.admin,
+            expense_date=timezone.now().date(), method_allocations=self.cash_split("100"), user=self.admin,
         )
         # Used category → friendly validation error (was an unhandled 500).
         with self.assertRaises(ValidationError):
@@ -290,7 +290,7 @@ class ExpenseRoundTripTests(CashFlowTestBase):
             with self.assertRaises(RuntimeError):
                 create_expense(
                     name="Doomed", category_id=self.category.id, amount=Decimal("100"),
-                    expense_date=timezone.now().date(), user=self.admin,
+                    expense_date=timezone.now().date(), method_allocations=self.cash_split("100"), user=self.admin,
                 )
         # Nothing survives: no expense row, no event, cash untouched.
         self.assertEqual(Expense.objects.count(), 0)

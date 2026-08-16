@@ -298,13 +298,15 @@ def update_asset_category(
 @transaction.atomic
 def create_asset(
     *, name: str, category_id: int, acquisition_type: str, cost: Decimal,
-    acquisition_date, note: str = "", user,
+    acquisition_date, method_allocations: list = None, note: str = "", user,
 ) -> Asset:
     """
     existing: no cash movement; catch-up immediately back-fills every
               historical AssetValuationEntry from acquisition_date to today.
+              method_allocations not required — nothing to allocate.
     new     : cash_in_hand decreases by cost (real cash left the business);
               catch-up runs too but finds nothing to post yet.
+              method_allocations required.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -313,6 +315,8 @@ def create_asset(
         raise ValidationError({"cost": "Cost must be greater than zero."})
     if acquisition_type not in Asset.AcquisitionType.values:
         raise ValidationError({"acquisition_type": "Must be 'existing' or 'new'."})
+    if acquisition_type == Asset.AcquisitionType.NEW and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected for a new (cash-purchased) asset."})
 
     category = get_object_or_404(AssetCategory, pk=category_id)
 
@@ -338,6 +342,12 @@ def create_asset(
         from cash_flow.services import record_cash_movement, sync_asset_purchased
         sync_asset_purchased(amount=cost, user=user)
         record_cash_movement(asset)
+
+        from payment_methods.services import record_allocations
+        record_allocations(
+            asset, direction="outflow", splits=method_allocations,
+            total_amount=cost, date=acquisition_date, user=user,
+        )
 
     _catch_up_asset_depreciation(asset, user=user)
 
@@ -393,14 +403,15 @@ def revalue_asset(
 @transaction.atomic
 def dispose_asset(
     *, asset_id: int, disposal_type: str, disposal_date, sale_amount: Decimal = None,
-    reason: str = "", user,
+    method_allocations: list = None, reason: str = "", user,
 ) -> AssetDisposal:
     """
     scrapped: no cash movement, just an audit record. worth/cost removed
-              from AssetFlow totals.
+              from AssetFlow totals. method_allocations not required.
     sold    : cash_in_hand increases by sale_amount; gain_loss computed
               against worth_at_disposal (after running catch-up, so the
-              comparison uses an up-to-date book value).
+              comparison uses an up-to-date book value). method_allocations
+              required.
     """
     from django.shortcuts import get_object_or_404
     from rest_framework.exceptions import ValidationError
@@ -409,6 +420,8 @@ def dispose_asset(
         raise ValidationError({"disposal_type": "Must be 'scrapped' or 'sold'."})
     if disposal_type == AssetDisposal.DisposalType.SOLD and (not sale_amount or sale_amount <= 0):
         raise ValidationError({"sale_amount": "Sale amount is required and must be greater than zero when selling an asset."})
+    if disposal_type == AssetDisposal.DisposalType.SOLD and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected for a sold asset."})
 
     asset = get_object_or_404(
         Asset.objects.select_for_update().select_related("category"),
@@ -452,6 +465,12 @@ def dispose_asset(
         from cash_flow.services import record_cash_movement, sync_asset_sold
         sync_asset_sold(amount=sale_amount, user=user)
         record_cash_movement(disposal)
+
+        from payment_methods.services import record_allocations
+        record_allocations(
+            disposal, direction="inflow", splits=method_allocations,
+            total_amount=sale_amount, date=disposal_date, user=user,
+        )
 
     _adjust_asset_flow(**flow_kwargs)
 

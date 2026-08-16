@@ -2,6 +2,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_cash_adjustments,
@@ -63,7 +65,7 @@ class CashManagementStatsView(APIView):
 # CashAdjustment
 # ---------------------------------------------------------------------------
 
-class CashAdjustmentListCreateView(generics.ListCreateAPIView):
+class CashAdjustmentListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /cash-management/adjustments/  — all lost/found cash entries, newest first
     POST /cash-management/adjustments/  — record a new lost or found cash entry
@@ -72,6 +74,8 @@ class CashAdjustmentListCreateView(generics.ListCreateAPIView):
         adjustment_type (lost|found), search, date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "cash_management.cashadjustment"
+    allocations_context_key  = "cash_adjustment_allocations"
 
     def get_serializer_class(self):
         return CashAdjustmentWriteSerializer if self.request.method == "POST" else CashAdjustmentReadSerializer
@@ -92,11 +96,12 @@ class CashAdjustmentListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_cash_adjustment(
-            amount          = d["amount"],
-            adjustment_type = d["adjustment_type"],
-            adjustment_date = d["adjustment_date"],
-            reason          = d.get("reason", ""),
-            user            = request.user,
+            amount             = d["amount"],
+            adjustment_type    = d["adjustment_type"],
+            adjustment_date    = d["adjustment_date"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            reason             = d.get("reason", ""),
+            user               = request.user,
         )
         return Response(CashAdjustmentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
@@ -186,7 +191,7 @@ class InvestorValuationEntryListView(generics.ListAPIView):
 # InvestorTransaction
 # ---------------------------------------------------------------------------
 
-class InvestorTransactionListCreateView(generics.ListCreateAPIView):
+class InvestorTransactionListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /cash-management/investor-transactions/  — all investment/withdrawal events
     POST /cash-management/investor-transactions/  — record a new investment or withdrawal
@@ -196,6 +201,8 @@ class InvestorTransactionListCreateView(generics.ListCreateAPIView):
         date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "cash_management.investortransaction"
+    allocations_context_key  = "investor_transaction_allocations"
 
     def get_serializer_class(self):
         return InvestorTransactionWriteSerializer if self.request.method == "POST" else InvestorTransactionReadSerializer
@@ -217,12 +224,13 @@ class InvestorTransactionListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_investor_transaction(
-            investor_id      = d["investor"].pk,
-            transaction_type = d["transaction_type"],
-            amount           = d["amount"],
-            transaction_date = d["transaction_date"],
-            note             = d.get("note", ""),
-            user             = request.user,
+            investor_id        = d["investor"].pk,
+            transaction_type   = d["transaction_type"],
+            amount             = d["amount"],
+            transaction_date   = d["transaction_date"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            note               = d.get("note", ""),
+            user               = request.user,
         )
         return Response(InvestorTransactionReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
@@ -247,7 +255,7 @@ class InvestorTransactionRetrieveDestroyView(generics.RetrieveDestroyAPIView):
 # OwnerTransaction
 # ---------------------------------------------------------------------------
 
-class OwnerTransactionListCreateView(generics.ListCreateAPIView):
+class OwnerTransactionListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /cash-management/owner-transactions/  — all owner contribution/drawing events
     POST /cash-management/owner-transactions/  — record a new owner contribution or drawing
@@ -256,6 +264,8 @@ class OwnerTransactionListCreateView(generics.ListCreateAPIView):
         transaction_type (contribution|drawing), search, date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "cash_management.ownertransaction"
+    allocations_context_key  = "owner_transaction_allocations"
 
     def get_serializer_class(self):
         return OwnerTransactionWriteSerializer if self.request.method == "POST" else OwnerTransactionReadSerializer
@@ -276,11 +286,12 @@ class OwnerTransactionListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_owner_transaction(
-            transaction_type = d["transaction_type"],
-            amount           = d["amount"],
-            transaction_date = d["transaction_date"],
-            note             = d.get("note", ""),
-            user             = request.user,
+            transaction_type   = d["transaction_type"],
+            amount             = d["amount"],
+            transaction_date   = d["transaction_date"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            note               = d.get("note", ""),
+            user               = request.user,
         )
         return Response(OwnerTransactionReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 

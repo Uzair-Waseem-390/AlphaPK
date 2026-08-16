@@ -363,7 +363,7 @@ def bulk_create_recurring_expense_assignments(*, period: str, category_id: int =
 
 @transaction.atomic
 def create_recurring_expense_payment(
-    *, assignment_id: int, amount: Decimal, payment_date, note: str = "", user,
+    *, assignment_id: int, amount: Decimal, payment_date, method_allocations: list, note: str = "", user,
 ) -> RecurringExpenseAssignmentPayment:
     """
     Records a payment against an assignment — the ONLY moment cash actually
@@ -376,6 +376,8 @@ def create_recurring_expense_payment(
 
     if amount <= 0:
         raise ValidationError({"amount": "Amount must be greater than zero."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     assignment = get_object_or_404(
         RecurringExpenseAssignment.objects.select_for_update(), pk=assignment_id,
@@ -402,6 +404,12 @@ def create_recurring_expense_payment(
     from cash_flow.services import record_cash_movement, sync_recurring_expense_payment_made
     sync_recurring_expense_payment_made(amount=amount, user=user)
     record_cash_movement(payment)
+
+    from payment_methods.services import record_allocations
+    record_allocations(
+        payment, direction="outflow", splits=method_allocations,
+        total_amount=amount, date=payment_date, user=user,
+    )
 
     return payment
 
@@ -438,3 +446,6 @@ def delete_recurring_expense_payment(*, pk: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_recurring_expense_payment_deleted
     sync_recurring_expense_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payment)

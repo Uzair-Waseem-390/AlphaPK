@@ -34,12 +34,14 @@ class CollectBackupDataTests(TestCase):
     def test_full_collection_includes_every_row_and_excludes_own_bookkeeping(self):
         from cash_flow.services import create_expense, create_expense_category
         from data_entry.services import create_opening_cash
+        from payment_methods.models import PaymentMethod
 
         create_opening_cash(amount=Decimal("100"), user=self.admin)
+        cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
         cat = create_expense_category(name="Utilities", user=self.admin)
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("10"),
-            expense_date=timezone.now().date(), user=self.admin,
+            expense_date=timezone.now().date(), method_allocations=[(cash, Decimal("10"))], user=self.admin,
         )
 
         collected = collect_backup_data(since=None, as_of=timezone.now())

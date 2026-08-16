@@ -1,13 +1,16 @@
 from datetime import date
 from decimal import Decimal
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from cash_flow.models import CashFlow
 from cash_flow.services import sync_invoice_payment_received
+from payment_methods.models import PaymentMethod
 from users.models import User
 
 from .models import RecurringExpenseFlow, RecurringExpenseMonthlyStats
@@ -48,6 +51,7 @@ class RecurringExpensesTestBase(TestCase):
         # Seed cash — cash_in_hand floors at 0, so payments from an empty
         # till would vanish and hide round-trip errors.
         sync_invoice_payment_received(amount=Decimal("100000"), user=self.admin)
+        self.cash_method = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
 
     def flow(self):
         return RecurringExpenseFlow.get_instance()
@@ -57,6 +61,9 @@ class RecurringExpensesTestBase(TestCase):
 
     def cash(self):
         return CashFlow.get_instance().cash_in_hand
+
+    def cash_split(self, amount):
+        return [(self.cash_method, Decimal(amount))]
 
 
 class TemplateFlowTests(RecurringExpensesTestBase):
@@ -101,7 +108,7 @@ class AssignmentPaymentRoundTripTests(RecurringExpensesTestBase):
 
         p1 = create_recurring_expense_payment(
             assignment_id=assignment.id, amount=Decimal("2000"),
-            payment_date=timezone.now().date(), user=self.admin,
+            payment_date=timezone.now().date(), method_allocations=self.cash_split("2000"), user=self.admin,
         )
         assignment.refresh_from_db()
         self.assertEqual(assignment.payment_status, "partial")
@@ -109,7 +116,7 @@ class AssignmentPaymentRoundTripTests(RecurringExpensesTestBase):
 
         p2 = create_recurring_expense_payment(
             assignment_id=assignment.id, amount=Decimal("3000"),
-            payment_date=timezone.now().date(), user=self.admin,
+            payment_date=timezone.now().date(), method_allocations=self.cash_split("3000"), user=self.admin,
         )
         assignment.refresh_from_db()
         self.assertEqual(assignment.payment_status, "paid")
@@ -121,7 +128,7 @@ class AssignmentPaymentRoundTripTests(RecurringExpensesTestBase):
         with self.assertRaises(ValidationError):
             create_recurring_expense_payment(
                 assignment_id=assignment.id, amount=Decimal("1"),
-                payment_date=timezone.now().date(), user=self.admin,
+                payment_date=timezone.now().date(), method_allocations=self.cash_split("1"), user=self.admin,
             )
 
         # Unassigning with payments recorded is still rejected.
@@ -195,3 +202,38 @@ class SearchAndPermissionTests(RecurringExpensesTestBase):
         force_authenticate(request, user=make_normal_user())
         response = RecurringExpenseListCreateView.as_view()(request)
         self.assertEqual(response.status_code, 403)
+
+
+class RecurringExpensePaymentAllocationQueryCountTests(RecurringExpensesTestBase):
+    """architecture.md's STRICT O(1)-per-page rule — Phase 5 Batch D's
+    allocations field must not N+1 as row count grows."""
+
+    def count_queries(self, view, url):
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        return len(ctx.captured_queries)
+
+    def test_payment_list_query_count_flat(self):
+        from .views import RecurringExpenseAssignmentPaymentListCreateView
+
+        assignment = create_recurring_expense_assignment(
+            recurring_expense_id=self.template.id, period="2026-08", user=self.admin,
+        )
+        create_recurring_expense_payment(
+            assignment_id=assignment.id, amount=Decimal("500"),
+            payment_date=timezone.now().date(), method_allocations=self.cash_split("500"), user=self.admin,
+        )
+        view = RecurringExpenseAssignmentPaymentListCreateView.as_view()
+        baseline = self.count_queries(view, "/recurring-expenses/payments/")
+
+        for _ in range(4):
+            create_recurring_expense_payment(
+                assignment_id=assignment.id, amount=Decimal("500"),
+                payment_date=timezone.now().date(), method_allocations=self.cash_split("500"), user=self.admin,
+            )
+        grown = self.count_queries(view, "/recurring-expenses/payments/")
+        self.assertEqual(baseline, grown)

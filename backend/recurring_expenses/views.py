@@ -2,6 +2,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_recurring_expense_assignments,
@@ -235,9 +237,11 @@ class RecurringExpenseAssignmentRetrieveDestroyView(generics.RetrieveDestroyAPIV
 # RecurringExpenseAssignmentPayment
 # ---------------------------------------------------------------------------
 
-class RecurringExpenseAssignmentPaymentListCreateView(generics.ListCreateAPIView):
+class RecurringExpenseAssignmentPaymentListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """Filter params for GET: assignment_id, date_from, date_to"""
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "recurring_expenses.recurringexpenseassignmentpayment"
+    allocations_context_key  = "recurring_expense_payment_allocations"
 
     def get_serializer_class(self):
         return RecurringExpenseAssignmentPaymentWriteSerializer if self.request.method == "POST" else RecurringExpenseAssignmentPaymentReadSerializer
@@ -254,7 +258,8 @@ class RecurringExpenseAssignmentPaymentListCreateView(generics.ListCreateAPIView
         d = serializer.validated_data
         obj = create_recurring_expense_payment(
             assignment_id=d["assignment"].id, amount=d["amount"],
-            payment_date=d["payment_date"], note=d.get("note", ""), user=request.user,
+            payment_date=d["payment_date"], method_allocations=_as_splits(d["method_allocations"]),
+            note=d.get("note", ""), user=request.user,
         )
         return Response(RecurringExpenseAssignmentPaymentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 

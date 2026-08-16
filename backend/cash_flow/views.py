@@ -6,6 +6,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+
 from .models import CashFlow
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
@@ -128,7 +130,7 @@ class ExpenseCategoryRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPI
 # Expense
 # ---------------------------------------------------------------------------
 
-class ExpenseListCreateView(generics.ListCreateAPIView):
+class ExpenseListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /cash-flow/expenses/
     POST /cash-flow/expenses/
@@ -142,6 +144,8 @@ class ExpenseListCreateView(generics.ListCreateAPIView):
         max_amount  : maximum amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "cash_flow.expense"
+    allocations_context_key  = "expense_allocations"
 
     def get_serializer_class(self):
         return ExpenseWriteSerializer if self.request.method == "POST" else ExpenseReadSerializer
@@ -162,12 +166,13 @@ class ExpenseListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_expense(
-            name         = d["name"],
-            category_id  = d["category"].pk,
-            amount       = d["amount"],
-            expense_date = d["expense_date"],
-            description  = d.get("description", ""),
-            user         = request.user,
+            name               = d["name"],
+            category_id        = d["category"].pk,
+            amount             = d["amount"],
+            expense_date       = d["expense_date"],
+            method_allocations = _as_splits(d.get("method_allocations")),
+            description        = d.get("description", ""),
+            user               = request.user,
         )
         return Response(ExpenseReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
@@ -192,13 +197,14 @@ class ExpenseRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = update_expense(
-            pk           = self.kwargs["pk"],
-            name         = d.get("name"),
-            category_id  = d["category"].pk if "category" in d else None,
-            amount       = d.get("amount"),
-            expense_date = d.get("expense_date"),
-            description  = d.get("description"),
-            user         = request.user,
+            pk                 = self.kwargs["pk"],
+            name               = d.get("name"),
+            category_id        = d["category"].pk if "category" in d else None,
+            amount             = d.get("amount"),
+            expense_date       = d.get("expense_date"),
+            method_allocations = _as_splits(d.get("method_allocations")),
+            description        = d.get("description"),
+            user               = request.user,
         )
         return Response(ExpenseReadSerializer(obj).data)
 

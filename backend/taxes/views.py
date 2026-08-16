@@ -2,6 +2,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_tax_payments,
@@ -42,7 +44,7 @@ class TaxStatsView(APIView):
 # TaxPayment
 # ---------------------------------------------------------------------------
 
-class TaxPaymentListCreateView(generics.ListCreateAPIView):
+class TaxPaymentListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /taxes/payments/  — all GST payments made to FBR, newest first
     POST /taxes/payments/  — record a new GST payment (deducts cash_in_hand)
@@ -51,6 +53,8 @@ class TaxPaymentListCreateView(generics.ListCreateAPIView):
         search, date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "taxes.taxpayment"
+    allocations_context_key  = "tax_payment_allocations"
 
     def get_serializer_class(self):
         return TaxPaymentWriteSerializer if self.request.method == "POST" else TaxPaymentReadSerializer
@@ -70,10 +74,11 @@ class TaxPaymentListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_tax_payment(
-            amount       = d["amount"],
-            payment_date = d["payment_date"],
-            note         = d.get("note", ""),
-            user         = request.user,
+            amount             = d["amount"],
+            payment_date       = d["payment_date"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            note               = d.get("note", ""),
+            user               = request.user,
         )
         return Response(TaxPaymentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
@@ -98,7 +103,7 @@ class TaxPaymentRetrieveDestroyView(generics.RetrieveDestroyAPIView):
 # WHTPayment
 # ---------------------------------------------------------------------------
 
-class WHTPaymentListCreateView(generics.ListCreateAPIView):
+class WHTPaymentListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /taxes/wht-payments/  — all WHT deposits made to FBR, newest first
     POST /taxes/wht-payments/  — record a new WHT payment (deducts cash_in_hand)
@@ -107,6 +112,8 @@ class WHTPaymentListCreateView(generics.ListCreateAPIView):
         search, date_from, date_to, min_amount, max_amount
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "taxes.whtpayment"
+    allocations_context_key  = "wht_payment_allocations"
 
     def get_serializer_class(self):
         return WHTPaymentWriteSerializer if self.request.method == "POST" else WHTPaymentReadSerializer
@@ -126,10 +133,11 @@ class WHTPaymentListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_wht_payment(
-            amount       = d["amount"],
-            payment_date = d["payment_date"],
-            note         = d.get("note", ""),
-            user         = request.user,
+            amount             = d["amount"],
+            payment_date       = d["payment_date"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            note               = d.get("note", ""),
+            user               = request.user,
         )
         return Response(WHTPaymentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 

@@ -407,6 +407,7 @@ class CashFlowStatementTests(AccountingTestBase):
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("50"),
             expense_date=today, user=self.admin,
+            method_allocations=self.cash_split("50"),
         )
 
         result = get_cash_flow_statement(
@@ -508,6 +509,7 @@ class IncomeStatementTests(AccountingTestBase):
         create_expense(
             name="Shop Rent", category_id=cat.id, amount=Decimal("30"),
             expense_date=date(y, m, 20), user=self.admin,
+            method_allocations=self.cash_split("30"),
         )
 
         catch_up_monthly_profits(user=self.admin)
@@ -561,7 +563,7 @@ class IncomeStatementTests(AccountingTestBase):
         )
         create_recurring_expense_payment(
             assignment_id=assignment.id, amount=Decimal(amount),
-            payment_date=payment_date, user=self.admin,
+            payment_date=payment_date, method_allocations=self.cash_split(amount), user=self.admin,
         )
 
     def test_expense_breakdown_excludes_recurring_and_foots_to_expenses_paid(self):
@@ -591,6 +593,7 @@ class IncomeStatementTests(AccountingTestBase):
         create_expense(
             name="Electricity Top-Up", category_id=cat.id, amount=Decimal("40"),
             expense_date=date(y, m, 20), user=self.admin,
+            method_allocations=self.cash_split("40"),
         )
         self._pay_recurring_expense(
             period=period, category_name="Utilities", amount="25",
@@ -637,6 +640,7 @@ class IncomeStatementTests(AccountingTestBase):
         create_expense(
             name="Electricity Top-Up", category_id=cat.id, amount=Decimal("40"),
             expense_date=date(y, m, 20), user=self.admin,
+            method_allocations=self.cash_split("40"),
         )
         self._pay_recurring_expense(
             period=period, category_name="Utilities", amount="25",
@@ -895,7 +899,8 @@ class BalanceSheetTests(AccountingTestBase):
         create_asset(
             name="New Forklift", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("300000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("300000"),
+
         )
 
         sheet = get_balance_sheet_live()
@@ -911,7 +916,8 @@ class BalanceSheetTests(AccountingTestBase):
         asset = create_asset(
             name="Warehouse Plot", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("1000000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("1000000"),
+
         )
         revalue_asset(
             asset_id=asset.id, new_worth=Decimal("1250000"),
@@ -930,7 +936,8 @@ class BalanceSheetTests(AccountingTestBase):
         asset = create_asset(
             name="Old Plot", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("1000000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("1000000"),
+
         )
         revalue_asset(
             asset_id=asset.id, new_worth=Decimal("800000"),
@@ -953,7 +960,8 @@ class BalanceSheetTests(AccountingTestBase):
         asset = create_asset(
             name="Crashed Van", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("400000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("400000"),
+
         )
         dispose_asset(
             asset_id=asset.id, disposal_type="scrapped",
@@ -975,7 +983,8 @@ class BalanceSheetTests(AccountingTestBase):
         asset = create_asset(
             name="Burnt Compressor", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("250000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("250000"),
+
         )
         dispose_asset(
             asset_id=asset.id, disposal_type="scrapped",
@@ -998,12 +1007,13 @@ class BalanceSheetTests(AccountingTestBase):
         asset = create_asset(
             name="Resold Printer", category_id=self._revaluing_category().id,
             acquisition_type="new", cost=Decimal("100000"),
-            acquisition_date=timezone.localdate(), user=self.admin,
+            acquisition_date=timezone.localdate(), user=self.admin, method_allocations=self.cash_split("100000"),
+
         )
         dispose_asset(
             asset_id=asset.id, disposal_type="sold",
             disposal_date=timezone.localdate(),
-            sale_amount=Decimal("120000"), user=self.admin,
+            sale_amount=Decimal("120000"), method_allocations=self.cash_split("120000"), user=self.admin,
         )
 
         today = timezone.localdate()
@@ -1159,6 +1169,7 @@ class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
         create_expense(
             name="Diesel", category_id=cat.id, amount=Decimal("321.50"),
             expense_date=today, user=self.admin,
+            method_allocations=self.cash_split("321.50"),
         )
 
         rcat = create_recurring_expense_category(name="Rent", user=self.admin)
@@ -1171,13 +1182,13 @@ class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
         )
         create_recurring_expense_payment(
             assignment_id=assignment.id, amount=Decimal("777.25"),
-            payment_date=today, user=self.admin,
+            payment_date=today, method_allocations=self.cash_split("777.25"), user=self.admin,
         )
 
         for kind, amount in (("lost", "150.75"), ("found", "60.25")):
             create_cash_adjustment(
                 adjustment_type=kind, amount=Decimal(amount),
-                adjustment_date=today, reason="test", user=self.admin,
+                adjustment_date=today, method_allocations=self.cash_split(amount), reason="test", user=self.admin,
             )
 
         dep_cat = create_asset_category(
@@ -1195,15 +1206,15 @@ class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
         )
         sold = create_asset(
             name="Old Van", category_id=rev_cat.id, acquisition_type="new",
-            cost=Decimal("90000"), acquisition_date=today, user=self.admin,
+            cost=Decimal("90000"), acquisition_date=today, method_allocations=self.cash_split("90000"), user=self.admin,
         )
         dispose_asset(
             asset_id=sold.id, disposal_type="sold", disposal_date=today,
-            sale_amount=Decimal("95000"), user=self.admin,
+            sale_amount=Decimal("95000"), method_allocations=self.cash_split("95000"), user=self.admin,
         )
         scrapped = create_asset(
             name="Dead Van", category_id=rev_cat.id, acquisition_type="new",
-            cost=Decimal("70000"), acquisition_date=today, user=self.admin,
+            cost=Decimal("70000"), acquisition_date=today, method_allocations=self.cash_split("70000"), user=self.admin,
         )
         dispose_asset(
             asset_id=scrapped.id, disposal_type="scrapped",
@@ -1212,7 +1223,7 @@ class ProfitsCombinedQueryEquivalenceTests(AccountingTestBase):
         revalue_asset(
             asset_id=create_asset(
                 name="Plot", category_id=rev_cat.id, acquisition_type="new",
-                cost=Decimal("500000"), acquisition_date=today, user=self.admin,
+                cost=Decimal("500000"), acquisition_date=today, method_allocations=self.cash_split("500000"), user=self.admin,
             ).id,
             new_worth=Decimal("560000"), revaluation_date=today, user=self.admin,
         )

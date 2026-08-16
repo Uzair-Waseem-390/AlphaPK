@@ -197,7 +197,8 @@ def catch_up_all_investor_growth(user=None) -> None:
 
 @transaction.atomic
 def create_cash_adjustment(
-    *, amount: Decimal, adjustment_type: str, adjustment_date, reason: str = "", user,
+    *, amount: Decimal, adjustment_type: str, adjustment_date, method_allocations: list,
+    reason: str = "", user,
 ) -> CashAdjustment:
     """
     Records a lost or found cash adjustment. Lost deducts from
@@ -210,6 +211,8 @@ def create_cash_adjustment(
         raise ValidationError({"amount": "Amount must be greater than zero."})
     if adjustment_type not in (CashAdjustment.AdjustmentType.LOST, CashAdjustment.AdjustmentType.FOUND):
         raise ValidationError({"adjustment_type": "Must be 'lost' or 'found'."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     adjustment = CashAdjustment.objects.create(
         amount=amount,
@@ -221,8 +224,10 @@ def create_cash_adjustment(
     )
 
     from cash_flow.services import record_cash_movement, sync_cash_found, sync_cash_lost
+    from payment_methods.services import record_allocations
 
-    if adjustment_type == CashAdjustment.AdjustmentType.LOST:
+    is_lost = adjustment_type == CashAdjustment.AdjustmentType.LOST
+    if is_lost:
         _adjust_cash_management_flow(total_cash_lost_delta=+amount, user=user)
         sync_cash_lost(amount=amount, user=user)
     else:
@@ -230,6 +235,10 @@ def create_cash_adjustment(
         sync_cash_found(amount=amount, user=user)
 
     record_cash_movement(adjustment)
+    record_allocations(
+        adjustment, direction="outflow" if is_lost else "inflow", splits=method_allocations,
+        total_amount=amount, date=adjustment_date, user=user,
+    )
     return adjustment
 
 
@@ -256,6 +265,9 @@ def delete_cash_adjustment(*, pk: int, user) -> None:
         sync_cash_lost(amount=amount, user=user)  # reverse: remove cash_in_hand again
 
     reverse_cash_movement(adjustment)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(adjustment)
 
 
 # ---------------------------------------------------------------------------
@@ -356,7 +368,8 @@ def delete_investor(*, pk: int, user) -> None:
 @transaction.atomic
 def create_investor_transaction(
     *, investor_id: int, transaction_type: str, amount: Decimal,
-    transaction_date, note: str = "", user, is_data_entry: bool = False,
+    transaction_date, method_allocations: list = None, note: str = "",
+    user, is_data_entry: bool = False,
 ) -> InvestorTransaction:
     """
     Records an investment or withdrawal for an investor. Investment adds to
@@ -384,6 +397,10 @@ def create_investor_transaction(
         raise ValidationError({"amount": "Amount must be greater than zero."})
     if transaction_type not in (InvestorTransaction.TransactionType.INVESTMENT, InvestorTransaction.TransactionType.WITHDRAWAL):
         raise ValidationError({"transaction_type": "Must be 'investment' or 'withdrawal'."})
+    # is_data_entry never touches cash_in_hand (see docstring) — no real
+    # cash movement to allocate, so no method is required for it.
+    if not is_data_entry and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     investor = get_object_or_404(Investor.objects.select_for_update(), pk=investor_id, is_deleted=False)
 
@@ -454,6 +471,14 @@ def create_investor_transaction(
     from cash_flow.services import record_cash_movement
     record_cash_movement(txn)
 
+    if not is_data_entry:
+        from payment_methods.services import record_allocations
+        record_allocations(
+            txn,
+            direction="inflow" if transaction_type == InvestorTransaction.TransactionType.INVESTMENT else "outflow",
+            splits=method_allocations, total_amount=amount, date=transaction_date, user=user,
+        )
+
     return txn
 
 
@@ -517,6 +542,10 @@ def delete_investor_transaction(*, pk: int, user) -> None:
     from cash_flow.services import reverse_cash_movement
     reverse_cash_movement(txn)
 
+    if not txn.is_data_entry:
+        from payment_methods.services import reverse_allocations
+        reverse_allocations(txn)
+
 
 # ---------------------------------------------------------------------------
 # OwnerTransaction services (owner drawings/contributions)
@@ -524,7 +553,8 @@ def delete_investor_transaction(*, pk: int, user) -> None:
 
 @transaction.atomic
 def create_owner_transaction(
-    *, transaction_type: str, amount: Decimal, transaction_date, note: str = "", user,
+    *, transaction_type: str, amount: Decimal, transaction_date,
+    method_allocations: list, note: str = "", user,
 ) -> OwnerTransaction:
     """
     Records an owner contribution or drawing. Contribution adds to
@@ -538,6 +568,8 @@ def create_owner_transaction(
         raise ValidationError({"amount": "Amount must be greater than zero."})
     if transaction_type not in (OwnerTransaction.TransactionType.CONTRIBUTION, OwnerTransaction.TransactionType.DRAWING):
         raise ValidationError({"transaction_type": "Must be 'contribution' or 'drawing'."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     txn = OwnerTransaction.objects.create(
         transaction_type=transaction_type,
@@ -566,6 +598,13 @@ def create_owner_transaction(
         sync_owner_drawing(amount=amount, user=user)
 
     record_cash_movement(txn)
+
+    from payment_methods.services import record_allocations
+    record_allocations(
+        txn,
+        direction="inflow" if transaction_type == OwnerTransaction.TransactionType.CONTRIBUTION else "outflow",
+        splits=method_allocations, total_amount=amount, date=transaction_date, user=user,
+    )
     return txn
 
 
@@ -600,3 +639,6 @@ def delete_owner_transaction(*, pk: int, user) -> None:
     txn.save(update_fields=["is_deleted", "deleted_at", "deleted_by"])
 
     reverse_cash_movement(txn)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(txn)

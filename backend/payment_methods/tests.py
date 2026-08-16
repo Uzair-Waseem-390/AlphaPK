@@ -149,10 +149,12 @@ class SeedAndBackfillCommandTests(TestCase):
         from cash_management.services import create_investor, create_investor_transaction
 
         create_opening_cash(amount=Decimal("20000"), user=self.admin)
+        cash_method = PaymentMethod.objects.create(name="Cash")
         investor = create_investor(name="Bilal", user=self.admin)
         create_investor_transaction(
             investor_id=investor.id, transaction_type="investment",
-            amount=Decimal("3000"), transaction_date="2026-01-01", user=self.admin,
+            amount=Decimal("3000"), transaction_date="2026-01-01",
+            method_allocations=[(cash_method, Decimal("3000"))], user=self.admin,
         )
 
         call_command("seed_and_backfill_payment_methods")

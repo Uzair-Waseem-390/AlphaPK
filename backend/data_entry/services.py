@@ -129,6 +129,11 @@ def create_opening_cash(*, amount: Decimal, user) -> OpeningCashEntry:
     Seeds starting cash on hand. Can be called multiple times.
         - CashFlow : cash_in_hand += amount, total_invoices_cash += amount
         - OpeningCashEntry record (shown in cash-in-hand breakdown as an inflow)
+
+    No method picker here (unlike every other Phase 5 source) — this is a
+    one-time store-setup bootstrap that runs before any real accounts exist
+    to choose from, so it lands on the protected Cash account automatically,
+    same as a profit reinvest's silent legs.
     """
     from cash_flow.services import sync_data_entry_opening_cash
 
@@ -140,6 +145,15 @@ def create_opening_cash(*, amount: Decimal, user) -> OpeningCashEntry:
 
     from cash_flow.services import record_cash_movement
     record_cash_movement(entry)
+
+    from payment_methods.models import PaymentMethod
+    from payment_methods.services import record_allocations
+    cash, _ = PaymentMethod.objects.get_or_create(name="Cash", defaults={"is_protected": True})
+    record_allocations(
+        entry, direction="inflow", splits=[(cash, amount)],
+        total_amount=amount, date=entry.added_at.date(), user=user,
+    )
+
     return entry
 
 

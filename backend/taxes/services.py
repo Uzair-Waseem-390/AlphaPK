@@ -107,7 +107,7 @@ def sync_invoice_tax(*, gst_amount: Decimal, wht_amount: Decimal, user) -> None:
 
 @transaction.atomic
 def create_tax_payment(
-    *, amount: Decimal, payment_date, note: str = "", user,
+    *, amount: Decimal, payment_date, method_allocations: list, note: str = "", user,
 ) -> TaxPayment:
     """
     Records a real GST payment made to FBR. Deducts amount from
@@ -118,6 +118,8 @@ def create_tax_payment(
 
     if amount <= 0:
         raise ValidationError({"amount": "Payment amount must be greater than zero."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     payment = TaxPayment.objects.create(
         amount=amount,
@@ -132,6 +134,12 @@ def create_tax_payment(
     from cash_flow.services import record_cash_movement, sync_tax_payment_made
     sync_tax_payment_made(amount=amount, user=user)
     record_cash_movement(payment)
+
+    from payment_methods.services import record_allocations
+    record_allocations(
+        payment, direction="outflow", splits=method_allocations,
+        total_amount=amount, date=payment_date, user=user,
+    )
 
     return payment
 
@@ -158,6 +166,9 @@ def delete_tax_payment(*, pk: int, user) -> None:
     sync_tax_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)
 
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payment)
+
 
 # ---------------------------------------------------------------------------
 # WHTPayment services
@@ -165,7 +176,7 @@ def delete_tax_payment(*, pk: int, user) -> None:
 
 @transaction.atomic
 def create_wht_payment(
-    *, amount: Decimal, payment_date, note: str = "", user,
+    *, amount: Decimal, payment_date, method_allocations: list, note: str = "", user,
 ) -> WHTPayment:
     """
     Records a real WHT deposit made to FBR, against tax withheld from
@@ -177,6 +188,8 @@ def create_wht_payment(
 
     if amount <= 0:
         raise ValidationError({"amount": "Payment amount must be greater than zero."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     payment = WHTPayment.objects.create(
         amount=amount,
@@ -191,6 +204,12 @@ def create_wht_payment(
     from cash_flow.services import record_cash_movement, sync_wht_payment_made
     sync_wht_payment_made(amount=amount, user=user)
     record_cash_movement(payment)
+
+    from payment_methods.services import record_allocations
+    record_allocations(
+        payment, direction="outflow", splits=method_allocations,
+        total_amount=amount, date=payment_date, user=user,
+    )
 
     return payment
 
@@ -216,3 +235,6 @@ def delete_wht_payment(*, pk: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_wht_payment_deleted
     sync_wht_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payment)

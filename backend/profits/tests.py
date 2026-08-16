@@ -88,13 +88,13 @@ class ProfitsTestBase(TestCase):
         from cash_flow.services import create_expense, create_expense_category
         from data_entry.services import create_opening_cash
         create_opening_cash(amount=Decimal("10000"), user=self.admin)
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
         cat = create_expense_category(name="Utilities", user=self.admin)
         create_expense(
             name="Electricity", category_id=cat.id, amount=Decimal("100"),
-            expense_date=timezone.now().date().replace(year=y, month=m, day=20), user=self.admin,
+            expense_date=timezone.now().date().replace(year=y, month=m, day=20),
+            method_allocations=self.cash_split("100"), user=self.admin,
         )
-
-        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]

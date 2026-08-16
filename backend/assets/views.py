@@ -2,6 +2,8 @@ from rest_framework import generics, status
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
+from payment_methods.mixins import AllocationsListMixin, as_splits as _as_splits
+
 from .permissions import IsAdminOrSuperuser
 from .selectors import (
     get_all_asset_categories,
@@ -94,7 +96,7 @@ class AssetCategoryRetrieveUpdateView(generics.RetrieveUpdateAPIView):
 # Asset
 # ---------------------------------------------------------------------------
 
-class AssetListCreateView(generics.ListCreateAPIView):
+class AssetListCreateView(AllocationsListMixin, generics.ListCreateAPIView):
     """
     GET  /assets/items/  — every active/disposed asset, catch-up run per item
     POST /assets/items/  — register an existing or new asset
@@ -103,6 +105,8 @@ class AssetListCreateView(generics.ListCreateAPIView):
         category_id, acquisition_type (existing|new), is_disposed (true|false), search
     """
     permission_classes = [IsAdminOrSuperuser]
+    allocations_source_model = "assets.asset"
+    allocations_context_key  = "asset_allocations"
 
     def get_serializer_class(self):
         return AssetCreateSerializer if self.request.method == "POST" else AssetReadSerializer
@@ -121,13 +125,14 @@ class AssetListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d = serializer.validated_data
         obj = create_asset(
-            name              = d["name"],
-            category_id       = d["category"].pk,
-            acquisition_type  = d["acquisition_type"],
-            cost              = d["cost"],
-            acquisition_date  = d["acquisition_date"],
-            note              = d.get("note", ""),
-            user              = request.user,
+            name                = d["name"],
+            category_id         = d["category"].pk,
+            acquisition_type    = d["acquisition_type"],
+            cost                = d["cost"],
+            acquisition_date    = d["acquisition_date"],
+            method_allocations  = _as_splits(d.get("method_allocations")),
+            note                = d.get("note", ""),
+            user                = request.user,
         )
         return Response(AssetReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 
@@ -192,17 +197,18 @@ class AssetDisposeView(APIView):
         d = serializer.validated_data
 
         disposal = dispose_asset(
-            asset_id       = pk,
-            disposal_type  = d["disposal_type"],
-            disposal_date  = d["disposal_date"],
-            sale_amount    = d.get("sale_amount"),
-            reason         = d.get("reason", ""),
-            user           = request.user,
+            asset_id            = pk,
+            disposal_type       = d["disposal_type"],
+            disposal_date       = d["disposal_date"],
+            sale_amount         = d.get("sale_amount"),
+            method_allocations  = _as_splits(d.get("method_allocations")),
+            reason              = d.get("reason", ""),
+            user                = request.user,
         )
         return Response(AssetDisposalReadSerializer(disposal).data, status=status.HTTP_201_CREATED)
 
 
-class AssetDisposalListView(generics.ListAPIView):
+class AssetDisposalListView(AllocationsListMixin, generics.ListAPIView):
     """
     GET /assets/disposals/ — every disposal record, newest first.
 
@@ -210,6 +216,8 @@ class AssetDisposalListView(generics.ListAPIView):
     """
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = AssetDisposalReadSerializer
+    allocations_source_model = "assets.assetdisposal"
+    allocations_context_key  = "asset_disposal_allocations"
 
     def get_queryset(self):
         p = self.request.query_params

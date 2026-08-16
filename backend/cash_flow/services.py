@@ -446,7 +446,7 @@ def delete_expense_category(*, pk: int) -> None:
 @transaction.atomic
 def create_expense(
     *, name: str, category_id: int, amount: Decimal,
-    expense_date, description: str = "", user,
+    expense_date, method_allocations: list, description: str = "", user,
 ) -> Expense:
     """
     Creates an expense and immediately deducts amount from cash_in_hand.
@@ -458,6 +458,8 @@ def create_expense(
 
     if amount <= 0:
         raise ValidationError({"amount": "Expense amount must be greater than zero."})
+    if not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected."})
 
     get_object_or_404(ExpenseCategory, pk=category_id)
 
@@ -481,6 +483,12 @@ def create_expense(
     )
     record_cash_movement(expense)
 
+    from payment_methods.services import record_allocations
+    record_allocations(
+        expense, direction="outflow", splits=method_allocations,
+        total_amount=amount, date=expense_date, user=user,
+    )
+
     return expense
 
 
@@ -488,7 +496,7 @@ def create_expense(
 def update_expense(
     *, pk: int, name: str = None, category_id: int = None,
     amount: Decimal = None, expense_date=None,
-    description: str = None, user,
+    method_allocations: list = None, description: str = None, user,
 ) -> Expense:
     """
     Updates an expense. If amount changes, adjusts cash_in_hand by the difference.
@@ -514,6 +522,8 @@ def update_expense(
     if amount is not None:
         if amount <= 0:
             raise ValidationError({"amount": "Expense amount must be greater than zero."})
+        if amount != old_amount and not method_allocations:
+            raise ValidationError({"method_allocations": "At least one method must be selected when the amount changes."})
         expense.amount = amount
 
     expense.updated_by = user
@@ -532,6 +542,15 @@ def update_expense(
     # Name/category/date edits change the drawer's display too, not just
     # amount edits — re-sync the event on every update.
     refresh_cash_movement(expense)
+
+    # Re-split explicitly requested (amount change requires it; a method-only
+    # correction with the amount unchanged is also allowed).
+    if method_allocations:
+        from payment_methods.services import refresh_allocations
+        refresh_allocations(
+            expense, direction="outflow", splits=method_allocations,
+            total_amount=expense.amount, date=expense.expense_date, user=user,
+        )
 
     return expense
 
@@ -561,6 +580,9 @@ def delete_expense(*, pk: int, user) -> None:
         user=user,
     )
     reverse_cash_movement(expense)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(expense)
 
 
 # ---------------------------------------------------------------------------

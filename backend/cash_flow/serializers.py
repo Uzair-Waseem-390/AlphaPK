@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from payment_methods.serializers import MethodAllocationInputSerializer
+
 from .models import CashFlow, Expense, ExpenseCategory
 
 
@@ -32,23 +34,40 @@ class ExpenseCategoryWriteSerializer(serializers.ModelSerializer):
 # ---------------------------------------------------------------------------
 
 class ExpenseReadSerializer(serializers.ModelSerializer):
-    category   = ExpenseCategoryReadSerializer(read_only=True)
-    created_by = serializers.StringRelatedField(read_only=True)
-    updated_by = serializers.StringRelatedField(read_only=True)
+    category    = ExpenseCategoryReadSerializer(read_only=True)
+    created_by  = serializers.StringRelatedField(read_only=True)
+    updated_by  = serializers.StringRelatedField(read_only=True)
+    allocations = serializers.SerializerMethodField()
 
     class Meta:
         model  = Expense
         fields = [
-            "id", "name", "category", "description", "amount", "expense_date",
+            "id", "name", "category", "description", "amount", "expense_date", "allocations",
             "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
+    def get_allocations(self, obj):
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+
+        prefetched = self.context.get("expense_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
+
 
 class ExpenseWriteSerializer(serializers.ModelSerializer):
+    method_allocations = MethodAllocationInputSerializer(
+        many=True, required=False,
+        help_text="Required on create, and whenever amount changes on update.",
+    )
+
     class Meta:
         model  = Expense
-        fields = ["name", "category", "description", "amount", "expense_date"]
+        fields = ["name", "category", "description", "amount", "expense_date", "method_allocations"]
 
     def validate_amount(self, value):
         if value <= 0:

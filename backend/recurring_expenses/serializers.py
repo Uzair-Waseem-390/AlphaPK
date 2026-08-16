@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from payment_methods.serializers import MethodAllocationInputSerializer
+
 from .models import (
     RecurringExpense, RecurringExpenseAssignment, RecurringExpenseAssignmentPayment,
     RecurringExpenseCategory,
@@ -106,26 +108,45 @@ class RecurringExpenseAssignmentBulkCreateSerializer(serializers.Serializer):
 # ---------------------------------------------------------------------------
 
 class RecurringExpenseAssignmentPaymentReadSerializer(serializers.ModelSerializer):
-    created_by = serializers.StringRelatedField(read_only=True)
-    updated_by = serializers.StringRelatedField(read_only=True)
+    created_by  = serializers.StringRelatedField(read_only=True)
+    updated_by  = serializers.StringRelatedField(read_only=True)
+    allocations = serializers.SerializerMethodField()
 
     class Meta:
         model  = RecurringExpenseAssignmentPayment
         fields = [
-            "id", "assignment", "amount", "payment_date", "note",
+            "id", "assignment", "amount", "payment_date", "note", "allocations",
             "created_by", "updated_by", "created_at", "updated_at",
         ]
         read_only_fields = fields
 
+    def get_allocations(self, obj):
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+
+        prefetched = self.context.get("recurring_expense_payment_allocations")
+        if prefetched is not None:
+            rows = prefetched.get(obj.id, [])
+        else:
+            from payment_methods.selectors import get_allocations_for_source
+            rows = get_allocations_for_source(obj)
+        return PaymentAllocationReadSerializer(rows, many=True).data
+
 
 class RecurringExpenseAssignmentPaymentWriteSerializer(serializers.ModelSerializer):
+    method_allocations = MethodAllocationInputSerializer(many=True)
+
     class Meta:
         model  = RecurringExpenseAssignmentPayment
-        fields = ["assignment", "amount", "payment_date", "note"]
+        fields = ["assignment", "amount", "payment_date", "note", "method_allocations"]
 
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Amount must be greater than zero.")
+        return value
+
+    def validate_method_allocations(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one method must be selected.")
         return value
 
 
