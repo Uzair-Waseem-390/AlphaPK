@@ -7,6 +7,7 @@ import { profitsApi } from '../../services/profitsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
 import { useInvestorMonthlyShares } from '../../hooks/useProfits';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -51,11 +52,12 @@ const ProfitInvestorDetailPage = () => {
 
     const [settleShare, setSettleShare] = useState(null);
     const [formData, setFormData] = useState({
-        amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '',
+        amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '', method_allocations: [],
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [amountError, setAmountError] = useState('');
+    const [splitError, setSplitError] = useState('');
 
     const fetchInvestor = useCallback(() => {
         setInvestorLoading(true);
@@ -71,9 +73,10 @@ const ProfitInvestorDetailPage = () => {
     }, [fetchInvestor]);
 
     const resetForm = () => {
-        setFormData({ amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '' });
+        setFormData({ amount: '', action_type: 'payout', payout_date: todayLocalDate(), note: '', method_allocations: [] });
         setFormError('');
         setAmountError('');
+        setSplitError('');
     };
 
     const openSettle = (share) => {
@@ -85,12 +88,17 @@ const ProfitInvestorDetailPage = () => {
         e.preventDefault();
         setFormError('');
         setAmountError('');
+        setSplitError('');
         setFormLoading(true);
         try {
-            await profitsApi.payouts.create(settleShare.id, {
-                ...formData,
-                amount: parseFloat(formData.amount),
-            });
+            const { method_allocations, ...rest } = formData;
+            const payload = { ...rest, amount: parseFloat(formData.amount) };
+            // Reinvest never crosses accounts — no method is sent for it (see
+            // MonthlyProfitDetailPage's identical settle flow for the same rule).
+            if (formData.action_type === 'payout') {
+                payload.method_allocations = method_allocations;
+            }
+            await profitsApi.payouts.create(settleShare.id, payload);
             setSettleShare(null);
             resetForm();
             refetch();
@@ -98,8 +106,11 @@ const ProfitInvestorDetailPage = () => {
             toast.success(`${formData.action_type === 'reinvest' ? 'Reinvestment' : 'Payout'} recorded successfully`);
         } catch (err) {
             const fieldAmountError = err.response?.data?.amount?.[0];
+            const fieldSplitError = err.response?.data?.method_allocations?.[0] || err.response?.data?.splits?.[0];
             if (fieldAmountError) {
                 setAmountError(fieldAmountError);
+            } else if (fieldSplitError) {
+                setSplitError(fieldSplitError);
             } else {
                 setFormError(extractErrorMessage(err, 'Failed to record settlement'));
             }
@@ -293,7 +304,7 @@ const ProfitInvestorDetailPage = () => {
                                 </button>
                                 <button
                                     type="button"
-                                    onClick={() => setFormData({ ...formData, action_type: 'reinvest' })}
+                                    onClick={() => { setFormData({ ...formData, action_type: 'reinvest', method_allocations: [] }); setSplitError(''); }}
                                     className={`flex-1 px-4 py-3 rounded-xl border text-sm font-medium transition-colors ${formData.action_type === 'reinvest' ? 'border-primary-500 bg-primary-50 text-primary-700' : 'border-neutral-200 text-neutral-600'}`}
                                 >
                                     Reinvest
@@ -316,6 +327,18 @@ const ProfitInvestorDetailPage = () => {
                             placeholder="Optional"
                         />
 
+                        {formData.action_type === 'payout' && (
+                            <div>
+                                <label className="block text-sm font-medium text-neutral-700 mb-1.5">Pay Via</label>
+                                <MethodSplitPicker
+                                    totalAmount={formData.amount}
+                                    value={formData.method_allocations}
+                                    onChange={(value) => setFormData({ ...formData, method_allocations: value })}
+                                    error={splitError}
+                                />
+                            </div>
+                        )}
+
                         {formData.amount && parseFloat(formData.amount) > 0 && (
                             <InlineAlert
                                 variant="info"
@@ -333,7 +356,11 @@ const ProfitInvestorDetailPage = () => {
                             <Button type="button" variant="secondary" onClick={() => { setSettleShare(null); resetForm(); }}>
                                 Cancel
                             </Button>
-                            <Button type="submit" loading={formLoading}>
+                            <Button
+                                type="submit"
+                                loading={formLoading}
+                                disabled={formData.action_type === 'payout' && !isSplitBalanced(formData.amount, formData.method_allocations)}
+                            >
                                 {formData.action_type === 'reinvest' ? 'Reinvest' : 'Pay Out'}
                             </Button>
                         </div>

@@ -16,6 +16,7 @@ import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
 import DraftPreviewPanel from '../../components/billing/DraftPreviewPanel';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import { extractErrorMessage } from '../../utils/errorMessage';
 
 const firstMsg = (val) => (Array.isArray(val) ? val[0] : val);
@@ -37,6 +38,12 @@ const EditInvoicePage = () => {
         payment_due_date: '',
         items: [],
     });
+    // The advance amount as originally loaded — used to detect whether the
+    // user is actually changing it, since a fresh method split is only
+    // required (and only sent) when the advance amount is being set to a
+    // new value, never silently reused from the old one.
+    const [originalAdvance, setOriginalAdvance] = useState({ payment_type: 'after_delivery', advance_amount: '' });
+    const [methodAllocations, setMethodAllocations] = useState([]);
 
     const [generalError, setGeneralError] = useState('');
     const [fieldErrors, setFieldErrors] = useState({});
@@ -70,6 +77,10 @@ const EditInvoicePage = () => {
                     selling_price: item.selling_price || 0,
                     _key: `existing-${item.id}`,
                 })) || [],
+            });
+            setOriginalAdvance({
+                payment_type: invoiceData.payment_type || 'after_delivery',
+                advance_amount: invoiceData.advance_amount || '',
             });
 
             // Set preview if available
@@ -136,6 +147,9 @@ const EditInvoicePage = () => {
 
         if (data && typeof data === 'object') {
             if (data.advance_amount) nextFieldErrors.advance_amount = firstMsg(data.advance_amount);
+            if (data.method_allocations || data.splits) {
+                nextFieldErrors.method_allocations = firstMsg(data.method_allocations || data.splits);
+            }
             if (data.payment_due_date) nextFieldErrors.payment_due_date = firstMsg(data.payment_due_date);
 
             if (data.items) {
@@ -170,16 +184,33 @@ const EditInvoicePage = () => {
         toast.error(nextGeneralError || 'Failed to update invoice.');
     };
 
+    const isAdvance = formData.payment_type === 'advance';
+    const advanceAmountValue = parseFloat(formData.advance_amount) || 0;
+    // The backend never silently reuses the old split — a fresh method pick
+    // is required whenever the advance amount is being set to a new value,
+    // including switching payment_type to advance for the first time.
+    const advanceChanged = isAdvance && (
+        originalAdvance.payment_type !== 'advance' ||
+        String(formData.advance_amount) !== String(originalAdvance.advance_amount)
+    );
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setGeneralError('');
         setFieldErrors({});
         setItemErrors([]);
+
+        if (advanceChanged && !isSplitBalanced(advanceAmountValue, methodAllocations)) {
+            setGeneralError('Payment method split must add up to the full advance amount.');
+            return;
+        }
+
         setSaving(true);
         try {
             const data = {
                 payment_type: formData.payment_type,
-                advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
+                advance_amount: isAdvance ? advanceAmountValue : 0,
+                ...(advanceChanged ? { method_allocations: methodAllocations } : {}),
                 payment_due_date: formData.payment_due_date || undefined,
                 items: formData.items.map(item => ({
                     product_id: parseInt(item.product_id),
@@ -246,7 +277,11 @@ const EditInvoicePage = () => {
                     <Button variant="secondary" onClick={handleCancel}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} loading={saving}>
+                    <Button
+                        onClick={handleSubmit}
+                        loading={saving}
+                        disabled={advanceChanged && !isSplitBalanced(advanceAmountValue, methodAllocations)}
+                    >
                         Update Draft
                     </Button>
                 </div>
@@ -309,6 +344,29 @@ const EditInvoicePage = () => {
                             />
                         )}
                     </div>
+
+                    {isAdvance && (
+                        <div className="mt-4">
+                            {advanceChanged ? (
+                                <>
+                                    <p className="text-sm font-medium text-neutral-700 mb-2">Advance Payment Method</p>
+                                    <p className="text-xs text-neutral-500 mb-2">
+                                        The advance amount changed — pick how the new amount was received.
+                                    </p>
+                                    <MethodSplitPicker
+                                        totalAmount={advanceAmountValue}
+                                        value={methodAllocations}
+                                        onChange={setMethodAllocations}
+                                        error={fieldErrors.method_allocations}
+                                    />
+                                </>
+                            ) : (
+                                <p className="text-xs text-neutral-500">
+                                    Advance amount unchanged — keeping the existing payment method split.
+                                </p>
+                            )}
+                        </div>
+                    )}
                 </Card>
 
                 <Card className="p-6" hover={false}>

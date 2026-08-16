@@ -7,6 +7,7 @@ import SearchableSelect from '../ui/SearchableSelect';
 import Button from '../ui/Button';
 import LineItemRow from './LineItemRow';
 import DraftPreview from './DraftPreview';
+import MethodSplitPicker, { isSplitBalanced } from '../paymentMethods/MethodSplitPicker';
 
 const emptyFormData = {
     supplier: '',
@@ -27,16 +28,31 @@ const PurchaseOrderFormModal = ({
 }) => {
     const isEdit = Boolean(initialData);
     const [formData, setFormData] = useState(initialData || emptyFormData);
+    const [methodAllocations, setMethodAllocations] = useState([]);
     const [error, setError] = useState('');
     const [loading, setLoading] = useState(false);
 
     useEffect(() => {
         if (isOpen) {
             setFormData(initialData || emptyFormData);
+            setMethodAllocations([]);
             setError('');
         }
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [isOpen]);
+
+    const isAdvance = formData.payment_type === 'advance';
+    const advanceAmountValue = parseFloat(formData.advance_amount) || 0;
+    // On edit, the backend never silently reuses the old split — a fresh
+    // method pick is only required when the advance amount is actually
+    // being set to a new value (including switching to advance for the
+    // first time). On create there's no "original" to compare against, so
+    // any advance always needs a pick.
+    const advanceChanged = isAdvance && (
+        !isEdit ||
+        initialData?.payment_type !== 'advance' ||
+        String(formData.advance_amount) !== String(initialData?.advance_amount)
+    );
 
     const handleAddItem = () => {
         setFormData(prev => ({
@@ -108,11 +124,16 @@ const PurchaseOrderFormModal = ({
             setError('Please enter a valid unit price for all items.');
             return;
         }
+        if (advanceChanged && !isSplitBalanced(advanceAmountValue, methodAllocations)) {
+            setError('Payment method split must add up to the full advance amount.');
+            return;
+        }
 
         const payload = {
             ...(isEdit ? {} : { supplier_id: parseInt(formData.supplier) }),
             payment_type: formData.payment_type,
-            advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
+            advance_amount: isAdvance ? advanceAmountValue : 0,
+            ...(advanceChanged ? { method_allocations: methodAllocations } : {}),
             description: formData.description || '',
             items: formData.items.map(item => ({
                 product_id: parseInt(item.product),
@@ -197,6 +218,30 @@ const PurchaseOrderFormModal = ({
                         )}
                     </div>
 
+                    {isAdvance && (
+                        <div>
+                            {advanceChanged ? (
+                                <>
+                                    <p className="text-sm font-medium text-neutral-700 mb-2">Advance Payment Method</p>
+                                    {isEdit && (
+                                        <p className="text-xs text-neutral-500 mb-2">
+                                            The advance amount changed — pick how the new amount was paid.
+                                        </p>
+                                    )}
+                                    <MethodSplitPicker
+                                        totalAmount={advanceAmountValue}
+                                        value={methodAllocations}
+                                        onChange={setMethodAllocations}
+                                    />
+                                </>
+                            ) : (
+                                <p className="text-xs text-neutral-500">
+                                    Advance amount unchanged — keeping the existing payment method split.
+                                </p>
+                            )}
+                        </div>
+                    )}
+
                     <Input
                         label="Description"
                         value={formData.description}
@@ -246,7 +291,11 @@ const PurchaseOrderFormModal = ({
                     <Button type="button" variant="secondary" onClick={onClose}>
                         Cancel
                     </Button>
-                    <Button type="submit" loading={loading}>
+                    <Button
+                        type="submit"
+                        loading={loading}
+                        disabled={advanceChanged && !isSplitBalanced(advanceAmountValue, methodAllocations)}
+                    >
                         {submitLabel}
                     </Button>
                 </div>

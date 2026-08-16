@@ -7,6 +7,7 @@ import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { useRecurringExpensePayments } from '../../hooks/useRecurringExpenses';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Card from '../../components/ui/Card';
@@ -56,6 +57,8 @@ const RecurringExpenseAssignmentDetailPage = () => {
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [methodAllocations, setMethodAllocations] = useState([]);
+    const [splitError, setSplitError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
 
     useEffect(() => {
@@ -78,20 +81,34 @@ const RecurringExpenseAssignmentDetailPage = () => {
     const resetForm = () => {
         setFormData({ amount: '', payment_date: todayLocalDate(), note: '' });
         setFormError('');
+        setMethodAllocations([]);
+        setSplitError('');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
+        setSplitError('');
         setFormLoading(true);
         try {
-            await create({ ...formData, assignment: id, amount: parseFloat(formData.amount) });
+            await create({
+                ...formData,
+                assignment: id,
+                amount: parseFloat(formData.amount),
+                method_allocations: methodAllocations,
+            });
             setShowModal(false);
             resetForm();
             await Promise.all([refetchPayments(), fetchAssignment()]);
             toast.success('Payment recorded successfully');
         } catch (error) {
-            setFormError(extractErrorMessage(error, 'Failed to record payment'));
+            const data = error?.response?.data;
+            const methodError = data?.method_allocations || data?.splits;
+            if (methodError) {
+                setSplitError(Array.isArray(methodError) ? methodError[0] : methodError);
+            } else {
+                setFormError(extractErrorMessage(error, 'Failed to record payment'));
+            }
         } finally {
             setFormLoading(false);
         }
@@ -288,13 +305,24 @@ const RecurringExpenseAssignmentDetailPage = () => {
                         placeholder="Optional"
                     />
 
+                    <MethodSplitPicker
+                        totalAmount={formData.amount}
+                        value={methodAllocations}
+                        onChange={setMethodAllocations}
+                        error={splitError}
+                    />
+
                     {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            disabled={!isSplitBalanced(formData.amount, methodAllocations)}
+                        >
                             Record Payment
                         </Button>
                     </div>

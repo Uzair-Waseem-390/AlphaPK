@@ -7,6 +7,7 @@ import { cashManagementApi } from '../../services/cashManagementApi';
 import { useInvestorTransactions } from '../../hooks/useCashManagement';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -24,6 +25,11 @@ import InlineAlert from '../../components/ui/InlineAlert';
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
     return isNaN(num) ? '0.00' : num.toFixed(2);
+};
+
+const formatAllocations = (allocations) => {
+    if (!allocations || allocations.length === 0) return <span className="text-neutral-300">—</span>;
+    return allocations.map((a) => `${a.payment_method_name} (Rs. ${fmt(a.amount)})`).join(', ');
 };
 
 const InvestorDetailPage = () => {
@@ -49,9 +55,11 @@ const InvestorDetailPage = () => {
         amount: '',
         transaction_date: todayLocalDate(),
         note: '',
+        method_allocations: [],
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [splitError, setSplitError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
 
@@ -81,14 +89,16 @@ const InvestorDetailPage = () => {
     const resetForm = () => {
         setFormData({
             transaction_type: 'investment', amount: '',
-            transaction_date: todayLocalDate(), note: '',
+            transaction_date: todayLocalDate(), note: '', method_allocations: [],
         });
         setFormError('');
+        setSplitError('');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
+        setSplitError('');
         setFormLoading(true);
         try {
             await create({ ...formData, investor: id, amount: parseFloat(formData.amount) });
@@ -97,7 +107,12 @@ const InvestorDetailPage = () => {
             await Promise.all([refetchTxns(), fetchInvestor()]);
             toast.success('Transaction recorded successfully');
         } catch (error) {
-            setFormError(extractErrorMessage(error, 'Failed to record transaction'));
+            const fieldSplitError = error.response?.data?.method_allocations?.[0] || error.response?.data?.splits?.[0];
+            if (fieldSplitError) {
+                setSplitError(fieldSplitError);
+            } else {
+                setFormError(extractErrorMessage(error, 'Failed to record transaction'));
+            }
         } finally {
             setFormLoading(false);
         }
@@ -136,6 +151,7 @@ const InvestorDetailPage = () => {
             ),
         },
         { key: 'note', label: 'Note', render: (v) => v || <span className="text-neutral-300">—</span> },
+        { key: 'allocations', label: 'Method', render: (v) => formatAllocations(v) },
         {
             key: 'actions',
             label: 'Actions',
@@ -336,13 +352,29 @@ const InvestorDetailPage = () => {
                         </p>
                     )}
 
+                    <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                            {formData.transaction_type === 'investment' ? 'Received Via' : 'Paid Via'}
+                        </label>
+                        <MethodSplitPicker
+                            totalAmount={formData.amount}
+                            value={formData.method_allocations}
+                            onChange={(value) => setFormData({ ...formData, method_allocations: value })}
+                            error={splitError}
+                        />
+                    </div>
+
                     {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            disabled={!isSplitBalanced(formData.amount, formData.method_allocations)}
+                        >
                             Record
                         </Button>
                     </div>

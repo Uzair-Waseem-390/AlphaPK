@@ -34,7 +34,9 @@ const PaymentHistoryList = ({ payments, onDelete, isAdmin = false }) => {
                             <p className="font-medium">{payment.reference_number}</p>
                         )}
                         <p className="text-sm text-neutral-500">
-                            {payment.method_display || payment.method}
+                            {Array.isArray(payment.allocations) && payment.allocations.length > 0
+                                ? payment.allocations.map((a) => `${a.payment_method_name}: ${parseFloat(a.amount).toFixed(2)}`).join(', ')
+                                : (payment.method_display || payment.method)}
                             {payment.payment_date && (
                                 <span className="ml-2">
                                     • {new Date(payment.payment_date).toLocaleDateString()}

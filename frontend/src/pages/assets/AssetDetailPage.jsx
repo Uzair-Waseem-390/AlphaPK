@@ -9,6 +9,7 @@ import { assetsApi } from '../../services/assetsApi';
 import { useAssetValuationEntries, useAssetStats } from '../../hooks/useAssets';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -64,6 +65,8 @@ const AssetDetailPage = () => {
     const [disposeLoading, setDisposeLoading] = useState(false);
     const [disposeError, setDisposeError] = useState('');
     const [disposeFieldErrors, setDisposeFieldErrors] = useState(emptyDisposeFieldErrors);
+    const [disposeMethodAllocations, setDisposeMethodAllocations] = useState([]);
+    const [disposeSplitError, setDisposeSplitError] = useState('');
     // Disposal is irreversible, so the form modal only stages the payload —
     // the actual API call only fires after the user confirms in the
     // dedicated ConfirmDialog gate below.
@@ -128,9 +131,13 @@ const AssetDetailPage = () => {
             delete payload.sale_amount;
         } else {
             payload.sale_amount = parseFloat(payload.sale_amount);
+            // Only a "sold" disposal moves cash — "scrapped" never sends
+            // method_allocations at all.
+            payload.method_allocations = disposeMethodAllocations;
         }
         setDisposeError('');
         setDisposeFieldErrors(emptyDisposeFieldErrors);
+        setDisposeSplitError('');
         setPendingDisposePayload(payload);
         setShowDisposeModal(false);
         setShowDisposeConfirm(true);
@@ -154,9 +161,14 @@ const AssetDetailPage = () => {
             const data = error.response?.data;
             const saleError = Array.isArray(data?.sale_amount) ? data.sale_amount[0] : data?.sale_amount;
             const typeError = Array.isArray(data?.disposal_type) ? data.disposal_type[0] : data?.disposal_type;
+            const methodError = data?.method_allocations || data?.splits;
             if (saleError || typeError) {
                 setDisposeFieldErrors({ ...emptyDisposeFieldErrors, sale_amount: saleError || '', disposal_type: typeError || '' });
-            } else {
+            }
+            if (methodError) {
+                setDisposeSplitError(Array.isArray(methodError) ? methodError[0] : methodError);
+            }
+            if (!saleError && !typeError && !methodError) {
                 setDisposeError(extractErrorMessage(error, 'Failed to dispose asset'));
             }
         } finally {
@@ -253,7 +265,16 @@ const AssetDetailPage = () => {
                                 Revalue
                             </Button>
                         )}
-                        <Button variant="danger" onClick={() => { setDisposeError(''); setDisposeFieldErrors(emptyDisposeFieldErrors); setShowDisposeModal(true); }}>
+                        <Button
+                            variant="danger"
+                            onClick={() => {
+                                setDisposeError('');
+                                setDisposeFieldErrors(emptyDisposeFieldErrors);
+                                setDisposeMethodAllocations([]);
+                                setDisposeSplitError('');
+                                setShowDisposeModal(true);
+                            }}
+                        >
                             Dispose
                         </Button>
                     </div>
@@ -371,7 +392,16 @@ const AssetDetailPage = () => {
                     <Select
                         label="Disposal Type"
                         value={disposeForm.disposal_type}
-                        onChange={(e) => setDisposeForm({ ...disposeForm, disposal_type: e.target.value })}
+                        onChange={(e) => {
+                            const value = e.target.value;
+                            setDisposeForm({ ...disposeForm, disposal_type: value });
+                            // Switching to "scrapped" drops any staged split — it's
+                            // never sent then, since scrapping doesn't move cash.
+                            if (value !== 'sold') {
+                                setDisposeMethodAllocations([]);
+                                setDisposeSplitError('');
+                            }
+                        }}
                         options={[
                             { value: 'scrapped', label: 'Scrapped — no longer usable, no cash involved' },
                             { value: 'sold', label: 'Sold — enter sale amount, cash in hand increases' },
@@ -424,13 +454,26 @@ const AssetDetailPage = () => {
                         </div>
                     )}
 
+                    {disposeForm.disposal_type === 'sold' && (
+                        <MethodSplitPicker
+                            totalAmount={disposeForm.sale_amount}
+                            value={disposeMethodAllocations}
+                            onChange={setDisposeMethodAllocations}
+                            error={disposeSplitError}
+                        />
+                    )}
+
                     {disposeError && <InlineAlert variant="error" message={disposeError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => setShowDisposeModal(false)}>
                             Cancel
                         </Button>
-                        <Button type="submit" variant="danger">
+                        <Button
+                            type="submit"
+                            variant="danger"
+                            disabled={disposeForm.disposal_type === 'sold' && !isSplitBalanced(disposeForm.sale_amount, disposeMethodAllocations)}
+                        >
                             Review &amp; Dispose
                         </Button>
                     </div>

@@ -43,25 +43,39 @@ class Command(BaseCommand):
             cash.save(update_fields=["is_protected", "balance"])
             self.stdout.write(f"'Cash' method already existed (id={cash.pk}) — balance re-synced.")
 
-        movements = CashMovement.objects.filter(is_deleted=False)
+        existing_keys = set(
+            PaymentAllocation.objects.filter(payment_method=cash).values_list("source_model", "source_id")
+        )
+
         created_count = 0
         skipped_count = 0
+        batch = []
+        BATCH_SIZE = 500
 
-        for m in movements:
-            _, was_created = PaymentAllocation.objects.get_or_create(
+        def flush(batch):
+            nonlocal created_count
+            if batch:
+                PaymentAllocation.objects.bulk_create(batch)
+                created_count += len(batch)
+                batch.clear()
+
+        for m in CashMovement.objects.filter(is_deleted=False).iterator(chunk_size=2000):
+            key = (m.source_model, m.source_id)
+            if key in existing_keys:
+                skipped_count += 1
+                continue
+            existing_keys.add(key)
+            batch.append(PaymentAllocation(
                 payment_method=cash,
                 source_model=m.source_model,
                 source_id=m.source_id,
-                defaults={
-                    "direction": m.direction,
-                    "amount": m.amount,
-                    "date": m.date,
-                },
-            )
-            if was_created:
-                created_count += 1
-            else:
-                skipped_count += 1
+                direction=m.direction,
+                amount=m.amount,
+                date=m.date,
+            ))
+            if len(batch) >= BATCH_SIZE:
+                flush(batch)
+        flush(batch)
 
         self.stdout.write(f"PaymentAllocation rows created: {created_count}, already present: {skipped_count}")
 

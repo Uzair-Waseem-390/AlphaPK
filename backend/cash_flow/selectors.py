@@ -110,8 +110,15 @@ def get_all_expenses(
     """
     Returns all non-deleted expenses with full filter support.
     """
+    # "category__created_by" (not just "category") because
+    # ExpenseCategoryReadSerializer (nested as ExpenseReadSerializer.category)
+    # has its own created_by StringRelatedField — without the chained join,
+    # every row re-queries the category's creator individually (found via
+    # ExpenseAllocationQueryCountTests, pre-existing, unrelated to
+    # payment_methods — the same category row was just never being reused
+    # across the per-row select_related results).
     qs = Expense.objects.filter(is_deleted=False).select_related(
-        "category", "created_by", "updated_by"
+        "category", "category__created_by", "created_by", "updated_by"
     )
 
     if _clean(search):

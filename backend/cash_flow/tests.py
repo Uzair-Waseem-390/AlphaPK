@@ -3,7 +3,9 @@ from decimal import Decimal
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -17,7 +19,7 @@ from .selectors import (
 from payment_methods.models import PaymentMethod
 
 from .services import create_expense, delete_expense, update_expense
-from .views import CashInHandBreakdownView
+from .views import CashInHandBreakdownView, ExpenseListCreateView, ExpensesBreakdownView
 
 
 def make_admin(email="admin@example.com"):
@@ -296,6 +298,64 @@ class ExpenseRoundTripTests(CashFlowTestBase):
         self.assertEqual(Expense.objects.count(), 0)
         self.assertEqual(CashMovement.objects.filter(source_model="cash_flow.expense").count(), 0)
         self.assertEqual(self.cash(), cash_start)
+
+
+class ExpenseAllocationQueryCountTests(CashFlowTestBase):
+    """architecture.md's STRICT O(1)-per-page rule — Expense's allocations
+    field must not N+1 as row count grows, on EITHER view that serializes
+    a list of Expense rows: the main list AND the dashboard breakdown
+    drawer (ExpensesBreakdownView reuses the same ExpenseReadSerializer —
+    caught missing its own context injection by the Phase 6 performance
+    audit, fixed in BreakdownTotalsMixin.list()).
+
+    Writing this test also caught a second, PRE-EXISTING N+1 unrelated to
+    payment_methods: get_all_expenses()'s select_related("category", ...)
+    never chained into "category__created_by", so
+    ExpenseCategoryReadSerializer's own created_by field (nested inside
+    ExpenseReadSerializer.category) re-queried the category's creator once
+    per row. Fixed alongside this test in cash_flow/selectors.py."""
+
+    def setUp(self):
+        super().setUp()
+        from data_entry.services import create_opening_cash
+        from .services import create_expense_category
+        create_opening_cash(amount=Decimal("50000"), user=self.admin)
+        self.category = create_expense_category(name="Utilities", user=self.admin)
+
+    def count_queries(self, view, url):
+        request = self.factory.get(url)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = view(request)
+            response.render()
+        self.assertEqual(response.status_code, 200)
+        return len(ctx.captured_queries)
+
+    def _make_expense(self, amount):
+        create_expense(
+            name="Electricity", category_id=self.category.id, amount=Decimal(amount),
+            expense_date=timezone.now().date(), method_allocations=self.cash_split(amount), user=self.admin,
+        )
+
+    def test_expense_list_query_count_flat(self):
+        view = ExpenseListCreateView.as_view()
+        self._make_expense("10")
+        baseline = self.count_queries(view, "/cash-flow/expenses/")
+
+        for _ in range(4):
+            self._make_expense("10")
+        grown = self.count_queries(view, "/cash-flow/expenses/")
+        self.assertEqual(baseline, grown)
+
+    def test_expenses_breakdown_query_count_flat(self):
+        view = ExpensesBreakdownView.as_view()
+        self._make_expense("10")
+        baseline = self.count_queries(view, "/cash-flow/breakdown/expenses/")
+
+        for _ in range(4):
+            self._make_expense("10")
+        grown = self.count_queries(view, "/cash-flow/breakdown/expenses/")
+        self.assertEqual(baseline, grown)
 
 
 class DraftAdvanceQuirkFixTests(CashFlowTestBase):

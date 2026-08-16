@@ -1,12 +1,14 @@
 from django.shortcuts import get_object_or_404
 
+from backend.search import search_q
+
 from .models import AccountTransfer, PaymentAllocation, PaymentMethod
 
 
 def get_all_payment_methods(*, search: str = None):
     qs = PaymentMethod.objects.all()
     if search:
-        qs = qs.filter(name__icontains=search.strip())
+        qs = qs.filter(search_q(search, "name"))
     return qs
 
 

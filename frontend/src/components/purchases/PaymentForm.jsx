@@ -2,18 +2,18 @@ import { useState } from 'react';
 import PropTypes from 'prop-types';
 import { Wallet } from 'lucide-react';
 import Input from '../ui/Input';
-import Select from '../ui/Select';
 import Button from '../ui/Button';
 import InlineAlert from '../ui/InlineAlert';
+import MethodSplitPicker, { isSplitBalanced } from '../paymentMethods/MethodSplitPicker';
 import { todayLocalDate } from '../../utils/helpers';
 
 const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
     const [formData, setFormData] = useState({
         amount: '',
-        method: 'cash',
         payment_date: todayLocalDate(),
         note: '',
     });
+    const [methodAllocations, setMethodAllocations] = useState([]);
     const [error, setError] = useState('');
 
     const handleChange = (e) => {
@@ -21,6 +21,9 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
         setFormData(prev => ({ ...prev, [name]: value }));
         setError('');
     };
+
+    const amountValue = parseFloat(formData.amount) || 0;
+    const canSubmit = amountValue > 0 && isSplitBalanced(amountValue, methodAllocations);
 
     const handleSubmit = (e) => {
         e.preventDefault();
@@ -36,9 +39,15 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
             return;
         }
 
+        if (!isSplitBalanced(amount, methodAllocations)) {
+            setError('Payment method split must add up to the full amount.');
+            return;
+        }
+
         onSubmit({
             ...formData,
-            amount: amount,
+            amount,
+            method_allocations: methodAllocations,
         });
     };
 
@@ -61,19 +70,14 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 </p>
             )}
 
-            <Select
-                label="Payment Method"
-                name="method"
-                value={formData.method}
-                onChange={handleChange}
-                options={[
-                    { value: 'cash', label: 'Cash' },
-                    { value: 'jazzcash', label: 'JazzCash' },
-                    { value: 'easypaisa', label: 'Easypaisa' },
-                    { value: 'bank', label: 'Bank Transfer' },
-                ]}
-                required
-            />
+            <div>
+                <p className="text-sm font-medium text-neutral-700 mb-2">Payment Method</p>
+                <MethodSplitPicker
+                    totalAmount={amountValue}
+                    value={methodAllocations}
+                    onChange={setMethodAllocations}
+                />
+            </div>
 
             <Input
                 label="Payment Date"
@@ -98,7 +102,7 @@ const PaymentForm = ({ onSubmit, onCancel, loading, maxAmount }) => {
                 <Button type="button" variant="secondary" onClick={onCancel}>
                     Cancel
                 </Button>
-                <Button type="submit" loading={loading} icon={Wallet}>
+                <Button type="submit" loading={loading} icon={Wallet} disabled={!canSubmit}>
                     Record Payment
                 </Button>
             </div>

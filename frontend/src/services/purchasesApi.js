@@ -137,7 +137,7 @@ export const purchasesApi = {
             const payload = {
                 order: parseInt(orderId),  // Use 'order' field name
                 amount: data.amount,
-                method: data.method,
+                method_allocations: data.method_allocations,
                 payment_date: data.payment_date,
                 note: data.note || '',
             };

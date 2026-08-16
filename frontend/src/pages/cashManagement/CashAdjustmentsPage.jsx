@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useCashManagementStats, useCashAdjustments } from '../../hooks/useCashManagement';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
@@ -23,6 +24,11 @@ import InlineAlert from '../../components/ui/InlineAlert';
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
     return isNaN(num) ? '0.00' : num.toFixed(2);
+};
+
+const formatAllocations = (allocations) => {
+    if (!allocations || allocations.length === 0) return <span className="text-neutral-300">—</span>;
+    return allocations.map((a) => `${a.payment_method_name} (Rs. ${fmt(a.amount)})`).join(', ');
 };
 
 const CashAdjustmentsPage = () => {
@@ -43,9 +49,11 @@ const CashAdjustmentsPage = () => {
         adjustment_type: 'lost',
         adjustment_date: todayLocalDate(),
         reason: '',
+        method_allocations: [],
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
+    const [splitError, setSplitError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [showFilters, setShowFilters] = useState(false);
@@ -53,14 +61,16 @@ const CashAdjustmentsPage = () => {
     const resetForm = () => {
         setFormData({
             amount: '', adjustment_type: 'lost',
-            adjustment_date: todayLocalDate(), reason: '',
+            adjustment_date: todayLocalDate(), reason: '', method_allocations: [],
         });
         setFormError('');
+        setSplitError('');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
+        setSplitError('');
         setFormLoading(true);
         try {
             await create({ ...formData, amount: parseFloat(formData.amount) });
@@ -70,7 +80,12 @@ const CashAdjustmentsPage = () => {
             refetchStats();
             toast.success('Cash adjustment recorded successfully');
         } catch (error) {
-            setFormError(extractErrorMessage(error, 'Failed to record cash adjustment'));
+            const fieldSplitError = error.response?.data?.method_allocations?.[0] || error.response?.data?.splits?.[0];
+            if (fieldSplitError) {
+                setSplitError(fieldSplitError);
+            } else {
+                setFormError(extractErrorMessage(error, 'Failed to record cash adjustment'));
+            }
         } finally {
             setFormLoading(false);
         }
@@ -130,6 +145,7 @@ const CashAdjustmentsPage = () => {
             ),
         },
         { key: 'reason', label: 'Reason', render: (value) => value || <span className="text-neutral-300">—</span> },
+        { key: 'allocations', label: 'Method', render: (value) => formatAllocations(value) },
         { key: 'created_by', label: 'Recorded By', render: (value) => value || 'N/A' },
         {
             key: 'actions',
@@ -251,6 +267,18 @@ const CashAdjustmentsPage = () => {
                         placeholder="Optional note (e.g. till shortage, extra cash found during counting)"
                     />
 
+                    <div>
+                        <label className="block text-sm font-medium text-neutral-700 mb-1.5">
+                            {formData.adjustment_type === 'lost' ? 'Lost From' : 'Found Into'}
+                        </label>
+                        <MethodSplitPicker
+                            totalAmount={formData.amount}
+                            value={formData.method_allocations}
+                            onChange={(value) => setFormData({ ...formData, method_allocations: value })}
+                            error={splitError}
+                        />
+                    </div>
+
                     {formData.amount && parseFloat(formData.amount) > 0 && (
                         <InlineAlert
                             variant={formData.adjustment_type === 'lost' ? 'warning' : 'info'}
@@ -269,7 +297,11 @@ const CashAdjustmentsPage = () => {
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            disabled={!isSplitBalanced(formData.amount, formData.method_allocations)}
+                        >
                             Record Adjustment
                         </Button>
                     </div>

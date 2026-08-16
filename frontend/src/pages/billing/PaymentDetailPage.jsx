@@ -36,6 +36,27 @@ const MethodBadge = ({ method, display }) => {
     );
 };
 
+// Prefer the real per-method split (`allocations`, from the new multi-account
+// payment methods system) over the single derived `method`/`method_display`
+// label — falls back gracefully if the API response doesn't carry it yet.
+const MethodSplitDisplay = ({ payment }) => {
+    if (Array.isArray(payment.allocations) && payment.allocations.length > 0) {
+        return (
+            <div className="flex flex-wrap gap-1.5">
+                {payment.allocations.map((a) => (
+                    <span
+                        key={a.id}
+                        className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-primary-50 text-primary-700"
+                    >
+                        {a.payment_method_name}: {formatCurrency(a.amount)}
+                    </span>
+                ))}
+            </div>
+        );
+    }
+    return <MethodBadge method={payment.method} display={payment.method_display} />;
+};
+
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(num)) return 'PKR 0.00';
@@ -198,7 +219,7 @@ const PaymentDetailPage = () => {
                         </span>
                     </InfoRow>
                     <InfoRow label="Method">
-                        <MethodBadge method={payment.method} display={payment.method_display} />
+                        <MethodSplitDisplay payment={payment} />
                     </InfoRow>
                     <InfoRow icon={Calendar} label="Payment Date">
                         {payment.payment_date ? new Date(payment.payment_date).toLocaleDateString() : 'N/A'}

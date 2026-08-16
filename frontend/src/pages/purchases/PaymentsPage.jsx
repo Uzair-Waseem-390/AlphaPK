@@ -9,8 +9,8 @@ import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
-import Select from '../../components/ui/Select';
 import SearchBar from '../../components/ui/SearchBar';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
@@ -35,10 +35,10 @@ const PaymentsPage = () => {
     const [summaryError, setSummaryError] = useState('');
     const [formData, setFormData] = useState({
         amount: '',
-        method: 'cash',
         payment_date: todayLocalDate(),
         note: '',
     });
+    const [methodAllocations, setMethodAllocations] = useState([]);
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [deleteTarget, setDeleteTarget] = useState(null);
@@ -87,7 +87,7 @@ const PaymentsPage = () => {
             const paymentData = {
                 order: parseInt(orderId),
                 amount: parseFloat(formData.amount),
-                method: formData.method,
+                method_allocations: methodAllocations,
                 payment_date: formData.payment_date,
                 note: formData.note || '',
             };
@@ -126,10 +126,10 @@ const PaymentsPage = () => {
     const resetForm = () => {
         setFormData({
             amount: '',
-            method: 'cash',
             payment_date: todayLocalDate(),
             note: '',
         });
+        setMethodAllocations([]);
         setFormError('');
     };
 
@@ -146,7 +146,15 @@ const PaymentsPage = () => {
         {
             key: 'method_display',
             label: 'Method',
-            render: (value) => <Badge>{value || 'N/A'}</Badge>
+            render: (value, row) => (
+                Array.isArray(row.allocations) && row.allocations.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                        {row.allocations.map((a) => (
+                            <Badge key={a.id}>{a.payment_method_name}: {parseFloat(a.amount).toFixed(2)}</Badge>
+                        ))}
+                    </div>
+                ) : <Badge>{value || 'N/A'}</Badge>
+            )
         },
         { key: 'payment_date', label: 'Date', render: (value) => value ? new Date(value).toLocaleDateString() : 'N/A' },
         { key: 'note', label: 'Note', render: (value) => value || <span className="text-neutral-400">&mdash;</span> },
@@ -331,18 +339,14 @@ const PaymentsPage = () => {
                         required
                     />
 
-                    <Select
-                        label="Payment Method"
-                        value={formData.method}
-                        onChange={(e) => setFormData({ ...formData, method: e.target.value })}
-                        options={[
-                            { value: 'cash', label: 'Cash' },
-                            { value: 'jazzcash', label: 'JazzCash' },
-                            { value: 'easypaisa', label: 'Easypaisa' },
-                            { value: 'bank', label: 'Bank Transfer' },
-                        ]}
-                        required
-                    />
+                    <div>
+                        <p className="text-sm font-medium text-neutral-700 mb-2">Payment Method</p>
+                        <MethodSplitPicker
+                            totalAmount={parseFloat(formData.amount) || 0}
+                            value={methodAllocations}
+                            onChange={setMethodAllocations}
+                        />
+                    </div>
 
                     <Input
                         label="Payment Date"
@@ -372,7 +376,12 @@ const PaymentsPage = () => {
                         >
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading} icon={Wallet}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            icon={Wallet}
+                            disabled={!isSplitBalanced(parseFloat(formData.amount) || 0, methodAllocations)}
+                        >
                             Record Payment
                         </Button>
                     </div>

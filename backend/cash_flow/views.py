@@ -225,8 +225,21 @@ class BreakdownTotalsMixin:
     stat card the user clicked, not just a sum of the 25 visible rows.
 
     Subclasses set `totals_fields = {"response_key": "model_field_name"}`.
+
+    Subclasses whose `serializer_class` has a payment_methods `allocations`
+    SerializerMethodField (e.g. `ExpensesBreakdownView` reusing
+    `ExpenseReadSerializer`) set `allocations_source_model` (the
+    app_label.model_name string) and `allocations_context_key` (matching
+    the key that serializer's `get_allocations` reads) — same batched-
+    context pattern `payment_methods.mixins.AllocationsListMixin` uses for
+    the main list views, applied here too so a breakdown drawer doesn't
+    silently N+1 one allocations query per row (architecture.md's STRICT
+    O(1)-per-page rule). `None` (the default) skips this — every other
+    breakdown view's serializer has no such field.
     """
     totals_fields = {}
+    allocations_source_model = None
+    allocations_context_key  = None
 
     def list(self, request, *args, **kwargs):
         queryset = self.filter_queryset(self.get_queryset())
@@ -245,7 +258,15 @@ class BreakdownTotalsMixin:
         totals["count"] = queryset.count()
 
         page = self.paginate_queryset(queryset)
-        serializer = self.get_serializer(page, many=True)
+
+        context = self.get_serializer_context()
+        if self.allocations_source_model:
+            from payment_methods.selectors import get_allocations_by_source_ids
+            context[self.allocations_context_key] = get_allocations_by_source_ids(
+                self.allocations_source_model, [r.id for r in page],
+            )
+        serializer = self.get_serializer(page, many=True, context=context)
+
         response = self.get_paginated_response(serializer.data)
         response.data["totals"] = totals
         return response
@@ -546,6 +567,8 @@ class ExpensesBreakdownView(BreakdownTotalsMixin, generics.ListAPIView):
     permission_classes = [IsAdminOrSuperuser]
     serializer_class   = ExpenseReadSerializer
     totals_fields      = {"total_amount": "amount"}
+    allocations_source_model = "cash_flow.expense"
+    allocations_context_key  = "expense_allocations"
 
     def get_queryset(self):
         p = self.request.query_params

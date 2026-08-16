@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { useTaxesStats, useTaxPayments } from '../../hooks/useTaxes';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
 import Modal from '../../components/ui/Modal';
@@ -44,6 +45,8 @@ const TaxPaymentsPage = () => {
     });
     const [formLoading, setFormLoading] = useState(false);
     const [formErrors, setFormErrors] = useState({});
+    const [methodAllocations, setMethodAllocations] = useState([]);
+    const [splitError, setSplitError] = useState('');
     const [deleteConfirm, setDeleteConfirm] = useState(null);
     const [deleteLoading, setDeleteLoading] = useState(false);
     const [searchTerm, setSearchTerm] = useState('');
@@ -53,27 +56,41 @@ const TaxPaymentsPage = () => {
     const resetForm = () => {
         setFormData({ amount: '', payment_date: todayLocalDate(), note: '' });
         setFormErrors({});
+        setMethodAllocations([]);
+        setSplitError('');
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormErrors({});
+        setSplitError('');
         setFormLoading(true);
         try {
-            await create({ ...formData, amount: parseFloat(formData.amount) });
+            await create({
+                ...formData,
+                amount: parseFloat(formData.amount),
+                method_allocations: methodAllocations,
+            });
             setShowModal(false);
             resetForm();
             refetchStats();
             toast.success('Tax payment recorded successfully');
         } catch (error) {
             const data = error?.response?.data;
-            if (data && typeof data === 'object' && !Array.isArray(data) && (data.amount || data.payment_date || data.note)) {
+            const methodError = data?.method_allocations || data?.splits;
+            const hasFieldErrors = data && typeof data === 'object' && !Array.isArray(data)
+                && (data.amount || data.payment_date || data.note);
+            if (hasFieldErrors) {
                 setFormErrors({
                     amount: Array.isArray(data.amount) ? data.amount[0] : data.amount,
                     payment_date: Array.isArray(data.payment_date) ? data.payment_date[0] : data.payment_date,
                     note: Array.isArray(data.note) ? data.note[0] : data.note,
                 });
-            } else {
+            }
+            if (methodError) {
+                setSplitError(Array.isArray(methodError) ? methodError[0] : methodError);
+            }
+            if (!hasFieldErrors && !methodError) {
                 toast.error(extractErrorMessage(error, 'Failed to record tax payment'));
             }
         } finally {
@@ -274,11 +291,22 @@ const TaxPaymentsPage = () => {
                         </div>
                     )}
 
+                    <MethodSplitPicker
+                        totalAmount={formData.amount}
+                        value={methodAllocations}
+                        onChange={setMethodAllocations}
+                        error={splitError}
+                    />
+
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            disabled={!isSplitBalanced(formData.amount, methodAllocations)}
+                        >
                             Record Payment
                         </Button>
                     </div>

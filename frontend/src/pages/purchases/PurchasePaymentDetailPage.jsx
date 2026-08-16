@@ -144,7 +144,15 @@ const PurchasePaymentDetailPage = () => {
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Method</p>
-                        <Badge>{payment.method_display || payment.method || 'N/A'}</Badge>
+                        {Array.isArray(payment.allocations) && payment.allocations.length > 0 ? (
+                            <div className="flex flex-wrap gap-1.5">
+                                {payment.allocations.map((a) => (
+                                    <Badge key={a.id}>{a.payment_method_name}: {parseFloat(a.amount).toFixed(2)}</Badge>
+                                ))}
+                            </div>
+                        ) : (
+                            <Badge>{payment.method_display || payment.method || 'N/A'}</Badge>
+                        )}
                     </div>
                     <div>
                         <p className="text-sm text-neutral-500">Payment Date</p>

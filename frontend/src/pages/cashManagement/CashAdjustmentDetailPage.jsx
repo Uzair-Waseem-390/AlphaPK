@@ -159,6 +159,22 @@ const CashAdjustmentDetailPage = () => {
                 </div>
             </Card>
 
+            {adjustment.allocations?.length > 0 && (
+                <Card className="p-6">
+                    <h3 className="font-semibold text-neutral-900 mb-4">Method Breakdown</h3>
+                    <div className="space-y-2">
+                        {adjustment.allocations.map((a) => (
+                            <div key={a.id} className="flex items-center justify-between text-sm bg-neutral-50 rounded-lg px-3 py-2.5">
+                                <span className="text-neutral-700">{a.payment_method_name}</span>
+                                <span className={`font-medium ${a.direction === 'inflow' ? 'text-success-600' : 'text-error-600'}`}>
+                                    {a.direction === 'inflow' ? '+' : '−'} Rs. {fmt(a.amount)}
+                                </span>
+                            </div>
+                        ))}
+                    </div>
+                </Card>
+            )}
+
             <Card className="p-6">
                 <h3 className="font-semibold text-neutral-900 mb-3">Cash Impact</h3>
                 <div className={`flex items-start gap-3 p-4 rounded-xl border-l-4 ${isLost ? 'bg-warning-50 border-warning-500' : 'bg-success-50 border-success-500'}`}>

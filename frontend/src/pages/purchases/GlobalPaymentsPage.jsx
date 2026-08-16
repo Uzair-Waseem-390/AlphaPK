@@ -104,7 +104,15 @@ const GlobalPaymentsPage = () => {
         {
             key: 'method_display',
             label: 'Method',
-            render: (value) => <Badge>{value || 'N/A'}</Badge>
+            render: (value, row) => (
+                Array.isArray(row.allocations) && row.allocations.length > 0 ? (
+                    <div className="flex flex-wrap gap-1">
+                        {row.allocations.map((a) => (
+                            <Badge key={a.id}>{a.payment_method_name}: {parseFloat(a.amount).toFixed(2)}</Badge>
+                        ))}
+                    </div>
+                ) : <Badge>{value || 'N/A'}</Badge>
+            )
         },
         {
             key: 'payment_date',

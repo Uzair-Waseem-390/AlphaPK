@@ -15,6 +15,7 @@ import Card from '../../components/ui/Card';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import { extractErrorMessage } from '../../utils/errorMessage';
 
 const defaultDueDate = () => daysFromTodayLocalDate(7);
@@ -37,6 +38,7 @@ const CreateInvoicePage = () => {
         payment_due_date: defaultDueDate(),
         items: [],
     });
+    const [methodAllocations, setMethodAllocations] = useState([]);
 
     // Backend validation errors, mapped onto the relevant UI element.
     const [generalError, setGeneralError] = useState('');
@@ -143,6 +145,9 @@ const CreateInvoicePage = () => {
 
         if (data && typeof data === 'object') {
             if (data.advance_amount) nextFieldErrors.advance_amount = firstMsg(data.advance_amount);
+            if (data.method_allocations || data.splits) {
+                nextFieldErrors.method_allocations = firstMsg(data.method_allocations || data.splits);
+            }
             if (data.payment_due_date) nextFieldErrors.payment_due_date = firstMsg(data.payment_due_date);
             if (data.customer_id) nextFieldErrors.customer_id = firstMsg(data.customer_id);
 
@@ -177,17 +182,27 @@ const CreateInvoicePage = () => {
         toast.error(nextGeneralError || 'Failed to create invoice.');
     };
 
+    const isAdvance = formData.payment_type === 'advance';
+    const advanceAmountValue = parseFloat(formData.advance_amount) || 0;
+
     const handleSubmit = async (e) => {
         e.preventDefault();
         setGeneralError('');
         setFieldErrors({});
         setItemErrors([]);
+
+        if (isAdvance && !isSplitBalanced(advanceAmountValue, methodAllocations)) {
+            setGeneralError('Payment method split must add up to the full advance amount.');
+            return;
+        }
+
         setLoading(true);
         try {
             const data = {
                 customer_id: parseInt(formData.customer_id),
                 payment_type: formData.payment_type,
-                advance_amount: formData.payment_type === 'advance' ? parseFloat(formData.advance_amount) || 0 : 0,
+                advance_amount: isAdvance ? advanceAmountValue : 0,
+                ...(isAdvance ? { method_allocations: methodAllocations } : {}),
                 payment_due_date: formData.payment_due_date || undefined,
                 items: formData.items.map(item => ({
                     product_id: parseInt(item.product_id),
@@ -224,7 +239,12 @@ const CreateInvoicePage = () => {
                     <Button variant="secondary" onClick={handleCancel}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} loading={loading} icon={Receipt}>
+                    <Button
+                        onClick={handleSubmit}
+                        loading={loading}
+                        icon={Receipt}
+                        disabled={isAdvance && !isSplitBalanced(advanceAmountValue, methodAllocations)}
+                    >
                         Create Draft
                     </Button>
                 </div>
@@ -300,6 +320,18 @@ const CreateInvoicePage = () => {
                             />
                         )}
                     </div>
+
+                    {isAdvance && (
+                        <div className="mt-4">
+                            <p className="text-sm font-medium text-neutral-700 mb-2">Advance Payment Method</p>
+                            <MethodSplitPicker
+                                totalAmount={advanceAmountValue}
+                                value={methodAllocations}
+                                onChange={setMethodAllocations}
+                                error={fieldErrors.method_allocations}
+                            />
+                        </div>
+                    )}
                 </Card>
 
                 <Card className="p-6" hover={false}>

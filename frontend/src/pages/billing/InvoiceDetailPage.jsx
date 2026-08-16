@@ -377,8 +377,11 @@ const InvoiceDetailPage = () => {
             console.error('Failed to record payment:', error);
             const errData = error?.response?.data;
             const asMsg = (v) => (Array.isArray(v) ? v[0] : v);
-            if (errData && typeof errData === 'object' && (errData.amount || errData.method)) {
-                setPaymentFieldErrors({ amount: asMsg(errData.amount), method: asMsg(errData.method) });
+            if (errData && typeof errData === 'object' && (errData.amount || errData.method_allocations || errData.splits)) {
+                setPaymentFieldErrors({
+                    amount: asMsg(errData.amount),
+                    method_allocations: asMsg(errData.method_allocations || errData.splits),
+                });
             } else {
                 setPaymentApiError(extractErrorMessage(error, 'Failed to record payment.'));
             }

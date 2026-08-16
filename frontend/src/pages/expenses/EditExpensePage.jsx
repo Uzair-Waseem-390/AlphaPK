@@ -7,6 +7,7 @@ import { useToast } from '../../context/ToastContext';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { cashFlowApi } from '../../services/cashFlowApi';
 import { useAllExpenseCategories, useCashFlowStats } from '../../hooks/useCashFlow';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import BackLink from '../../components/ui/BackLink';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -18,13 +19,15 @@ import EmptyState from '../../components/ui/EmptyState';
 
 const EXPENSE_FIELDS = ['name', 'category', 'amount', 'expense_date', 'description'];
 
-const splitApiErrors = (error, fieldNames) => {
+const splitApiErrors = (error, fieldNames, ignoreKeys = []) => {
     const data = error?.response?.data;
     const fieldErrors = {};
     let generalMessage = null;
+    const hadAnyDataKey = !!(data && typeof data === 'object' && !Array.isArray(data) && Object.keys(data).length > 0);
 
     if (data && typeof data === 'object' && !Array.isArray(data)) {
         Object.keys(data).forEach((key) => {
+            if (ignoreKeys.includes(key)) return;
             const val = Array.isArray(data[key]) ? data[key][0] : data[key];
             if (fieldNames.includes(key)) {
                 fieldErrors[key] = val;
@@ -34,11 +37,20 @@ const splitApiErrors = (error, fieldNames) => {
         });
     }
 
-    if (!generalMessage && Object.keys(fieldErrors).length === 0) {
+    if (!generalMessage && Object.keys(fieldErrors).length === 0 && !hadAnyDataKey) {
         generalMessage = extractErrorMessage(error, 'Failed to update expense');
     }
 
     return { fieldErrors, generalMessage };
+};
+
+// method_allocations/splits errors are surfaced next to the MethodSplitPicker
+// instead of via the general error alert/field errors above.
+const METHOD_ERROR_KEYS = ['method_allocations', 'splits'];
+const extractMethodError = (error) => {
+    const data = error?.response?.data;
+    const val = data?.method_allocations || data?.splits;
+    return val ? (Array.isArray(val) ? val[0] : val) : '';
 };
 
 const EditExpensePage = () => {
@@ -64,6 +76,11 @@ const EditExpensePage = () => {
     });
     const [errors, setErrors] = useState({});
     const [formError, setFormError] = useState(null);
+    const [methodAllocations, setMethodAllocations] = useState([]);
+    const [splitError, setSplitError] = useState('');
+    // Tracks whether the amount field has actually been touched — the split
+    // stays optional unless the amount is actually being changed.
+    const [amountTouched, setAmountTouched] = useState(false);
 
     useEffect(() => {
         fetchExpense();
@@ -86,6 +103,9 @@ const EditExpensePage = () => {
                     expense_date: found.expense_date || '',
                     description: found.description || '',
                 });
+                setAmountTouched(false);
+                setMethodAllocations([]);
+                setSplitError('');
             } else {
                 setExpense(null);
             }
@@ -104,6 +124,9 @@ const EditExpensePage = () => {
         if (errors[name]) {
             setErrors(prev => ({ ...prev, [name]: '' }));
         }
+        if (name === 'amount') {
+            setAmountTouched(true);
+        }
     };
 
     const validate = () => {
@@ -121,7 +144,9 @@ const EditExpensePage = () => {
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError(null);
+        setSplitError('');
         if (!validate()) return;
+        if (amountTouched && !isSplitBalanced(formData.amount, methodAllocations)) return;
 
         setSaving(true);
         try {
@@ -130,13 +155,20 @@ const EditExpensePage = () => {
                 amount: parseFloat(formData.amount),
                 category: parseInt(formData.category, 10),
             };
+            if (amountTouched) {
+                data.method_allocations = methodAllocations;
+            }
             await cashFlowApi.expenses.update(id, data);
             refetchStats();
             toast.success('Expense updated successfully');
             navigate(`/expenses/${id}`);
         } catch (error) {
             console.error('Failed to update expense:', error);
-            const { fieldErrors, generalMessage } = splitApiErrors(error, EXPENSE_FIELDS);
+            const methodError = extractMethodError(error);
+            if (methodError) {
+                setSplitError(methodError);
+            }
+            const { fieldErrors, generalMessage } = splitApiErrors(error, EXPENSE_FIELDS, METHOD_ERROR_KEYS);
             setErrors((prev) => ({ ...prev, ...fieldErrors }));
             if (generalMessage) {
                 setFormError(generalMessage);
@@ -198,7 +230,11 @@ const EditExpensePage = () => {
                     <Button variant="secondary" onClick={() => navigate(`/expenses/${id}`)}>
                         Cancel
                     </Button>
-                    <Button onClick={handleSubmit} loading={saving}>
+                    <Button
+                        onClick={handleSubmit}
+                        loading={saving}
+                        disabled={amountTouched && !isSplitBalanced(formData.amount, methodAllocations)}
+                    >
                         Update Expense
                     </Button>
                 </div>
@@ -270,6 +306,20 @@ const EditExpensePage = () => {
                         </p>
                     </div>
 
+                    <div>
+                        <MethodSplitPicker
+                            totalAmount={formData.amount}
+                            value={methodAllocations}
+                            onChange={setMethodAllocations}
+                            error={splitError}
+                        />
+                        {!amountTouched && (
+                            <p className="text-xs text-neutral-400 mt-1.5">
+                                Only required if you change the amount.
+                            </p>
+                        )}
+                    </div>
+
                     <div className="flex justify-end gap-3 pt-4">
                         <Button
                             type="button"
@@ -278,7 +328,11 @@ const EditExpensePage = () => {
                         >
                             Cancel
                         </Button>
-                        <Button type="submit" loading={saving}>
+                        <Button
+                            type="submit"
+                            loading={saving}
+                            disabled={amountTouched && !isSplitBalanced(formData.amount, methodAllocations)}
+                        >
                             Update Expense
                         </Button>
                     </div>

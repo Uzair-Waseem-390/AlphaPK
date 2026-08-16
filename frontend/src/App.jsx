@@ -124,6 +124,11 @@ import AssetItemsPage from './pages/assets/AssetItemsPage';
 import AssetDetailPage from './pages/assets/AssetDetailPage';
 import AssetDisposalsPage from './pages/assets/AssetDisposalsPage';
 
+// Payment Methods pages
+import PaymentMethodsListPage from './pages/paymentMethods/PaymentMethodsListPage';
+import PaymentMethodDetailPage from './pages/paymentMethods/PaymentMethodDetailPage';
+import AccountTransfersPage from './pages/paymentMethods/AccountTransfersPage';
+
 // Recurring Expenses pages
 import RecurringExpensesPage from './pages/recurringExpenses/RecurringExpensesPage';
 import RecurringExpenseCategoriesPage from './pages/recurringExpenses/RecurringExpenseCategoriesPage';
@@ -940,6 +945,31 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <BackupHistoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Payment Methods Routes */}
+        <Route path="/payment-methods" element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentMethodsListPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/payment-methods/transfers" element={
+          <ProtectedRoute>
+            <Layout>
+              <AccountTransfersPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/payment-methods/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <PaymentMethodDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

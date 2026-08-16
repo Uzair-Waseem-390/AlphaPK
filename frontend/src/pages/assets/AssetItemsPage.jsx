@@ -7,6 +7,7 @@ import { useAssets, useAssetStats } from '../../hooks/useAssets';
 import { assetsApi } from '../../services/assetsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
+import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -52,6 +53,8 @@ const AssetItemsPage = () => {
     const [formLoading, setFormLoading] = useState(false);
     const [formError, setFormError] = useState('');
     const [fieldErrors, setFieldErrors] = useState(emptyFieldErrors);
+    const [methodAllocations, setMethodAllocations] = useState([]);
+    const [splitError, setSplitError] = useState('');
     const [showFilters, setShowFilters] = useState(false);
 
     const loadCategories = () => {
@@ -76,15 +79,34 @@ const AssetItemsPage = () => {
         });
         setFormError('');
         setFieldErrors(emptyFieldErrors);
+        setMethodAllocations([]);
+        setSplitError('');
+    };
+
+    const handleAcquisitionTypeChange = (value) => {
+        setFormData({ ...formData, acquisition_type: value });
+        // Switching away from "new" drops any staged split — it's never sent
+        // for an "existing" asset (no cash moves), so stale rows shouldn't linger.
+        if (value !== 'new') {
+            setMethodAllocations([]);
+            setSplitError('');
+        }
     };
 
     const handleSubmit = async (e) => {
         e.preventDefault();
         setFormError('');
         setFieldErrors(emptyFieldErrors);
+        setSplitError('');
         setFormLoading(true);
         try {
-            await create({ ...formData, category: parseInt(formData.category), cost: parseFloat(formData.cost) });
+            const payload = { ...formData, category: parseInt(formData.category), cost: parseFloat(formData.cost) };
+            // Only "new" acquisitions move cash — "existing" assets never send
+            // method_allocations at all.
+            if (formData.acquisition_type === 'new') {
+                payload.method_allocations = methodAllocations;
+            }
+            await create(payload);
             setShowModal(false);
             resetForm();
             refetch();
@@ -98,9 +120,15 @@ const AssetItemsPage = () => {
                 cost: Array.isArray(data?.cost) ? data.cost[0] : data?.cost || '',
                 acquisition_date: Array.isArray(data?.acquisition_date) ? data.acquisition_date[0] : data?.acquisition_date || '',
             };
-            if (fe.name || fe.category || fe.cost || fe.acquisition_date) {
+            const methodError = data?.method_allocations || data?.splits;
+            const hasFieldErrors = fe.name || fe.category || fe.cost || fe.acquisition_date;
+            if (hasFieldErrors) {
                 setFieldErrors(fe);
-            } else {
+            }
+            if (methodError) {
+                setSplitError(Array.isArray(methodError) ? methodError[0] : methodError);
+            }
+            if (!hasFieldErrors && !methodError) {
                 setFormError(extractErrorMessage(error, 'Failed to register asset'));
             }
         } finally {
@@ -250,7 +278,7 @@ const AssetItemsPage = () => {
                     <Select
                         label="Acquisition Type"
                         value={formData.acquisition_type}
-                        onChange={(e) => setFormData({ ...formData, acquisition_type: e.target.value })}
+                        onChange={(e) => handleAcquisitionTypeChange(e.target.value)}
                         options={[
                             { value: 'existing', label: 'Existing — already owned, no cash movement' },
                             { value: 'new', label: 'New — purchased now, deducts cash in hand' },
@@ -300,13 +328,26 @@ const AssetItemsPage = () => {
                         )
                     )}
 
+                    {formData.acquisition_type === 'new' && (
+                        <MethodSplitPicker
+                            totalAmount={formData.cost}
+                            value={methodAllocations}
+                            onChange={setMethodAllocations}
+                            error={splitError}
+                        />
+                    )}
+
                     {formError && <InlineAlert variant="error" message={formError} />}
 
                     <div className="flex justify-end gap-3 pt-4">
                         <Button type="button" variant="secondary" onClick={() => { setShowModal(false); resetForm(); }}>
                             Cancel
                         </Button>
-                        <Button type="submit" loading={formLoading}>
+                        <Button
+                            type="submit"
+                            loading={formLoading}
+                            disabled={formData.acquisition_type === 'new' && !isSplitBalanced(formData.cost, methodAllocations)}
+                        >
                             Register Asset
                         </Button>
                     </div>

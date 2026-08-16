@@ -95,6 +95,11 @@ class ProfitsTestBase(TestCase):
             expense_date=timezone.now().date().replace(year=y, month=m, day=20),
             method_allocations=self.cash_split("100"), user=self.admin,
         )
+        # create_expense's allocation write updates the DB row directly, not
+        # this in-memory self.cash instance — refresh so every test starts
+        # from the real balance, not the stale one captured before the
+        # expense above was recorded against it.
+        self.cash.refresh_from_db()
 
     def cash_split(self, amount):
         return [(self.cash, Decimal(amount))]
@@ -203,12 +208,13 @@ class ProfitPayoutMethodAllocationTests(ProfitsTestBase):
     def test_payout_records_allocation_and_moves_method_balance(self):
         from payment_methods.models import PaymentAllocation
 
+        cash_start = self.cash.balance
         payout = create_owner_profit_payout(
             owner_share_id=self.owner_share.id, amount=Decimal("15"), action_type="payout",
             method_allocations=self.cash_split("15"), payout_date=timezone.now().date(), user=self.admin,
         )
         self.cash.refresh_from_db()
-        self.assertEqual(self.cash.balance, Decimal("999985"))
+        self.assertEqual(self.cash.balance, cash_start - Decimal("15"))
         self.assertEqual(
             PaymentAllocation.objects.filter(
                 source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,
@@ -236,13 +242,14 @@ class ProfitPayoutMethodAllocationTests(ProfitsTestBase):
     def test_delete_payout_reverses_allocation(self):
         from payment_methods.models import PaymentAllocation
 
+        cash_start = self.cash.balance
         payout = create_owner_profit_payout(
             owner_share_id=self.owner_share.id, amount=Decimal("15"), action_type="payout",
             method_allocations=self.cash_split("15"), payout_date=timezone.now().date(), user=self.admin,
         )
         delete_owner_profit_payout(pk=payout.pk, user=self.admin)
         self.cash.refresh_from_db()
-        self.assertEqual(self.cash.balance, Decimal("1000000"))
+        self.assertEqual(self.cash.balance, cash_start)
         self.assertFalse(
             PaymentAllocation.objects.filter(
                 source_model="profits.ownerprofitpayout", source_id=payout.id, is_deleted=False,

@@ -36,6 +36,27 @@ const MethodBadge = ({ method, display }) => {
     );
 };
 
+// Prefer the real per-method split (`allocations`, from the new multi-account
+// payment methods system) over the single derived `method`/`method_display`
+// label — falls back gracefully if the row doesn't carry it yet.
+const MethodSplitDisplay = ({ payment }) => {
+    if (Array.isArray(payment.allocations) && payment.allocations.length > 0) {
+        return (
+            <div className="flex flex-wrap gap-1">
+                {payment.allocations.map((a) => (
+                    <span
+                        key={a.id}
+                        className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-primary-50 text-primary-700"
+                    >
+                        {a.payment_method_name}: {formatCurrency(a.amount)}
+                    </span>
+                ))}
+            </div>
+        );
+    }
+    return <MethodBadge method={payment.method} display={payment.method_display} />;
+};
+
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
     if (isNaN(num)) return 'PKR 0.00';
@@ -139,7 +160,7 @@ const PaymentsPage = () => {
         {
             key: 'method',
             label: 'Method',
-            render: (value, row) => <MethodBadge method={value} display={row.method_display} />
+            render: (_value, row) => <MethodSplitDisplay payment={row} />
         },
         {
             key: 'payment_date',

@@ -7,6 +7,7 @@ import {
     Repeat, Tag, Send, Calendar, Receipt, Banknote, PackageX, RotateCcw,
     LineChart, TrendingDown, IdCard, ArrowDownCircle, Handshake, Trash2,
     Gem, Archive, CreditCard, History, Landmark, ArrowLeftRight, FileBarChart, Scale,
+    Wallet2,
 } from 'lucide-react';
 
 export const mainNavigation = [
@@ -108,6 +109,16 @@ export const navGroups = [
             { name: 'Investors', path: '/cash-management/investors', icon: Handshake },
             { name: 'Growth History', path: '/cash-management/growth-history', icon: TrendingUp },
             { name: 'Owner Transactions', path: '/cash-management/owner-transactions', icon: User },
+        ],
+    },
+    {
+        key: 'paymentMethods',
+        label: 'Payment Methods',
+        icon: CreditCard,
+        adminOnly: true,
+        items: [
+            { name: 'Payment Methods', path: '/payment-methods', icon: Wallet2 },
+            { name: 'Transfers', path: '/payment-methods/transfers', icon: ArrowLeftRight },
         ],
     },
     {
