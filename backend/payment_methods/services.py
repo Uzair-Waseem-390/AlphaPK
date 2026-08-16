@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_DOWN, Decimal
 
 from django.db import transaction
 from django.shortcuts import get_object_or_404
@@ -206,3 +206,57 @@ def refresh_allocations(
         source, direction=direction, splits=splits, total_amount=total_amount,
         date=date, user=user,
     )
+
+
+# ---------------------------------------------------------------------------
+# Shared helpers for callers (billing/purchases) wiring the engine in
+# ---------------------------------------------------------------------------
+
+def derive_legacy_method_label(splits) -> str:
+    """
+    Fills the old Payment.method/SupplierPayment.method CharField for
+    backward compatibility (existing reports/PDFs still read it as a rough
+    label) now that a payment can be split across methods. A single-method
+    payment shows that method's name; a split shows "multiple" — the real,
+    itemized answer lives in the PaymentAllocation rows themselves, shown
+    via the `allocations` field on the read serializers.
+    """
+    if len(splits) == 1:
+        return splits[0][0].name.lower()[:100]
+    return "multiple"
+
+
+def prorate_splits(legs, new_total: Decimal):
+    """
+    Shrinks (or grows) an existing split to a new total, proportionally,
+    while keeping the legs summing to EXACTLY new_total to 4 decimal
+    places — largest-remainder rounding, not naive per-leg rounding, so
+    this can't reproduce the "29,999.996" drift bug class. `legs` is
+    [(payment_method, amount), ...] from the CURRENT allocations; returns
+    the same shape scaled to new_total. Empty legs or a zero old total
+    return [] (nothing to prorate).
+    """
+    old_total = sum(amount for _, amount in legs)
+    if not legs or old_total <= 0 or new_total <= 0:
+        return []
+
+    step = Decimal("0.0001")
+    scaled = [
+        (method, (amount * new_total / old_total).quantize(step, rounding=ROUND_DOWN))
+        for method, amount in legs
+    ]
+    shortfall = new_total - sum(amount for _, amount in scaled)
+    shortfall_units = int((shortfall / step).to_integral_value())
+
+    # Distribute the rounding-down shortfall one step at a time to the legs
+    # with the largest truncated remainder first (largest-remainder method).
+    remainders = sorted(
+        range(len(legs)),
+        key=lambda i: (legs[i][1] * new_total / old_total) - scaled[i][1],
+        reverse=True,
+    )
+    result = [[method, amount] for method, amount in scaled]
+    for i in range(shortfall_units):
+        result[remainders[i % len(remainders)]][1] += step
+
+    return [(method, amount) for method, amount in result]

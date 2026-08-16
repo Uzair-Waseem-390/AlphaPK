@@ -9,6 +9,7 @@ from django.utils import timezone
 from rest_framework.exceptions import ValidationError
 from rest_framework.test import APIRequestFactory, force_authenticate
 
+from payment_methods.models import PaymentMethod
 from purchases.models import Category, Inventory, Product, PurchaseReturn, Shelf
 from purchases.services import (
     confirm_purchase_order, create_purchase_order, create_supplier,
@@ -57,6 +58,14 @@ class BillingTestBase(TestCase):
         self.customer = create_customer(
             name="Big Mart", code="BM", address="Main St", user=self.admin,
         )
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+
+    def cash_split(self, amount):
+        """[(PaymentMethod, amount)] — the single-method split most tests
+        need; the account starts with a large balance so outflow tests
+        (supplier-side equivalents) never trip the insufficient-balance
+        check incidentally."""
+        return [(self.cash, Decimal(amount))]
 
     def make_stocked_product(self, code="P001", name="Product 1", *, stock=10,
                              unit_cost="50", selling_price="100"):
@@ -131,7 +140,7 @@ class BillingReferenceTests(BillingTestBase):
             payment_date=timezone.now().date(), is_deleted=True,
         )
         payment = create_payment(
-            invoice_id=invoice.id, amount=Decimal("50"), method="cash",
+            invoice_id=invoice.id, amount=Decimal("50"), method_allocations=self.cash_split("50"),
             payment_date=timezone.now().date(), user=self.admin,
         )
         self.assertEqual(payment.reference_number, f"PAY-{year}-0008")
@@ -173,7 +182,7 @@ class InvoiceLifecycleTests(BillingTestBase):
         product = self.make_stocked_product()
         invoice = self.make_confirmed_invoice(product, quantity=4)  # grand 400
 
-        create_payment(invoice_id=invoice.id, amount=Decimal("150"), method="cash",
+        create_payment(invoice_id=invoice.id, amount=Decimal("150"), method_allocations=self.cash_split("150"),
                        payment_date=timezone.now().date(), user=self.admin)
         invoice.refresh_from_db()
         self.assertEqual(invoice.cash_received, Decimal("150"))
@@ -181,7 +190,7 @@ class InvoiceLifecycleTests(BillingTestBase):
         self.assertEqual(invoice.payment_status, Invoice.PaymentStatus.PARTIAL)
 
         with self.assertRaises(ValidationError):
-            create_payment(invoice_id=invoice.id, amount=Decimal("1000"), method="cash",
+            create_payment(invoice_id=invoice.id, amount=Decimal("1000"), method_allocations=self.cash_split("1000"),
                            payment_date=timezone.now().date(), user=self.admin)
 
     def test_return_restores_stock_and_credits_customer(self):
@@ -204,7 +213,7 @@ class InvoiceLifecycleTests(BillingTestBase):
     def test_delete_payment_resyncs_summary(self):
         product = self.make_stocked_product()
         invoice = self.make_confirmed_invoice(product, quantity=4)
-        payment = create_payment(invoice_id=invoice.id, amount=Decimal("150"), method="cash",
+        payment = create_payment(invoice_id=invoice.id, amount=Decimal("150"), method_allocations=self.cash_split("150"),
                                  payment_date=timezone.now().date(), user=self.admin)
         delete_payment(payment_id=payment.id, user=self.admin)
         invoice.refresh_from_db()
@@ -572,7 +581,7 @@ class PaymentAtomicityTests(BillingTestBase):
         with patch("cash_flow.services.sync_invoice_payment_received",
                    side_effect=RuntimeError("boom")):
             with self.assertRaises(RuntimeError):
-                create_payment(invoice_id=invoice.id, amount=Decimal("150"), method="cash",
+                create_payment(invoice_id=invoice.id, amount=Decimal("150"), method_allocations=self.cash_split("150"),
                                payment_date=timezone.now().date(), user=self.admin)
 
         self.assertFalse(Payment.objects.filter(invoice=invoice).exists())
@@ -683,6 +692,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         self.assertEqual(invoice.payment_type, "advance")
@@ -703,6 +713,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         cash_after_create = CashFlow.objects.get(pk=1).cash_in_hand
@@ -710,7 +721,8 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
         update_invoice_items(
             invoice_id=invoice.id,
             items=[{"product_id": product.id, "quantity": 1}],
-            advance_amount=Decimal("500"), user=self.admin,
+            advance_amount=Decimal("500"), method_allocations=self.cash_split("500"),
+            user=self.admin,
         )
         self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_after_create + Decimal("200"))
         invoice.refresh_from_db()
@@ -729,6 +741,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         cash_before_switch = CashFlow.objects.get(pk=1).cash_in_hand
@@ -751,6 +764,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 4}],  # grand_total 400
             payment_type="advance", advance_amount=Decimal("150"),
+            method_allocations=self.cash_split("150"),
             user=self.admin,
         )
         self.allocate_invoice_items(invoice)
@@ -786,6 +800,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 5}],
             payment_type="advance", advance_amount=Decimal("500"),
+            method_allocations=self.cash_split("500"),
             user=self.admin,
         )
         cash_after_advance = CashFlow.objects.get(pk=1).cash_in_hand
@@ -829,6 +844,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         self.assertEqual(CashFlow.objects.get(pk=1).cash_in_hand, cash_before + Decimal("300"))
@@ -849,6 +865,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         payment = Payment.objects.get(invoice=invoice)
@@ -866,6 +883,7 @@ class InvoiceAdvancePaymentTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 1}],
             payment_type="advance", advance_amount=Decimal("300"),
+            method_allocations=self.cash_split("300"),
             user=self.admin,
         )
         call_command("backfill_cashflow", verbosity=0)
@@ -1122,6 +1140,7 @@ class AdvanceCapTrimsCashTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": start_qty}],
             payment_type="advance", advance_amount=Decimal(advance),
+            method_allocations=self.cash_split(advance),
             user=self.admin,
         )
         if end_qty != start_qty:
@@ -1208,6 +1227,7 @@ class AdvanceCapTrimsCashTests(BillingTestBase):
             customer_id=self.customer.id,
             items=[{"product_id": product.id, "quantity": 2}],   # 200
             payment_type="advance", advance_amount=Decimal("200.0040"),
+            method_allocations=self.cash_split("200.0040"),
             user=self.admin,
         )
         self.allocate_invoice_items(invoice)

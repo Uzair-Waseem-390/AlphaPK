@@ -67,6 +67,16 @@ from .services import (
 )
 
 
+def _as_splits(method_allocations):
+    """MethodAllocationInputSerializer's validated_data is a list of
+    {"payment_method": <PaymentMethod>, "amount": Decimal} dicts — services
+    take [(payment_method, amount), ...] tuples, the shape
+    payment_methods.services.record_allocations expects."""
+    if not method_allocations:
+        return None
+    return [(d["payment_method"], d["amount"]) for d in method_allocations]
+
+
 # ---------------------------------------------------------------------------
 # Shared mixin
 # ---------------------------------------------------------------------------
@@ -366,6 +376,7 @@ class PurchaseOrderListCreateView(generics.ListCreateAPIView):
             description=d.get("description", ""),
             payment_type=d.get("payment_type", "after_delivery"),
             advance_amount=d.get("advance_amount", Decimal("0")),
+            method_allocations=_as_splits(d.get("method_allocations")),
             user=request.user,
         )
         return Response(PurchaseOrderReadSerializer(obj).data, status=status.HTTP_201_CREATED)
@@ -426,6 +437,7 @@ class PurchaseOrderRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIVi
             description=d.get("description"),
             payment_type=d.get("payment_type"),
             advance_amount=d.get("advance_amount"),
+            method_allocations=_as_splits(d.get("method_allocations")),
             user=request.user,
         )
         return Response(PurchaseOrderReadSerializer(obj).data)
@@ -466,12 +478,12 @@ class SupplierPaymentListCreateView(generics.ListCreateAPIView):
         serializer.is_valid(raise_exception=True)
         d   = serializer.validated_data
         obj = create_supplier_payment(
-            order_id     = self.kwargs["order_id"],
-            amount       = d["amount"],
-            method       = d["method"],
-            payment_date = d["payment_date"],
-            note         = d.get("note", ""),
-            user         = request.user,
+            order_id           = self.kwargs["order_id"],
+            amount             = d["amount"],
+            method_allocations = _as_splits(d["method_allocations"]),
+            payment_date       = d["payment_date"],
+            note               = d.get("note", ""),
+            user               = request.user,
         )
         return Response(SupplierPaymentReadSerializer(obj).data, status=status.HTTP_201_CREATED)
 

@@ -1,5 +1,7 @@
 from rest_framework import serializers
 
+from payment_methods.serializers import MethodAllocationInputSerializer
+
 from .models import (
     Category, Inventory, LostInventoryItem, LostInventoryRecord, Product,
     PurchaseItem, PurchaseItemShelfAllocation, PurchaseOrder, PurchaseReturn,
@@ -368,6 +370,10 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
         max_digits=18, decimal_places=4, default=0, required=False,
         help_text="Required when payment_type=advance. Immediately deducted from cash in hand.",
     )
+    method_allocations = MethodAllocationInputSerializer(
+        many=True, required=False,
+        help_text="Required when payment_type=advance — which method(s) the advance was paid from, and how much of each.",
+    )
     items = PurchaseItemWriteSerializer(many=True)
 
     def validate(self, attrs):
@@ -380,6 +386,10 @@ class PurchaseOrderCreateSerializer(serializers.Serializer):
         if payment_type == "advance" and (not advance_amount or advance_amount <= 0):
             raise serializers.ValidationError(
                 {"advance_amount": "advance_amount is required and must be > 0 when payment_type is advance."}
+            )
+        if payment_type == "advance" and advance_amount > 0 and not attrs.get("method_allocations"):
+            raise serializers.ValidationError(
+                {"method_allocations": "At least one method must be selected for the advance payment."}
             )
         return attrs
 
@@ -399,6 +409,10 @@ class PurchaseOrderUpdateSerializer(serializers.Serializer):
         max_digits=18, decimal_places=4, required=False,
         help_text="Update the advance amount. Only valid when payment_type=advance.",
     )
+    method_allocations = MethodAllocationInputSerializer(
+        many=True, required=False,
+        help_text="Required whenever advance_amount is being set to a value > 0 — the new split is never reused from the old amount.",
+    )
     items = PurchaseItemWriteSerializer(many=True)
 
     def validate_items(self, value):
@@ -414,30 +428,37 @@ class PurchaseOrderUpdateSerializer(serializers.Serializer):
 class SupplierPaymentReadSerializer(serializers.ModelSerializer):
     created_by     = serializers.StringRelatedField(read_only=True)
     method_display = serializers.CharField(source="get_method_display", read_only=True)
+    allocations    = serializers.SerializerMethodField()
 
     class Meta:
         model  = SupplierPayment
         fields = [
             "id", "order", "reference_number", "amount", "method", "method_display",
-            "payment_date", "note", "created_by", "created_at",
+            "allocations", "payment_date", "note", "created_by", "created_at",
         ]
         read_only_fields = fields
 
+    def get_allocations(self, obj):
+        from payment_methods.selectors import get_allocations_for_source
+        from payment_methods.serializers import PaymentAllocationReadSerializer
+        return PaymentAllocationReadSerializer(get_allocations_for_source(obj), many=True).data
+
 
 class SupplierPaymentWriteSerializer(serializers.ModelSerializer):
+    method_allocations = MethodAllocationInputSerializer(many=True)
+
     class Meta:
         model  = SupplierPayment
-        fields = ["order", "amount", "method", "payment_date", "note"]
+        fields = ["order", "amount", "method_allocations", "payment_date", "note"]
 
     def validate_amount(self, value):
         if value <= 0:
             raise serializers.ValidationError("Payment amount must be greater than zero.")
         return value
 
-    def validate_method(self, value):
-        valid = ["cash", "jazzcash", "easypaisa", "bank"]
-        if value not in valid:
-            raise serializers.ValidationError(f"Invalid method. Choose from: {', '.join(valid)}.")
+    def validate_method_allocations(self, value):
+        if not value:
+            raise serializers.ValidationError("At least one method must be selected.")
         return value
 
 

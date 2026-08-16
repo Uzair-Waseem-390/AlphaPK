@@ -20,6 +20,8 @@ from purchases.services import (
 from rates.services import create_rate
 from users.models import User
 
+from payment_methods.models import PaymentMethod
+
 from .models import CreditScoreFlow, CreditScoreHistory, CustomerCreditScore, ScoreTier
 from .services import recalculate_credit_score, run_overdue_catchup
 from .views import CustomerCreditScoreHistoryView
@@ -42,6 +44,10 @@ class CreditScoreTestBase(TestCase):
         self.customer = create_customer(
             name="Big Mart", code="BM", address="Main St", user=self.admin,
         )
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+
+    def cash_split(self, amount):
+        return [(self.cash, Decimal(amount))]
 
     def make_stocked_product(self, code="P001", name="Product 1", *, stock=20,
                              unit_cost="50", selling_price="100"):
@@ -126,7 +132,7 @@ class CreditScoreRecalculationTests(CreditScoreTestBase):
         score_before_payment = CustomerCreditScore.objects.get(customer=self.customer).score
 
         create_payment(
-            invoice_id=invoice.id, amount=invoice.grand_total, method="cash",
+            invoice_id=invoice.id, amount=invoice.grand_total, method_allocations=self.cash_split(invoice.grand_total),
             payment_date=timezone.now().date(), user=self.admin,
         )
         score_after_payment = CustomerCreditScore.objects.get(customer=self.customer).score

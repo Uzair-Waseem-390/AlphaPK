@@ -14,6 +14,8 @@ from .selectors import (
     get_cash_flow_totals_up_to, get_cash_in_hand_breakdown,
     get_cash_in_hand_breakdown_from_sources,
 )
+from payment_methods.models import PaymentMethod
+
 from .services import create_expense, delete_expense, update_expense
 from .views import CashInHandBreakdownView
 
@@ -58,9 +60,13 @@ class CashFlowTestBase(TestCase):
     def setUp(self):
         self.factory = APIRequestFactory()
         self.admin = make_admin()
+        self.cash_method = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
 
     def cash(self):
         return CashFlow.get_instance().cash_in_hand
+
+    def cash_split(self, amount):
+        return [(self.cash_method, Decimal(amount))]
 
 
 class CashMovementOracleTests(CashFlowTestBase):
@@ -99,7 +105,7 @@ class CashMovementOracleTests(CashFlowTestBase):
         cob = create_customer_opening_balance(customer_id=customer.id, amount=Decimal("5000"), user=u)
         create_payment(
             invoice_id=cob.invoice_id, amount=Decimal("3000"),
-            method="cash", payment_date=today, user=u,
+            method_allocations=self.cash_split("3000"), payment_date=today, user=u,
         )
 
         cat = create_expense_category(name="Utilities", user=u)
@@ -113,7 +119,7 @@ class CashMovementOracleTests(CashFlowTestBase):
         sob = create_supplier_opening_balance(supplier_id=supplier.id, amount=Decimal("4000"), user=u)
         create_supplier_payment(
             order_id=sob.purchase_order_id, amount=Decimal("1500"),
-            method="cash", payment_date=today, user=u,
+            method_allocations=self.cash_split("1500"), payment_date=today, user=u,
         )
 
         create_tax_payment(amount=Decimal("200"), payment_date=today, note="Q1 GST", user=u)
@@ -319,7 +325,8 @@ class DraftAdvanceQuirkFixTests(CashFlowTestBase):
         order = create_purchase_order(
             supplier_id=supplier.id,
             items=[{"product_id": product.id, "quantity": 10, "unit_price": Decimal("100")}],
-            payment_type="advance", advance_amount=Decimal("600"), user=self.admin,
+            payment_type="advance", advance_amount=Decimal("600"),
+            method_allocations=self.cash_split("600"), user=self.admin,
         )
         self.assertEqual(self.cash(), cash_start - Decimal("600"))
 

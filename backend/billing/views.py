@@ -54,6 +54,16 @@ from .services import (
 )
 
 
+def _as_splits(method_allocations):
+    """MethodAllocationInputSerializer's validated_data is a list of
+    {"payment_method": <PaymentMethod>, "amount": Decimal} dicts — services
+    take [(payment_method, amount), ...] tuples, the shape
+    payment_methods.services.record_allocations expects."""
+    if not method_allocations:
+        return None
+    return [(d["payment_method"], d["amount"]) for d in method_allocations]
+
+
 # ---------------------------------------------------------------------------
 # Customer
 # ---------------------------------------------------------------------------
@@ -155,6 +165,7 @@ class InvoiceListCreateView(generics.ListCreateAPIView):
             items=d["items"],
             payment_type=d.get("payment_type", "after_delivery"),
             advance_amount=d.get("advance_amount", 0),
+            method_allocations=_as_splits(d.get("method_allocations")),
             payment_due_date=d.get("payment_due_date"),
             user=request.user,
         )
@@ -252,6 +263,7 @@ class InvoiceRetrieveUpdateDestroyView(generics.RetrieveUpdateDestroyAPIView):
             items=serializer.validated_data["items"],
             payment_type=serializer.validated_data.get("payment_type"),
             advance_amount=serializer.validated_data.get("advance_amount"),
+            method_allocations=_as_splits(serializer.validated_data.get("method_allocations")),
             payment_due_date=serializer.validated_data.get("payment_due_date"),
             user=request.user,
         )
@@ -324,7 +336,7 @@ class PaymentListCreateView(generics.ListCreateAPIView):
         payment = create_payment(
             invoice_id=self.kwargs["invoice_id"],
             amount=d["amount"],
-            method=d["method"],
+            method_allocations=_as_splits(d["method_allocations"]),
             payment_date=d["payment_date"],
             note=d.get("note", ""),
             user=request.user,

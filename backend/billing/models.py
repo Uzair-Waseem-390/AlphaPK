@@ -283,17 +283,30 @@ class FIFOLedger(models.Model):
 class Payment(AuditMixin):
 
     class Method(models.TextChoices):
+        """
+        Legacy label choices, kept for get_method_display()/backward
+        compatibility. Since payment_methods.PaymentMethod (a real account,
+        possibly user-created) replaced this as the actual source of truth,
+        `method` can hold any account's name (lower-cased) or "multiple" for
+        a split payment — values outside this list are still accepted at
+        the ORM level (Django doesn't enforce `choices` on save()), they
+        just fall back to showing the raw value via get_method_display().
+        """
         CASH      = "cash",      "Cash"
         JAZZCASH  = "jazzcash",  "JazzCash"
         EASYPAISA = "easypaisa", "Easypaisa"
         BANK      = "bank",      "Bank Transfer"
+        MULTIPLE  = "multiple",  "Multiple Methods"
 
     invoice          = models.ForeignKey(Invoice, on_delete=models.PROTECT, related_name="payments")
     reference_number = models.CharField(max_length=30, unique=True, editable=False,
                         #    default="", blank=True,
                            help_text="Auto-generated e.g. PAY-2026-0001")
     amount           = models.DecimalField(max_digits=18, decimal_places=4)
-    method           = models.CharField(max_length=12, choices=Method.choices)
+    method           = models.CharField(
+        max_length=100, choices=Method.choices,
+        help_text="Derived display label — see payment_methods.PaymentAllocation for the real split.",
+    )
     payment_date     = models.DateField(db_index=True)
     note             = models.CharField(max_length=255, blank=True, default="")
 

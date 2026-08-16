@@ -377,7 +377,7 @@ def delete_customer(*, pk: int, user) -> None:
 def create_invoice(
     *, customer_id: int, items: list[dict],
     payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"),
-    payment_due_date=None, user,
+    method_allocations: list = None, payment_due_date=None, user,
 ) -> Invoice:
     """
     Creates a DRAFT invoice with line items.
@@ -390,6 +390,9 @@ def create_invoice(
     If payment_type=advance and advance_amount > 0:
         - advance_amount immediately added to cash_in_hand
         - A Payment record is auto-created for the advance
+        - method_allocations (required in this case) — [(PaymentMethod,
+          Decimal), ...] — records which real accounts the advance landed
+          in via payment_methods.services.record_allocations
 
     payment_due_date defaults to today + DEFAULT_DUE_DATE_DAYS when omitted,
     and is carried through unchanged at confirmation.
@@ -406,6 +409,8 @@ def create_invoice(
         advance_amount = Decimal("0")
     if advance_amount < 0:
         raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
+    if payment_type == "advance" and advance_amount > 0 and not method_allocations:
+        raise ValidationError({"method_allocations": "At least one method must be selected for the advance payment."})
 
     if payment_due_date is None:
         payment_due_date = timezone.localtime(timezone.now()).date() + timedelta(days=DEFAULT_DUE_DATE_DAYS)
@@ -441,11 +446,13 @@ def create_invoice(
 
     # If advance payment: add to cash_in_hand and record in payment history
     if payment_type == "advance" and advance_amount > 0:
+        from payment_methods.services import derive_legacy_method_label, record_allocations
+
         adv_payment = Payment.objects.create(
             invoice=invoice,
             reference_number=_generate_payment_reference(),
             amount=advance_amount,
-            method=Payment.Method.CASH,
+            method=derive_legacy_method_label(method_allocations),
             payment_date=timezone.localtime(timezone.now()).date(),
             note=ADVANCE_PAYMENT_NOTE,
             created_by=user,
@@ -454,6 +461,10 @@ def create_invoice(
         from cash_flow.services import record_cash_movement, sync_invoice_advance_payment_created
         sync_invoice_advance_payment_created(advance_amount=advance_amount, user=user)
         record_cash_movement(adv_payment)
+        record_allocations(
+            adv_payment, direction="inflow", splits=method_allocations,
+            total_amount=advance_amount, date=adv_payment.payment_date, user=user,
+        )
 
         # Ledger entry: advance credit (customer paid upfront, owes us less)
         from ledger.services import add_customer_advance_entry
@@ -483,7 +494,7 @@ def create_invoice(
 def update_invoice_items(
     *, invoice_id: int, items: list[dict],
     payment_type: str = None, advance_amount: Decimal = None,
-    payment_due_date=None, user,
+    method_allocations: list = None, payment_due_date=None, user,
 ) -> Invoice:
     """
     Replaces all line items on a DRAFT invoice.
@@ -552,7 +563,12 @@ def update_invoice_items(
             raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
         old_advance = invoice.advance_amount
         if advance_amount != old_advance:
-            _update_advance_payment(invoice=invoice, old_amount=old_advance, new_amount=advance_amount, user=user)
+            if advance_amount > 0 and not method_allocations:
+                raise ValidationError({"method_allocations": "At least one method must be selected for the advance payment."})
+            _update_advance_payment(
+                invoice=invoice, old_amount=old_advance, new_amount=advance_amount,
+                method_allocations=method_allocations, user=user,
+            )
             invoice.advance_amount = advance_amount
 
     if payment_due_date is not None:
@@ -726,11 +742,16 @@ def _cancel_advance_payment(*, invoice, user) -> bool:
         advance_payment.deleted_at = timezone.now()
         advance_payment.save(update_fields=["is_deleted", "deleted_by", "deleted_at"])
         reverse_cash_movement(advance_payment)
+
+        from payment_methods.services import reverse_allocations
+        reverse_allocations(advance_payment)
         return True
     return False
 
 
-def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal, user) -> None:
+def _update_advance_payment(
+    *, invoice, old_amount: Decimal, new_amount: Decimal, method_allocations: list, user,
+) -> None:
     """
     Updates the advance Payment record and adjusts cash_in_hand. Also keeps
     the linked customer ledger entry's amount in sync (mirrors the
@@ -738,6 +759,11 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
     previously updated the real Payment/cash but left the ledger entry at
     its original amount, silently understating the customer's receivable
     balance after the advance was edited).
+
+    method_allocations is the user's NEW split for new_amount — this is
+    always a user-driven edit (called only from update_invoice_items), so
+    the split is never assumed/reused from the old amount; the caller
+    validates it's present whenever new_amount > 0 before calling in.
     """
     advance_payment = Payment.objects.filter(
         invoice=invoice,
@@ -746,12 +772,21 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
         is_deleted=False,
     ).first()
 
+    from payment_methods.services import derive_legacy_method_label, record_allocations, refresh_allocations
+
     if advance_payment:
         advance_payment.amount = new_amount
-        advance_payment.save(update_fields=["amount"])
+        advance_payment.method = derive_legacy_method_label(method_allocations) if method_allocations else advance_payment.method
+        advance_payment.save(update_fields=["amount", "method"])
 
         from cash_flow.services import refresh_cash_movement
         refresh_cash_movement(advance_payment)
+
+        if method_allocations:
+            refresh_allocations(
+                advance_payment, direction="inflow", splits=method_allocations,
+                total_amount=new_amount, date=advance_payment.payment_date, user=user,
+            )
 
         from ledger.models import CustomerLedgerEntry
         from ledger.services import _get_year_month, _recalculate_customer_snapshots_from
@@ -767,7 +802,7 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
             invoice=invoice,
             reference_number=_generate_payment_reference(),
             amount=new_amount,
-            method=Payment.Method.CASH,
+            method=derive_legacy_method_label(method_allocations),
             payment_date=timezone.localtime(timezone.now()).date(),
             note=ADVANCE_PAYMENT_NOTE,
             created_by=user,
@@ -783,6 +818,10 @@ def _update_advance_payment(*, invoice, old_amount: Decimal, new_amount: Decimal
         )
         from cash_flow.services import record_cash_movement
         record_cash_movement(adv_payment)
+        record_allocations(
+            adv_payment, direction="inflow", splits=method_allocations,
+            total_amount=new_amount, date=adv_payment.payment_date, user=user,
+        )
 
     from cash_flow.services import sync_invoice_advance_payment_updated
     sync_invoice_advance_payment_updated(old_amount=old_amount, new_amount=new_amount, user=user)
@@ -957,6 +996,29 @@ def confirm_invoice(*, invoice_id: int, user) -> Invoice:
                 old_amount=uncapped_advance, new_amount=advance, user=user,
             )
 
+            # Shrink the advance's method split to match, proportionally —
+            # this is a system correction, not a user re-pick, so the
+            # original split's proportions are preserved via prorate_splits
+            # (largest-remainder rounding — the legs must sum to EXACTLY
+            # `advance`, the same precision class as the earlier
+            # "29,999.996" drift bug).
+            from payment_methods.selectors import get_allocations_for_source
+            from payment_methods.services import (
+                prorate_splits, refresh_allocations, reverse_allocations,
+            )
+            current_legs = [
+                (a.payment_method, a.amount)
+                for a in get_allocations_for_source(advance_payment)
+            ]
+            prorated = prorate_splits(current_legs, advance)
+            if prorated:
+                refresh_allocations(
+                    advance_payment, direction="inflow", splits=prorated,
+                    total_amount=advance, date=advance_payment.payment_date, user=user,
+                )
+            else:
+                reverse_allocations(advance_payment)
+
     credit_outstanding = max(Decimal("0"), invoice.grand_total - advance)
     invoice.cash_received      = advance
     invoice.total_paid         = advance
@@ -1057,7 +1119,7 @@ def create_opening_balance_invoice(*, customer, amount: Decimal, user) -> Invoic
 @transaction.atomic
 def create_payment(
     *, invoice_id: int, amount: Decimal,
-    method: str, payment_date, note: str = "", user,
+    method_allocations: list, payment_date, note: str = "", user,
 ) -> Payment:
     from rest_framework.exceptions import ValidationError
 
@@ -1075,11 +1137,13 @@ def create_payment(
             )
         })
 
+    from payment_methods.services import derive_legacy_method_label, record_allocations
+
     payment = Payment.objects.create(
         invoice=invoice,
         reference_number=_generate_payment_reference(),
         amount=amount,
-        method=method,
+        method=derive_legacy_method_label(method_allocations),
         payment_date=payment_date,
         note=note,
         created_by=user,
@@ -1090,6 +1154,10 @@ def create_payment(
     # Sync CashFlow: cash in hand increases, customer outstanding decreases
     from cash_flow.services import record_cash_movement, sync_invoice_payment_received
     sync_invoice_payment_received(amount=amount, user=user)
+    record_allocations(
+        payment, direction="inflow", splits=method_allocations,
+        total_amount=amount, date=payment_date, user=user,
+    )
     record_cash_movement(payment)
 
     # Ledger entry: payment credit (customer owes us less)
@@ -1120,6 +1188,9 @@ def delete_payment(*, payment_id: int, user) -> None:
     from cash_flow.services import reverse_cash_movement, sync_invoice_payment_deleted
     sync_invoice_payment_deleted(amount=amount, user=user)
     reverse_cash_movement(payment)  # no-op for credit notes (never recorded)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payment)  # no-op for credit notes (never allocated)
 
     # Reverse ledger entry — no-op for credit-note payments, which were
     # never given a payment-linked entry (they're tracked via the Return

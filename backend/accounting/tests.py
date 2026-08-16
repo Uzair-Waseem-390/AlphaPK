@@ -39,6 +39,7 @@ from .views import (
     APAgingListView, ARAgingListView, BalanceSheetView,
     CashFlowStatementView, FixedAssetRegisterListView, IncomeStatementView,
 )
+from payment_methods.models import PaymentMethod
 from users.models import User
 
 
@@ -65,6 +66,10 @@ class AccountingTestBase(TestCase):
         self.customer = create_customer(
             name="Big Mart", code="BM", address="Main St", user=self.admin,
         )
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+
+    def cash_split(self, amount):
+        return [(self.cash, Decimal(amount))]
 
     def make_stocked_product(self, code="P001", stock=10, unit_cost="50", selling_price="100"):
         product = Product.objects.create(name="Product 1", code=code, category=self.category)
@@ -163,7 +168,7 @@ class ARAgingTests(AccountingTestBase):
         from billing.services import create_payment
         create_payment(
             invoice_id=invoice.id, amount=invoice.credit_outstanding,
-            method="cash", payment_date=timezone.localdate(), user=self.admin,
+            method_allocations=self.cash_split(invoice.credit_outstanding), payment_date=timezone.localdate(), user=self.admin,
         )
         rows = get_ar_aging_rows()
         self.assertNotIn(invoice.id, {r["invoice_id"] for r in rows})
@@ -325,7 +330,7 @@ class APAgingTests(AccountingTestBase):
         from purchases.services import create_supplier_payment
         create_supplier_payment(
             order_id=order.id, amount=order.payable_outstanding,
-            method="cash", payment_date=timezone.localdate(), user=self.admin,
+            method_allocations=self.cash_split(order.payable_outstanding), payment_date=timezone.localdate(), user=self.admin,
         )
         rows = get_ap_aging_rows()
         self.assertNotIn(order.id, {r["order_id"] for r in rows})
@@ -396,7 +401,7 @@ class CashFlowStatementTests(AccountingTestBase):
 
         create_payment(
             invoice_id=invoice.id, amount=invoice.credit_outstanding,
-            method="cash", payment_date=today, user=self.admin,
+            method_allocations=self.cash_split(invoice.credit_outstanding), payment_date=today, user=self.admin,
         )
         cat = create_expense_category(name="Utilities", user=self.admin)
         create_expense(

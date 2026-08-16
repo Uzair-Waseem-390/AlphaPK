@@ -11,6 +11,8 @@ from users.models import User
 
 from rest_framework.exceptions import ValidationError
 
+from payment_methods.models import PaymentMethod
+
 from .models import (
     LOW_STOCK_THRESHOLD, Category, Inventory, InventoryStatsFlow, Product,
     ProductStockMovement, PurchaseOrder, PurchaseReturn, Shelf, ShelfStock,
@@ -54,6 +56,13 @@ class PurchasesTestBase(TestCase):
         self.shelf = Shelf.objects.create(name="Shelf A")
         # Through the service so the supplier ledger exists for confirm flows.
         self.supplier = create_supplier(name="Ali Traders", code="ALI", user=self.admin)
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000000"))
+
+    def cash_split(self, amount):
+        """[(PaymentMethod, amount)] — the single-method split most tests
+        need; the account starts with a large balance so outflow tests
+        never trip the insufficient-balance check incidentally."""
+        return [(self.cash, Decimal(amount))]
 
     def make_product(self, code="P001", name="Product 1"):
         return Product.objects.create(
@@ -346,7 +355,7 @@ class OrderPayableSyncTests(PurchasesTestBase):
         order = self.make_confirmed_order(product, quantity=10, unit_price="50")  # net 500
 
         payment = create_supplier_payment(
-            order_id=order.id, amount=Decimal("200"), method="cash",
+            order_id=order.id, amount=Decimal("200"), method_allocations=self.cash_split("200"),
             payment_date=timezone.now().date(), user=self.admin,
         )
         order.refresh_from_db()

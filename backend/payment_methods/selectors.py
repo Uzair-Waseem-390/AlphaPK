@@ -20,3 +20,13 @@ def get_payment_method_allocations(*, payment_method_id: int):
     return PaymentAllocation.objects.filter(
         payment_method_id=payment_method_id, is_deleted=False,
     ).order_by("-date", "-created_at")
+
+
+def get_allocations_for_source(source):
+    """Every active PaymentAllocation row for one transaction (a Payment,
+    SupplierPayment, ...) — the real split, for read serializers to show
+    alongside the derived legacy `method` label."""
+    from .services import _source_label
+    return PaymentAllocation.objects.filter(
+        source_model=_source_label(source), source_id=source.pk, is_deleted=False,
+    ).select_related("payment_method").order_by("id")

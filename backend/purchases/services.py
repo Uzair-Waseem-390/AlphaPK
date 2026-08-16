@@ -705,14 +705,23 @@ def _cancel_advance_payment(*, order, user) -> bool:
         advance_payment.deleted_at = timezone.now()
         advance_payment.save(update_fields=["is_deleted", "deleted_by", "deleted_at"])
         reverse_cash_movement(advance_payment)
+
+        from payment_methods.services import reverse_allocations
+        reverse_allocations(advance_payment)
         return True
     return False
 
 
-def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, user) -> None:
+def _update_advance_payment(
+    *, order, old_amount: Decimal, new_amount: Decimal, method_allocations: list, user,
+) -> None:
     """
     Updates the advance SupplierPayment record and adjusts cash_in_hand.
     Also updates the ledger entry amount so it stays in sync.
+
+    method_allocations is the user's NEW split for new_amount — always a
+    user-driven edit (called only from update_purchase_order_items); the
+    caller validates it's present whenever new_amount > 0.
     """
     from ledger.models import SupplierLedgerEntry
     from ledger.services import _recalculate_snapshots_from, _get_year_month
@@ -724,14 +733,23 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
         is_deleted=False,
     ).first()
 
+    from payment_methods.services import derive_legacy_method_label, record_allocations, refresh_allocations
+
     if advance_payment:
         # Update payment amount
         advance_payment.amount = new_amount
-        advance_payment.save(update_fields=["amount"])
+        advance_payment.method = derive_legacy_method_label(method_allocations) if method_allocations else advance_payment.method
+        advance_payment.save(update_fields=["amount", "method"])
 
         # Keep the drawer event's amount in step (hides it if edited to 0).
         from cash_flow.services import refresh_cash_movement
         refresh_cash_movement(advance_payment)
+
+        if method_allocations:
+            refresh_allocations(
+                advance_payment, direction="outflow", splits=method_allocations,
+                total_amount=new_amount, date=advance_payment.payment_date, user=user,
+            )
 
         # Update linked ledger entry amount
         ledger_entry = SupplierLedgerEntry.objects.filter(
@@ -751,7 +769,7 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
             order=order,
             reference_number=_generate_supplier_payment_reference(),
             amount=new_amount,
-            method=SupplierPayment.Method.CASH,
+            method=derive_legacy_method_label(method_allocations),
             payment_date=timezone.localtime(timezone.now()).date(),
             note="Advance payment on draft purchase order creation.",
             created_by=user,
@@ -767,6 +785,10 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
         )
         from cash_flow.services import record_cash_movement
         record_cash_movement(adv_payment)
+        record_allocations(
+            adv_payment, direction="outflow", splits=method_allocations,
+            total_amount=new_amount, date=adv_payment.payment_date, user=user,
+        )
 
     from cash_flow.services import sync_advance_payment_updated
     sync_advance_payment_updated(old_amount=old_amount, new_amount=new_amount, user=user)
@@ -775,7 +797,8 @@ def _update_advance_payment(*, order, old_amount: Decimal, new_amount: Decimal, 
 @transaction.atomic
 def create_purchase_order(
     *, supplier_id: int, items: list[dict], description: str = "",
-    payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"), user,
+    payment_type: str = "after_delivery", advance_amount: Decimal = Decimal("0"),
+    method_allocations: list = None, user,
 ) -> PurchaseOrder:
     """
     Creates a DRAFT PurchaseOrder with line items.
@@ -804,6 +827,9 @@ def create_purchase_order(
     if advance_amount < 0:
         from rest_framework.exceptions import ValidationError
         raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
+    if payment_type == "advance" and advance_amount > 0 and not method_allocations:
+        from rest_framework.exceptions import ValidationError
+        raise ValidationError({"method_allocations": "At least one method must be selected for the advance payment."})
 
     order = PurchaseOrder.objects.create(
         order_number=_generate_order_number(),
@@ -818,11 +844,13 @@ def create_purchase_order(
 
     # If advance payment: deduct from cash_in_hand and record in payment history
     if payment_type == "advance" and advance_amount > 0:
+        from payment_methods.services import derive_legacy_method_label, record_allocations
+
         adv_payment = SupplierPayment.objects.create(
             order=order,
             reference_number=_generate_supplier_payment_reference(),
             amount=advance_amount,
-            method=SupplierPayment.Method.CASH,
+            method=derive_legacy_method_label(method_allocations),
             payment_date=timezone.localtime(timezone.now()).date(),
             note="Advance payment on draft purchase order creation.",
             created_by=user,
@@ -831,6 +859,10 @@ def create_purchase_order(
         from cash_flow.services import record_cash_movement, sync_advance_payment_created
         sync_advance_payment_created(advance_amount=advance_amount, user=user)
         record_cash_movement(adv_payment)
+        record_allocations(
+            adv_payment, direction="outflow", splits=method_allocations,
+            total_amount=advance_amount, date=adv_payment.payment_date, user=user,
+        )
 
         # Ledger entry: advance debit
         from ledger.services import add_advance_entry
@@ -861,7 +893,8 @@ def create_purchase_order(
 @transaction.atomic
 def update_purchase_order_items(
     *, order_id: int, items: list[dict], description: str = None,
-    payment_type: str = None, advance_amount: Decimal = None, user,
+    payment_type: str = None, advance_amount: Decimal = None,
+    method_allocations: list = None, user,
 ) -> PurchaseOrder:
     """
     Replaces all line items on a DRAFT order.
@@ -922,7 +955,13 @@ def update_purchase_order_items(
             raise ValidationError({"advance_amount": "Advance amount cannot be negative."})
         old_advance = order.advance_amount
         if advance_amount != old_advance:
-            _update_advance_payment(order=order, old_amount=old_advance, new_amount=advance_amount, user=user)
+            if advance_amount > 0 and not method_allocations:
+                from rest_framework.exceptions import ValidationError
+                raise ValidationError({"method_allocations": "At least one method must be selected for the advance payment."})
+            _update_advance_payment(
+                order=order, old_amount=old_advance, new_amount=advance_amount,
+                method_allocations=method_allocations, user=user,
+            )
             order.advance_amount = advance_amount
 
     order.updated_by = user
@@ -1238,7 +1277,7 @@ def create_opening_stock_order(*, supplier, items: list[dict], user) -> Purchase
 
 @transaction.atomic
 def create_supplier_payment(
-    *, order_id: int, amount: Decimal, method: str,
+    *, order_id: int, amount: Decimal, method_allocations: list,
     payment_date, note: str = "", user,
 ) -> SupplierPayment:
     from rest_framework.exceptions import ValidationError
@@ -1256,11 +1295,13 @@ def create_supplier_payment(
             )
         })
 
+    from payment_methods.services import derive_legacy_method_label, record_allocations
+
     payment = SupplierPayment.objects.create(
         order=order,
         reference_number=_generate_supplier_payment_reference(),
         amount=amount,
-        method=method,
+        method=derive_legacy_method_label(method_allocations),
         payment_date=payment_date,
         note=note,
         created_by=user,
@@ -1272,6 +1313,14 @@ def create_supplier_payment(
     from cash_flow.services import record_cash_movement, sync_supplier_payment_made
     sync_supplier_payment_made(amount=amount, user=user)
     record_cash_movement(payment)
+    # This is a REAL balance check, not the record_cash_movement no-op it
+    # sits next to — if the chosen outflow method(s) can't cover the split,
+    # this raises and the whole @transaction.atomic call rolls back
+    # (including the SupplierPayment row and the _sync_order_payable above).
+    record_allocations(
+        payment, direction="outflow", splits=method_allocations,
+        total_amount=amount, date=payment_date, user=user,
+    )
 
     # Ledger entry: debit (we paid supplier)
     from ledger.services import add_payment_entry
@@ -1303,6 +1352,9 @@ def delete_supplier_payment(*, payment_id: int, user) -> None:
     # event is reversed unconditionally — mirroring row visibility, not cash.
     from cash_flow.services import reverse_cash_movement
     reverse_cash_movement(payment)
+
+    from payment_methods.services import reverse_allocations
+    reverse_allocations(payment)
 
 
 # ---------------------------------------------------------------------------

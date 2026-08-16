@@ -19,14 +19,25 @@ class Command(BaseCommand):
         "distribution against a non-production database."
     )
 
-    METHODS = ["cash", "bank", "jazzcash", "easypaisa"]
-
     def handle(self, *args, **options):
         from billing.models import Customer
         from billing.services import confirm_invoice, create_invoice, create_payment
+        from payment_methods.models import PaymentMethod
         from purchases.models import Product, Supplier
         from purchases.services import confirm_purchase_order, create_purchase_order, create_supplier_payment
         from users.models import User
+
+        # The real accounts system replaced free-text methods — every
+        # payment now needs a PaymentMethod split. Seed data keeps it
+        # simple and puts everything on Cash (get_or_create: safe whether
+        # or not seed_and_backfill_payment_methods has already run). Seeded
+        # with a large starting balance since this script pays suppliers
+        # before it ever records an offsetting customer inflow — a fresh
+        # Cash row at 0 would fail the very first supplier payment's
+        # insufficient-balance check.
+        cash_method, _ = PaymentMethod.objects.get_or_create(
+            name="Cash", defaults={"is_protected": True, "balance": Decimal("10000000")},
+        )
 
         user = User.objects.filter(is_superuser=True).first() or User.objects.first()
         if not user:
@@ -68,7 +79,7 @@ class Command(BaseCommand):
                     create_supplier_payment(
                         order_id=order.id,
                         amount=order.payable_outstanding,
-                        method=random.choice(self.METHODS),
+                        method_allocations=[(cash_method, order.payable_outstanding)],
                         payment_date=self._random_date(order_date, today),
                         note="Seed test data payment",
                         user=user,
@@ -95,7 +106,7 @@ class Command(BaseCommand):
                     create_payment(
                         invoice_id=invoice.id,
                         amount=invoice.credit_outstanding,
-                        method=random.choice(self.METHODS),
+                        method_allocations=[(cash_method, invoice.credit_outstanding)],
                         payment_date=self._random_date(invoice_date, today),
                         note="Seed test data payment",
                         user=user,

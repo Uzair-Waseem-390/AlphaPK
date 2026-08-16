@@ -252,22 +252,133 @@ money is already back before the new legs are validated against it).
 
 ## Phase 3 — Wire into Billing + Purchases
 
-The two sources that already have a method concept, and the highest-value
-real transactions:
+Traced every call site in `billing/services.py` and `purchases/services.py`
+that touches `Payment`/`SupplierPayment` — 4 decisions to nail down before
+touching code, then a concrete wiring map for every site.
 
-- `billing.Payment` (invoice payments, advances) and
-  `purchases.SupplierPayment` (supplier payments, advances) creation now
-  requires `method_allocations: [{method_id, amount}, ...]` instead of a
-  single `method` string — mandatory, no default, split allowed.
-- Decision to make in this phase's detailed plan: what happens to the
-  existing `method` CharField on these two models now that a payment can
-  span methods (keep as a derived display value — `"cash"` if one leg,
-  `"multiple"` if more than one — vs. deprecate it). Flagged now so it
-  isn't a surprise mid-build.
-- Insufficient-balance rejection at confirm time via the Phase 2 engine.
-- Frontend: multi-row method+amount picker on the payment form, running
-  "remaining to allocate" total, submit disabled until it matches the
-  payment amount exactly.
+### Decision 1 — the legacy `method` CharField
+
+`Payment.method`/`SupplierPayment.method` stay on the models (reports,
+serializers, PDFs already read `.method`/`get_method_display` — not worth
+touching every caller). They become **derived, not user-input**: the
+create service sets `method = allocations[0].payment_method.name.lower()`
+if there's exactly one leg, else `method = "multiple"`. The
+`Method.TextChoices` constraint is dropped (any account name can land
+here now, not just the old 4) — becomes a plain `CharField`. No serializer
+exposes it as writable any more; `method_allocations` replaces it as the
+real input.
+
+### Decision 2 — draft-time advance payment method
+
+Today `create_invoice`/`create_purchase_order` hardcode the draft-time
+advance to `Payment.Method.CASH` (`billing/services.py:448`) — no user
+choice. Since an advance is real cash moving on draft creation, this
+becomes mandatory + splittable too, same as a regular payment — the
+hardcoding goes away.
+
+### Decision 3 — advance amount edited while still draft
+
+`update_invoice`/`update_purchase_order` let `advance_amount` change
+before confirmation (`_update_advance_payment`). If the amount changes,
+the method split must be re-collected from the user, not silently reused
+at the old proportions — a bigger or smaller advance may need different
+accounts entirely. `refresh_allocations` handles this once the caller
+passes the new split.
+
+### Decision 4 — advance capped at confirmation (billing only)
+
+`confirm_invoice` auto-caps an over-large advance down to `grand_total`
+(the fix from earlier this session) via `_update_advance_payment`. The
+user never re-picks a method here — it's an automatic system correction,
+same as today. The original split gets shrunk **pro-rata** across every
+leg it already had, using largest-remainder rounding to keep the legs
+summing to the new capped total exactly (4 decimal places) — the same
+class of drift the "29,999.996" bug came from, so this must be exact, not
+approximate.
+
+`purchases.confirm_purchase_order` has the equivalent net_payable cap
+(`purchases/services.py:1112-1116`) but — confirmed by reading it — it
+only caps `order.advance_amount`, it never trims the actual
+`SupplierPayment.amount`/cash/allocations the way billing's does. That's
+a pre-existing asymmetry between the two apps, not something Phase 3
+introduces or is meant to fix (changing it would be a business-logic
+change needing its own separate approval per project rules) — so the
+purchases side needs no pro-rata trim logic, only billing does.
+
+### Wiring map
+
+| Function | App | Direction | Allocation call |
+|---|---|---|---|
+| `create_payment` | billing | inflow | `record_allocations` |
+| `delete_payment` | billing | — | `reverse_allocations` |
+| `create_invoice` (advance block) | billing | inflow | `record_allocations` |
+| `_cancel_advance_payment` | billing | — | `reverse_allocations` |
+| `_update_advance_payment` | billing | inflow | `refresh_allocations` (user split on amount-edit; pro-rata split on confirm-cap) |
+| `create_supplier_payment` | purchases | outflow | `record_allocations` |
+| `delete_supplier_payment` | purchases | — | `reverse_allocations` |
+| `create_purchase_order` (advance block) | purchases | outflow | `record_allocations` |
+| `_cancel_advance_payment` | purchases | — | `reverse_allocations` |
+| `_update_advance_payment` | purchases | outflow | `refresh_allocations` |
+
+Every call sits right next to the existing `record_cash_movement`/
+`reverse_cash_movement`/`refresh_cash_movement` call in the same
+transaction — same pattern `instructions/cash-in-hand.md` already
+documents for wiring a new cash-touching feature, just a second call
+alongside the first. `cash_in_hand` itself is untouched; the allocation
+engine's insufficient-balance check on outflows (supplier payments) is a
+**new**, additional rejection reason on top of the existing
+`payable_outstanding` check — a supplier payment can now fail even when
+the invoice/order side is fine, if the chosen outflow method doesn't have
+the funds.
+
+### API changes
+
+- `PaymentWriteSerializer`/`SupplierPaymentWriteSerializer`: `method`
+  field replaced with `method_allocations = [{"payment_method": id,
+  "amount": Decimal}, ...]`, validated non-empty and each amount positive
+  (the sum-matches-total and balance checks live in the Phase 2 engine,
+  not duplicated in the serializer).
+- `InvoiceCreateSerializer`/`PurchaseOrderCreateSerializer`: when
+  `payment_type == "advance"`, `method_allocations` becomes required
+  alongside `advance_amount`.
+- `PaymentReadSerializer`/`SupplierPaymentReadSerializer`: add an
+  `allocations` field (nested `PaymentAllocationReadSerializer` list) so
+  the frontend can show the real split, not just the derived `method`
+  string.
+
+### Frontend
+
+- Multi-row method+amount picker on: invoice payment form, supplier
+  payment form, invoice draft creation (advance), purchase order draft
+  creation (advance), and the advance-amount edit form.
+- Running "remaining to allocate" total; submit disabled until it hits
+  exactly zero.
+- Server-side insufficient-balance errors surfaced inline against the
+  specific method row that's short, not as a generic toast.
+
+### Tests
+
+- `create_payment`/`create_supplier_payment`: split across 2+ methods
+  creates matching `PaymentAllocation` rows and moves each method's
+  balance; single-method still works (not a forced split).
+- Supplier payment outflow rejected when the chosen method is short —
+  existing `payable_outstanding` check still passes but the call is
+  rejected anyway; no `SupplierPayment` row, no allocation, no balance
+  change (mirrors the Phase 2 abort-everything guarantee end-to-end).
+- Delete reverses allocations exactly (`reverse_allocations` called,
+  method balances restored).
+- Draft advance payment now requires and honors `method_allocations`
+  instead of being hardcoded to Cash.
+- Advance-amount edited pre-confirmation: old split fully reversed, new
+  split (possibly different methods) applied.
+- Advance-cap-at-confirmation pro-rata test: a 3-way split advance
+  (Cash/JazzCash/Bank) gets capped down, every leg shrinks proportionally,
+  and the three shrunk legs still sum to EXACTLY the new capped total to
+  4 decimal places (largest-remainder rounding verified, not just "close
+  enough").
+- Regression: full `billing`/`purchases`/`cash_flow`/`ledger`/
+  `credit_score` suites still pass — this phase must not change any dollar
+  figure anywhere, only add the method dimension alongside it.
 
 ---
 
