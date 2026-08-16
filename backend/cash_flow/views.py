@@ -272,13 +272,40 @@ class BreakdownTotalsMixin:
         return response
 
 
+def _movement_page_methods(page_rows) -> dict:
+    """
+    Real per-row method label for a page of CashMovement rows, derived from
+    the actual PaymentAllocation split (payment_methods app) rather than the
+    frozen `CashMovement.method` snapshot, which most source types never set
+    (see cash_flow.services._MOVEMENT_BUILDERS — only invoice/supplier
+    payments populate it). One batched query per distinct source_model on
+    the page (a handful at most, never per-row) — {(source_model, source_id):
+    label}.
+    """
+    from payment_methods.selectors import get_allocations_by_source_ids
+    from payment_methods.services import derive_legacy_method_label
+
+    ids_by_model = {}
+    for m in page_rows:
+        ids_by_model.setdefault(m.source_model, []).append(m.source_id)
+
+    labels = {}
+    for source_model, source_ids in ids_by_model.items():
+        by_id = get_allocations_by_source_ids(source_model, source_ids)
+        for source_id, allocations in by_id.items():
+            splits = [(a.payment_method, a.amount) for a in allocations]
+            labels[(source_model, source_id)] = derive_legacy_method_label(splits)
+    return labels
+
+
 def _paginate_movement_queryset(qs, request) -> dict:
     """
     Manual page-number pagination over the CashMovement queryset — same
     response shape as the old materialized-list pagination (count,
     total_pages, current_page, page_size, results), but only the requested
     page is ever fetched from the database. Row dicts are byte-identical to
-    what the old Python merge produced.
+    what the old Python merge produced, except `method` now reflects the
+    real PaymentAllocation split instead of the frozen (often-null) snapshot.
     """
     try:
         page_size = min(int(request.query_params.get("page_size", 25)), 500)
@@ -293,6 +320,9 @@ def _paginate_movement_queryset(qs, request) -> dict:
     total_pages = max(-(-count // page_size), 1)  # ceil division
     start = (page - 1) * page_size
 
+    page_rows = list(qs[start:start + page_size])
+    method_labels = _movement_page_methods(page_rows)
+
     results = [
         {
             "direction"  : m.direction,
@@ -302,9 +332,9 @@ def _paginate_movement_queryset(qs, request) -> dict:
             "description": m.description,
             "reference"  : m.reference,
             "amount"     : m.amount,
-            "method"     : m.method,
+            "method"     : method_labels.get((m.source_model, m.source_id), m.method),
         }
-        for m in qs[start:start + page_size]
+        for m in page_rows
     ]
 
     return {
