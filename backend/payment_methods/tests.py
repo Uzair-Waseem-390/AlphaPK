@@ -8,7 +8,10 @@ from rest_framework.test import APIRequestFactory, force_authenticate
 from users.models import User
 
 from .models import PaymentAllocation, PaymentMethod
-from .services import create_method, soft_delete_method, update_method
+from .services import (
+    create_method, record_allocations, refresh_allocations,
+    reverse_allocations, soft_delete_method, update_method,
+)
 from .views import PaymentMethodListCreateView, PaymentMethodRetrieveUpdateDestroyView
 
 
@@ -227,3 +230,197 @@ class PaymentMethodAPITests(TestCase):
         force_authenticate(delete_request, user=self.admin)
         response = PaymentMethodRetrieveUpdateDestroyView.as_view()(delete_request, pk=m.pk)
         self.assertEqual(response.status_code, 400)
+
+
+# ---------------------------------------------------------------------------
+# Phase 2 — allocation engine tests
+# ---------------------------------------------------------------------------
+
+def make_dummy_source(pk=1):
+    """A stand-in "source" row — record_allocations only needs
+    ._meta.app_label/.model_name and .pk, same as cash_flow's
+    record_cash_movement(source). Reuses cash_flow.Expense's category-less
+    shape isn't needed; a plain object with the right attributes is enough
+    and keeps these tests independent of any other app's models."""
+    class _Meta:
+        app_label = "billing"
+        model_name = "payment"
+
+    class _Source:
+        _meta = _Meta()
+
+        def __init__(self, pk):
+            self.pk = pk
+
+    return _Source(pk)
+
+
+class AllocationEngineTests(TestCase):
+    def setUp(self):
+        self.admin = make_admin()
+        self.cash = PaymentMethod.objects.create(name="Cash", balance=Decimal("1000"))
+        self.jazzcash = PaymentMethod.objects.create(name="JazzCash", balance=Decimal("1000"))
+
+    def test_single_method_inflow(self):
+        source = make_dummy_source(1)
+        record_allocations(
+            source, direction="inflow", splits=[(self.cash, Decimal("200"))],
+            total_amount=Decimal("200"), date="2026-01-01", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1200"))
+        self.assertEqual(PaymentAllocation.objects.filter(source_id=1).count(), 1)
+
+    def test_single_method_outflow(self):
+        source = make_dummy_source(2)
+        record_allocations(
+            source, direction="outflow", splits=[(self.cash, Decimal("300"))],
+            total_amount=Decimal("300"), date="2026-01-01", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("700"))
+
+    def test_split_inflow_updates_each_method_by_its_own_leg(self):
+        source = make_dummy_source(3)
+        record_allocations(
+            source, direction="inflow",
+            splits=[(self.cash, Decimal("400")), (self.jazzcash, Decimal("600"))],
+            total_amount=Decimal("1000"), date="2026-01-01", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1400"))
+        self.assertEqual(self.jazzcash.balance, Decimal("1600"))
+        self.assertEqual(PaymentAllocation.objects.filter(source_id=3).count(), 2)
+
+    def test_split_outflow_one_leg_short_aborts_everything(self):
+        source = make_dummy_source(4)
+        with self.assertRaises(ValidationError) as ctx:
+            record_allocations(
+                source, direction="outflow",
+                splits=[(self.cash, Decimal("300")), (self.jazzcash, Decimal("1600"))],
+                total_amount=Decimal("1900"), date="2026-01-01", user=self.admin,
+            )
+        self.assertIn("JazzCash", str(ctx.exception.detail))
+
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000"))
+        self.assertEqual(self.jazzcash.balance, Decimal("1000"))
+        self.assertEqual(PaymentAllocation.objects.filter(source_id=4).count(), 0)
+
+    def test_split_outflow_two_legs_short_both_named(self):
+        source = make_dummy_source(5)
+        with self.assertRaises(ValidationError) as ctx:
+            record_allocations(
+                source, direction="outflow",
+                splits=[(self.cash, Decimal("2000")), (self.jazzcash, Decimal("1600"))],
+                total_amount=Decimal("3600"), date="2026-01-01", user=self.admin,
+            )
+        detail = str(ctx.exception.detail)
+        self.assertIn("Cash", detail)
+        self.assertIn("JazzCash", detail)
+
+    def test_split_total_mismatch_rejected(self):
+        source = make_dummy_source(6)
+        with self.assertRaises(ValidationError):
+            record_allocations(
+                source, direction="inflow",
+                splits=[(self.cash, Decimal("400")), (self.jazzcash, Decimal("600"))],
+                total_amount=Decimal("999"), date="2026-01-01", user=self.admin,
+            )
+
+    def test_duplicate_method_in_splits_rejected(self):
+        source = make_dummy_source(7)
+        with self.assertRaises(ValidationError):
+            record_allocations(
+                source, direction="inflow",
+                splits=[(self.cash, Decimal("100")), (self.cash, Decimal("100"))],
+                total_amount=Decimal("200"), date="2026-01-01", user=self.admin,
+            )
+
+    def test_reverse_allocations_undoes_split(self):
+        source = make_dummy_source(8)
+        record_allocations(
+            source, direction="inflow",
+            splits=[(self.cash, Decimal("400")), (self.jazzcash, Decimal("600"))],
+            total_amount=Decimal("1000"), date="2026-01-01", user=self.admin,
+        )
+        reverse_allocations(source)
+
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000"))
+        self.assertEqual(self.jazzcash.balance, Decimal("1000"))
+        self.assertFalse(PaymentAllocation.objects.filter(source_id=8, is_deleted=False).exists())
+
+    def test_reverse_allocations_of_inflow_can_go_negative(self):
+        # Spend the money elsewhere first, then delete the original inflow.
+        source_in = make_dummy_source(9)
+        record_allocations(
+            source_in, direction="inflow", splits=[(self.cash, Decimal("100"))],
+            total_amount=Decimal("100"), date="2026-01-01", user=self.admin,
+        )
+        source_out = make_dummy_source(10)
+        record_allocations(
+            source_out, direction="outflow", splits=[(self.cash, Decimal("1050"))],
+            total_amount=Decimal("1050"), date="2026-01-01", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("50"))
+
+        # Now delete the original inflow — allowed to go negative, not blocked.
+        reverse_allocations(source_in)
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("-50"))
+
+    def test_reverse_allocations_noop_when_nothing_to_reverse(self):
+        source = make_dummy_source(11)
+        reverse_allocations(source)  # must not raise
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("1000"))
+
+    def test_refresh_allocations_moves_split_to_new_amounts(self):
+        source = make_dummy_source(12)
+        record_allocations(
+            source, direction="outflow",
+            splits=[(self.cash, Decimal("400")), (self.jazzcash, Decimal("600"))],
+            total_amount=Decimal("1000"), date="2026-01-01", user=self.admin,
+        )
+        refresh_allocations(
+            source, direction="outflow",
+            splits=[(self.cash, Decimal("300")), (self.jazzcash, Decimal("700"))],
+            total_amount=Decimal("1000"), date="2026-01-02", user=self.admin,
+        )
+        self.cash.refresh_from_db()
+        self.jazzcash.refresh_from_db()
+        # Both started at 1000; old split (400/600) is fully reversed before
+        # the new split (300/700) is applied, so the net effect is just the
+        # final split subtracted from the original balances.
+        self.assertEqual(self.cash.balance, Decimal("700"))
+        self.assertEqual(self.jazzcash.balance, Decimal("300"))
+        self.assertEqual(
+            PaymentAllocation.objects.filter(source_id=12, is_deleted=False).count(), 2,
+        )
+
+    def test_refresh_allocations_enforces_balance_check_on_new_split(self):
+        source = make_dummy_source(13)
+        record_allocations(
+            source, direction="outflow", splits=[(self.cash, Decimal("100"))],
+            total_amount=Decimal("100"), date="2026-01-01", user=self.admin,
+        )
+        with self.assertRaises(ValidationError):
+            refresh_allocations(
+                source, direction="outflow",
+                splits=[(self.jazzcash, Decimal("999999"))],
+                total_amount=Decimal("999999"), date="2026-01-02", user=self.admin,
+            )
+        # Old split's reversal must not have stuck since the whole call rolled back.
+        self.cash.refresh_from_db()
+        self.assertEqual(self.cash.balance, Decimal("900"))
+        self.assertTrue(PaymentAllocation.objects.filter(source_id=13, is_deleted=False).exists())
+
+    def test_lock_order_matches_pk_order_regardless_of_splits_order(self):
+        from .services import _lock_methods
+        locked = _lock_methods([self.jazzcash.pk, self.cash.pk])
+        self.assertEqual(list(locked.keys()), sorted([self.jazzcash.pk, self.cash.pk]))

@@ -147,30 +147,106 @@ its own.
 ## Phase 2 — Allocation engine (the atomic core)
 
 The single choke point every future phase calls into — mirrors
-`cash_flow/services.py`'s `_adjust_cashflow`/`record_cash_movement` pattern
-exactly, so it fits how the rest of the codebase already works:
+`cash_flow/services.py`'s `_adjust_cashflow` +
+`record_cash_movement`/`refresh_cash_movement`/`reverse_cash_movement`
+pattern exactly (same `source` object → `_source_label(source)` +
+`source.pk` convention), so it fits how the rest of the codebase already
+works. Lives in `payment_methods/services.py`, alongside the Phase 1
+method CRUD functions.
 
-- `record_allocations(source, direction, splits, date, user)` — the ONLY
-  function allowed to write `PaymentAllocation` rows and adjust
-  `PaymentMethod.balance`. Takes `splits` as `[(method, amount), ...]`.
-  `select_for_update()`s every `PaymentMethod` row touched, validates
-  `sum(splits) == total amount` and — for outflows — that every leg's
-  amount doesn't exceed that method's current balance, all inside one
-  transaction. Any single leg failing aborts the whole write — never a
-  partially-applied split.
-- `reverse_allocations(source)` — mirrors a source's soft-delete (undoes
-  every leg's balance effect).
-- `refresh_allocations(source, new_splits)` — mirrors an edit that changes
-  the split (e.g. advance amount capped at confirmation).
-- A dedicated exception (e.g. `InsufficientMethodBalanceError`) carrying
-  which method and by how much it's short, so the API layer can surface
-  "JazzCash only has Rs. 150, you tried to take Rs. 600" instead of a
-  generic 500/constraint error.
+### `record_allocations(source, *, direction, splits, total_amount, date, user)`
 
-**Tests**: split validation (over/under-allocated totals rejected),
-insufficient-funds abort-all-or-nothing, reversal, refresh-on-edit, the
-`select_for_update` race can't double-spend a method's balance under
-concurrent requests.
+The ONLY function allowed to write `PaymentAllocation` rows and adjust
+`PaymentMethod.balance`. `source` is the model instance that caused the
+transaction (an `Expense`, a `Payment`, ...) — same object every
+`sync_*`/`record_cash_movement` call already receives. `splits` is
+`[(payment_method, amount), ...]` — resolved `PaymentMethod` instances,
+not raw IDs (the caller's serializer resolves them first, same as
+`InvestorTransactionWriteSerializer.investor` already does).
+
+Validation, in order, all inside one `@transaction.atomic` block:
+1. `total_amount > 0`, `splits` non-empty, every leg `amount > 0`.
+2. No method repeated across legs.
+3. `sum(leg amounts) == total_amount` exactly (Decimal equality — no
+   rounding slack).
+4. Lock every distinct `PaymentMethod` touched in one query —
+   `select_for_update().filter(pk__in=...).order_by("pk")` — the `order_by`
+   is deliberate: every caller locks methods in the same pk order, so two
+   concurrent multi-method transactions can never deadlock on each other.
+5. **Outflow only**: for every leg, check `amount <= method.balance`.
+   Collect *every* shortfall found, not just the first — the error the
+   user sees lists every method that's short, not one at a time.
+6. If step 5 found any shortfall: raise
+   `rest_framework.exceptions.ValidationError` (matches this codebase's
+   existing convention — `cash_management`/`cash_flow`/`billing` services
+   all raise this directly, no dedicated exception class) with one message
+   per method, e.g. `"JazzCash only has Rs. 150.00, this outflow needs Rs.
+   600.00 from it."` Nothing is written — the `@transaction.atomic` wrapper
+   plus the exception means the whole call rolls back, never a
+   partially-applied split.
+7. Otherwise: create one `PaymentAllocation` row per leg, and adjust each
+   locked `PaymentMethod.balance` (`+=` for inflow, `-=` for outflow) —
+   **not floored at 0**, deliberately, mirroring `_adjust_cashflow`'s own
+   documented reasoning: outflow legs are already balance-checked in step
+   5 so a fresh outflow can never push a method negative on its own, but a
+   *reversal* of a past inflow (see below) legitimately can, and that's
+   real information worth seeing, not something to silently clamp away.
+
+Returns the list of created `PaymentAllocation` rows.
+
+### `reverse_allocations(source)`
+
+Mirrors a source's soft-delete — finds every active `PaymentAllocation`
+for `(source_model, source_id)`, locks their methods (same ordered-lock
+rule as above), undoes each leg's balance effect (an inflow reversal
+subtracts, an outflow reversal adds back), and soft-deletes the allocation
+rows. No insufficient-balance check here — reversing an inflow is allowed
+to take a method negative (that negative balance is the honest signal that
+the money was already spent elsewhere before the original entry got
+deleted; same "don't clamp, don't hide" philosophy `_adjust_cashflow`
+already uses for `cash_in_hand`). No-op if no allocations exist for that
+source.
+
+### `refresh_allocations(source, *, direction, splits, total_amount, date, user)`
+
+For edits that change the split (e.g. an advance capped at confirmation —
+the exact scenario the billing advance-cap fix already handles for
+`cash_in_hand`). Implemented as `reverse_allocations(source)` followed by
+`record_allocations(source, ...)` inside one atomic block — reversing
+first means the new split's balance check runs fairly (the old legs'
+money is already back before the new legs are validated against it).
+
+### Explicitly NOT in Phase 2
+
+- No app is wired to call this engine yet (Phase 3+) — it exists and is
+  fully tested in isolation, nothing creates real `splits` from a live
+  form yet.
+- No transfer function — `AccountTransfer`'s balance-moving logic is
+  Phase 6, a sibling function with its own two-method lock, not part of
+  this engine.
+
+### Tests
+
+- Single-method inflow and outflow, balance moves correctly.
+- Split inflow across 2+ methods — every method's balance updates by its
+  own leg, not the total.
+- Split outflow where one leg is short — the whole call raises, **zero**
+  methods' balances change (verified via `refresh_from_db`), and the error
+  message names the specific short method and both numbers.
+- Split outflow where *two* legs are short — both show up in the one
+  error, not just the first.
+- `sum(splits) != total_amount` rejected.
+- Same method repeated across two legs rejected.
+- `reverse_allocations` undoes a multi-method split correctly, including
+  the case where reversing an inflow leg is allowed to take that method
+  negative (asserted as allowed, not raised).
+- `refresh_allocations` moving a split (e.g. 400 Cash + 600 JazzCash → 300
+  Cash + 700 JazzCash) leaves both methods at the exactly-right new
+  balance, and still enforces the balance check on the new split.
+- Locking order: a regression test asserting `record_allocations` always
+  issues its `select_for_update` sorted by method pk regardless of the
+  order methods appear in `splits` (guards the deadlock-avoidance
+  guarantee, not just the balance math).
 
 ---
 
