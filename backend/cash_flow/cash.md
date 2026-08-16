@@ -58,28 +58,56 @@ differently:
 - Invoice/purchase order confirmation — moves what's owed, not cash, until a
   payment is actually made.
 
-## Method field — current state
+## Method field — current state (updated 2026-08-16, real accounts live)
 
-Only 2 of the 14 sources (invoice payments, supplier payments) carry a
-`method` (cash/jazzcash/easypaisa/bank) at all. The other 12 write no method
-and show as "N/A" in the cash-in-hand drawer. As of 2026-08-16 the whole
-system runs on cash only, so `normalize_payment_methods_to_cash` (a
-management command) backfills every existing row's method to `"cash"`.
-Future non-payment movements will still write no method until a mandatory
-method selection is added at every inflow/outflow — a planned change, not
-yet built.
+Every one of the original 14 sources, plus every source added since
+(assets purchases/sales, recurring expense payments, tax/WHT payments,
+cash adjustments, investor/owner transactions and profit payouts), now
+records its real payment method(s) through the `payment_methods` app's
+allocation engine — see "Real accounts" below. The legacy `method`
+CharField on `billing.Payment`/`purchases.SupplierPayment` is still
+populated (a derived display label — the single method's name, or
+`"multiple"` for a split) for backward-compat readers, but the real,
+itemized per-method breakdown lives in `payment_methods.PaymentAllocation`
+and is exposed as an `allocations` field on every source's read serializer.
 
-## Planned: real accounts (2026-08-16, design stage, not built)
+The cash-in-hand drawer (`CashInHandBreakdownView` /
+`get_cash_in_hand_breakdown`) derives its `method` column from these real
+allocations for every source type, batched per page (fixed 2026-08-16 —
+before that fix, 12 of the 14 original source types showed `"N/A"` there
+because `CashMovement`'s own frozen `method` snapshot was only ever
+populated for invoice/supplier payments, not the rest).
+
+## Real accounts (live, built 2026-08 — `payment_methods` app)
 
 The predefined method choices (jazzcash/easypaisa/bank as free-text labels)
-are being replaced with a proper `PaymentMethod` model — user-defined
-accounts (Cash, JazzCash, Easypaisa, Bank, or anything else they add), each
-with its own running balance. `Cash` ships as a protected, undeletable,
-unrenamable seed row. Every inflow and outflow will require selecting one
-or more methods (split allowed — e.g. an invoice payment of 1000 as 400
-Cash + 600 JazzCash), an outflow will be rejected if any selected method's
-balance can't cover its share, and transfers between methods (e.g. move
-100 from Cash to JazzCash) will be supported. `cash_in_hand` itself keeps
-computing exactly as it does today (unaffected) — the per-method balances
-are a new, separate dimension recorded alongside it. See the architecture
-plan under discussion for the model design and rollout phasing.
+have been replaced by a real `PaymentMethod` model — user-defined accounts
+(Cash, JazzCash, Easypaisa, Bank, or anything else added), each with its
+own running `balance`. `Cash` ships as a protected, undeletable,
+unrenamable seed row (`seed_and_backfill_payment_methods` command).
+
+Every inflow and outflow across billing, purchases, cash_flow (expenses,
+opening cash), taxes, profits, cash_management, assets, and
+recurring_expenses requires selecting one or more methods (splits allowed
+— e.g. an invoice payment of 1000 as 400 Cash + 600 JazzCash), enforced by
+`payment_methods.services.record_allocations`/`reverse_allocations`/
+`refresh_allocations` — the single choke point for every balance-moving
+write. An outflow is rejected if any selected method's balance can't cover
+its share. One deliberate exception: a monthly profit settlement's
+"Reinvest" action (as opposed to "Give"/payout) silently defaults both its
+legs to Cash — no method picker — since no real money crosses accounts,
+it's a bookkeeping equity swap.
+
+Transfers between methods (e.g. move 100 from Cash to JazzCash) are
+supported via `AccountTransfer` +
+`payment_methods.services.transfer_between_methods`, deadlock-safe via
+pk-ordered locking across both methods in one transaction. Frontend pages:
+`/payment-methods` (method management + balances + per-method history),
+`/payment-methods/transfers`.
+
+`cash_in_hand` itself keeps computing exactly as it always has
+(untouched) — the per-method balances are a separate, additional
+dimension recorded alongside it, not a replacement. Full build history and
+phase-by-phase design: `payment_methods/phases.md`. The wiring checklist
+for adding a method split to any NEW cash-touching feature:
+`instructions/cash-in-hand.md`'s "wire SEVEN places."

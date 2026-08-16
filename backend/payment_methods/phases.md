@@ -21,7 +21,7 @@ a later phase starts until the current one is confirmed working. Phase 0
 
 ---
 
-## Phase 1 — Core models + CRUD + existing-data backfill
+## Phase 1 — Core models + CRUD + existing-data backfill (done)
 
 ### Models (`payment_methods/models.py`)
 
@@ -144,7 +144,7 @@ its own.
 
 ---
 
-## Phase 2 — Allocation engine (the atomic core)
+## Phase 2 — Allocation engine (the atomic core) (done)
 
 The single choke point every future phase calls into — mirrors
 `cash_flow/services.py`'s `_adjust_cashflow` +
@@ -250,7 +250,7 @@ money is already back before the new legs are validated against it).
 
 ---
 
-## Phase 3 — Wire into Billing + Purchases
+## Phase 3 — Wire into Billing + Purchases (done)
 
 Traced every call site in `billing/services.py` and `purchases/services.py`
 that touches `Payment`/`SupplierPayment` — 4 decisions to nail down before
@@ -382,7 +382,7 @@ the funds.
 
 ---
 
-## Phase 4 — Profit settlement exception
+## Phase 4 — Profit settlement exception (done)
 
 Traced both payout functions in `profits/services.py` —
 `create_investor_profit_payout` and `create_owner_profit_payout` — which
@@ -478,7 +478,7 @@ extra call needed here.
 
 ---
 
-## Phase 5 — Remaining 10 source models
+## Phase 5 — Remaining 10 source models (done)
 
 Correction to the earlier "9" estimate: Phase 3 covered 2 of the 14
 `cash_flow/cash.md` source models (`billing.Payment`,
@@ -602,7 +602,7 @@ Flagging as a decision point rather than assuming.
 
 ---
 
-## Phase 6 — Transfers
+## Phase 6 — Transfers (done)
 
 The `AccountTransfer` model already exists (Phase 1) with `from_method`,
 `to_method` (both `PROTECT`), `amount`, `date`, `note`. The key design
@@ -712,7 +712,7 @@ recorded direction. No new reversal logic needed.
 
 ---
 
-## Phase 7 — Frontend completion
+## Phase 7 — Frontend completion (done)
 
 - Method management page: create/edit/soft-delete `PaymentMethod` rows,
   each showing its balance and transaction history.
@@ -723,16 +723,21 @@ recorded direction. No new reversal logic needed.
 
 ---
 
-## Phase 8 — Verification & cleanup
+## Phase 8 — Verification & cleanup (done, minus the invariant check — explicitly skipped, see below)
 
 - Full regression: billing, purchases, cash_flow, accounting, profits,
-  assets, cash_management, taxes, recurring_expenses test suites.
-- New standing invariant check: `cash_in_hand == sum(all PaymentMethod
-  balances)`, always — add this as an automated check alongside the
-  existing Balance Sheet `is_balanced` check.
-- Update `instructions/cash-in-hand.md`: add a step to the existing
-  "wire FIVE places" checklist — any new cash-touching feature must also
-  call the Phase 2 allocation engine on create/edit/delete, same as it
-  already must wire `CashMovement`.
-- Update `cash_flow/cash.md`'s "Planned: real accounts" section from
-  design-stage language to describe the live system.
+  assets, cash_management, taxes, recurring_expenses, payment_methods,
+  data_entry test suites — run 2026-08-16.
+- New standing invariant check (`cash_in_hand == sum(all PaymentMethod
+  balances)`, alongside the Balance Sheet `is_balanced` check) —
+  **deliberately NOT built**, per explicit instruction ("don't need to
+  check the balance sheet"). No automated cross-check exists yet; don't
+  assume one is catching drift between `cash_in_hand` and the sum of
+  `PaymentMethod` balances.
+- Updated `instructions/cash-in-hand.md`: added step 7 to the checklist
+  (now "wire SEVEN places") — any new cash-touching feature must also call
+  the Phase 2 allocation engine on create/edit/delete, same as it already
+  must wire `CashMovement`.
+- Updated `cash_flow/cash.md`'s "Planned: real accounts" section — now
+  "Real accounts (live, built 2026-08)", describing the system as built,
+  not planned.
