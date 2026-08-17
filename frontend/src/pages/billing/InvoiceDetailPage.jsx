@@ -3,7 +3,7 @@ import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
     Printer, Save, CreditCard, RotateCcw, CalendarClock, Pencil,
-    CheckCircle2, Trash2, FileText, Package, ExternalLink,
+    CheckCircle2, Trash2, FileText, Package, ExternalLink, Smartphone,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -658,9 +658,14 @@ const InvoiceDetailPage = () => {
                 </div>
                 <div className="flex gap-2 flex-wrap sm:justify-end">
                     {!isDraft && (
-                        <Button variant="secondary" icon={Printer} onClick={handlePrint}>
-                            Print
-                        </Button>
+                        <>
+                            <Button variant="secondary" icon={Printer} onClick={handlePrint}>
+                                Print
+                            </Button>
+                            <Button variant="secondary" icon={Smartphone} onClick={() => navigate(`/billing/invoices/${id}/preview`)}>
+                                Preview
+                            </Button>
+                        </>
                     )}
 
                     {canManage && (

@@ -46,6 +46,7 @@ import InvoicesPage from './pages/billing/InvoicesPage';
 import CreateInvoicePage from './pages/billing/CreateInvoicePage';
 import EditInvoicePage from './pages/billing/EditInvoicePage';
 import InvoiceDetailPage from './pages/billing/InvoiceDetailPage';
+import InvoicePreviewPage from './pages/billing/InvoicePreviewPage';
 import BillingPaymentsPage from "./pages/billing/PaymentsPage";
 import PaymentDetailPage from './pages/billing/PaymentDetailPage';
 import OutstandingInvoicesPage from './pages/billing/OutstandingInvoicesPage';
@@ -447,6 +448,14 @@ const AppContent = () => {
             <Layout>
               <EditInvoicePage />
             </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* Deliberately no <Layout> — this is a mobile screenshot surface,
+            not app navigation. See InvoicePreviewPage.jsx's comment. */}
+        <Route path="/billing/invoices/:id/preview" element={
+          <ProtectedRoute>
+            <InvoicePreviewPage />
           </ProtectedRoute>
         } />
 
