@@ -730,7 +730,9 @@ def _stock_movement_date_filter(qs, *, field: str, date: str = None, date_from: 
     return _apply_datetime_range_filter(qs, field=field, date=date, date_from=date_from, date_to=date_to)
 
 
-def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None, date_to: str = None) -> dict:
+def _stock_movement_totals_by_product(
+    *, date: str = None, date_from: str = None, date_to: str = None, search: str = None,
+) -> dict:
     """
     {product_id: {"total_purchased": x, "total_purchase_returned": x,
     "total_sold": x, "total_sale_returned": x, "total_lost": x,
@@ -738,9 +740,23 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
     window. Only called when a filter is actually applied — the no-filter
     case reads ProductStockMovement directly instead (O(1) per row, see
     get_stock_movement_report_rows).
+
+    `search`, when given, narrows every one of the 6 source queries to only
+    the matching products BEFORE aggregating (via an indexed `search_q`
+    lookup on Product name/code, same trigram index the rows path already
+    relies on) — so a search-scoped call stays fast and bounded by the
+    (typically tiny) matching-product set, never by total table size, and
+    "total X" in the response only ever sums the products actually shown.
     """
     zero = 0
     totals = {}
+
+    product_ids = None
+    if _clean(search):
+        from purchases.models import Product
+        product_ids = list(Product.objects.filter(search_q(_clean(search), "name", "code")).values_list("id", flat=True))
+        if not product_ids:
+            return {}
 
     def _add(product_id, field, amount):
         row = totals.setdefault(product_id, {
@@ -750,51 +766,68 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
         })
         row[field] += amount
 
+    # NOT excluding order__is_data_entry here (unlike the sold/sale_returned
+    # queries below) — a data-entry opening-stock order moves REAL physical
+    # inventory (Inventory.quantity incremented, ProductStockMovement
+    # updated via _adjust_stock_movement — see purchases.services.
+    # create_opening_stock_order), so it must count as "purchased" here too,
+    # exactly like the no-filter path (which reads ProductStockMovement
+    # directly and already includes it). Excluding it here was the bug:
+    # date-filtered totals silently dropped opening-stock purchases that
+    # the unfiltered totals correctly showed.
+    purchased_qs = PurchaseItem.objects.filter(
+        is_deleted=False, order__is_deleted=False, order__status="confirmed",
+    )
+    if product_ids is not None:
+        purchased_qs = purchased_qs.filter(product_id__in=product_ids)
     purchased_qs = _stock_movement_date_filter(
-        PurchaseItem.objects.filter(
-            is_deleted=False, order__is_deleted=False, order__status="confirmed",
-            order__is_data_entry=False,
-        ),
-        field="order__confirmed_at", date=date, date_from=date_from, date_to=date_to,
+        purchased_qs, field="order__confirmed_at", date=date, date_from=date_from, date_to=date_to,
     )
     for row in purchased_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["product_id"], "total_purchased", row["total"])
 
     from purchases.models import PurchaseReturnItem
+    purchase_returned_qs = PurchaseReturnItem.objects.filter(
+        return_record__is_deleted=False, return_record__status="accepted",
+    )
+    if product_ids is not None:
+        purchase_returned_qs = purchase_returned_qs.filter(purchase_item__product_id__in=product_ids)
     purchase_returned_qs = _stock_movement_date_filter(
-        PurchaseReturnItem.objects.filter(
-            return_record__is_deleted=False, return_record__status="accepted",
-            purchase_item__order__is_data_entry=False,
-        ),
-        field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
+        purchase_returned_qs, field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
     )
     for row in purchase_returned_qs.values("purchase_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["purchase_item__product_id"], "total_purchase_returned", row["total"])
 
     from billing.models import InvoiceItem, ReturnItem
+    sold_qs = InvoiceItem.objects.filter(
+        invoice__is_deleted=False, invoice__is_data_entry=False,
+    ).exclude(invoice__status="draft")
+    if product_ids is not None:
+        sold_qs = sold_qs.filter(product_id__in=product_ids)
     sold_qs = _stock_movement_date_filter(
-        InvoiceItem.objects.filter(
-            invoice__is_deleted=False, invoice__is_data_entry=False,
-        ).exclude(invoice__status="draft"),
-        field="invoice__confirmed_at", date=date, date_from=date_from, date_to=date_to,
+        sold_qs, field="invoice__confirmed_at", date=date, date_from=date_from, date_to=date_to,
     )
     for row in sold_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["product_id"], "total_sold", row["total"])
 
+    sale_returned_qs = ReturnItem.objects.filter(
+        return_record__is_deleted=False, return_record__status="accepted",
+        invoice_item__invoice__is_data_entry=False,
+    )
+    if product_ids is not None:
+        sale_returned_qs = sale_returned_qs.filter(invoice_item__product_id__in=product_ids)
     sale_returned_qs = _stock_movement_date_filter(
-        ReturnItem.objects.filter(
-            return_record__is_deleted=False, return_record__status="accepted",
-            invoice_item__invoice__is_data_entry=False,
-        ),
-        field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
+        sale_returned_qs, field="return_record__accepted_at", date=date, date_from=date_from, date_to=date_to,
     )
     for row in sale_returned_qs.values("invoice_item__product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["invoice_item__product_id"], "total_sale_returned", row["total"])
 
     from purchases.models import LostInventoryItem, LostInventoryRecovery
+    lost_qs = LostInventoryItem.objects.filter(record__is_deleted=False)
+    if product_ids is not None:
+        lost_qs = lost_qs.filter(product_id__in=product_ids)
     lost_qs = _stock_movement_date_filter(
-        LostInventoryItem.objects.filter(record__is_deleted=False),
-        field="record__created_at", date=date, date_from=date_from, date_to=date_to,
+        lost_qs, field="record__created_at", date=date, date_from=date_from, date_to=date_to,
     )
     for row in lost_qs.values("product_id").annotate(total=Coalesce(Sum("quantity"), zero)):
         _add(row["product_id"], "total_lost", row["total"])
@@ -802,6 +835,8 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
     # recovered_at is a plain DateField (not DateTimeField) — no __date
     # transform needed/supported, unlike the other four *_date_filter calls.
     found_qs = LostInventoryRecovery.objects.all()
+    if product_ids is not None:
+        found_qs = found_qs.filter(lost_item__product_id__in=product_ids)
     if _clean(date):
         found_qs = found_qs.filter(recovered_at=_clean(date))
     if _clean(date_from):
@@ -814,25 +849,18 @@ def _stock_movement_totals_by_product(*, date: str = None, date_from: str = None
     return totals
 
 
-def get_stock_movement_report_stats(_rows=None, *, date: str = None, date_from: str = None, date_to: str = None) -> dict:
+def get_stock_movement_report_stats(rows: list) -> dict:
     """
-    Filtered case — live aggregation across all four source tables, all
-    products, ignores search. `_rows` is accepted-but-unused: it exists
-    only so this matches BaseReportPrintView's stats_needs_filters calling
-    convention (self.stats_fn(queryset, **filters)) — this function always
-    recomputes independently rather than deriving from the already-built
-    row list, since stats must ignore search while rows don't.
+    Sums the SAME already-fetched row list the response returns — zero
+    extra queries (matches get_inventory_valuation_report_stats's
+    convention). Used to independently re-run the full 6-table aggregation
+    a second time (once for rows, once for stats), which both doubled the
+    query count AND could disagree with the row list's search scope —
+    fixed by deriving stats from rows directly, so they can never diverge.
     """
-    totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to)
-    stats = {
-        "total_purchased": 0, "total_purchase_returned": 0,
-        "total_sold": 0, "total_sale_returned": 0,
-        "total_lost": 0, "total_found": 0,
-    }
-    for row in totals.values():
-        for key in stats:
-            stats[key] += row[key]
-    return stats
+    return _stock_movement_stats_from_totals({
+        r["product_id"]: r for r in rows
+    })
 
 
 def get_stock_movement_report_stats_all_time() -> dict:
@@ -892,15 +920,20 @@ def get_stock_movement_report_rows(
             for row in qs
         ]
 
-    totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to)
+    totals = _stock_movement_totals_by_product(date=date, date_from=date_from, date_to=date_to, search=search)
+    return _stock_movement_rows_from_totals(totals)
+
+
+def _stock_movement_rows_from_totals(totals: dict) -> list:
+    """Product name/code lookup for an already-computed totals dict — `totals`
+    is expected to already be search-scoped (see _stock_movement_totals_by_product's
+    `search` param), so this does no further filtering, just enrichment + ordering."""
+    from purchases.models import Product
+
     if not totals:
         return []
 
-    products = Product.objects.filter(id__in=totals.keys())
-    if _clean(search):
-        products = products.filter(search_q(_clean(search), "name", "code"))
-    products = products.order_by("name")
-
+    products = Product.objects.filter(id__in=totals.keys()).order_by("name")
     return [
         {
             "product_id"              : p.id,
@@ -915,3 +948,17 @@ def get_stock_movement_report_rows(
         }
         for p in products
     ]
+
+
+def _stock_movement_stats_from_totals(totals: dict) -> dict:
+    stats = {
+        "total_purchased": 0, "total_purchase_returned": 0,
+        "total_sold": 0, "total_sale_returned": 0,
+        "total_lost": 0, "total_found": 0,
+    }
+    for row in totals.values():
+        for key in stats:
+            stats[key] += row[key]
+    return stats
+
+

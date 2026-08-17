@@ -1,7 +1,9 @@
 from datetime import date, datetime, time
 from decimal import Decimal
 
+from django.db import connection
 from django.test import TestCase
+from django.test.utils import CaptureQueriesContext
 from django.utils import timezone
 from rest_framework.test import APIRequestFactory, force_authenticate
 
@@ -169,3 +171,88 @@ class SearchTests(ReportsTestBase):
         force_authenticate(request, user=self.admin)
         response = StockMovementReportView.as_view()(request)
         self.assertEqual([r["product_code"] for r in response.data["results"]], ["STL01"])
+
+    def test_stock_movement_date_filter_includes_data_entry_opening_stock_purchases(self):
+        # Regression: _stock_movement_totals_by_product's date-filtered
+        # aggregation used to exclude order__is_data_entry purchases, so an
+        # opening-stock addition (e.g. from the Data Entry app) showed 0
+        # "purchased" the moment ANY date filter was applied, even though
+        # the no-filter path (reading ProductStockMovement directly) always
+        # showed it correctly.
+        from data_entry.services import create_opening_stock
+
+        product = Product.objects.create(name="Max Blue", code="MAX-BLU", category=self.category)
+        create_rate(product_id=product.id, selling_price=Decimal("100"), user=self.admin)
+        sys_supplier = create_supplier(name="Opening Stock", code="SYS-OPENING", user=self.admin)
+
+        create_opening_stock(
+            items=[{
+                "product_id": product.id, "quantity": 2, "unit_price": Decimal("50"),
+                "shelf_id": self.shelf.id,
+            }],
+            user=self.admin,
+        )
+
+        today = timezone.localdate().isoformat()
+        request = self.factory.get("/reports/stock-movement/", {"date": today, "search": "max"})
+        force_authenticate(request, user=self.admin)
+        response = StockMovementReportView.as_view()(request)
+
+        rows = {r["product_code"]: r for r in response.data["results"]}
+        self.assertEqual(rows["MAX-BLU"]["total_purchased"], 2)
+        # search="max" scopes the header stats to just the matching
+        # product(s) too (see test below) — exact, not just >=.
+        self.assertEqual(response.data["stats"]["total_purchased"], 2)
+
+    def test_stock_movement_header_stats_scoped_by_search(self):
+        # search should scope the header "total_purchased" etc. to only the
+        # matching products — no search means every product; search="max"
+        # means only products matching "max". Covers both the no-date-filter
+        # (all-time, live-aggregated-because-of-search) and date-filtered cases.
+        max_product = self.make_stocked_product(code="MAX01", name="Max Blue", stock=5)
+        self.make_stocked_product(code="STL01", name="Steel Rod", stock=7)
+
+        # No search — stats cover both products (5 + 7 = 12).
+        request = self.factory.get("/reports/stock-movement/", {})
+        force_authenticate(request, user=self.admin)
+        response = StockMovementReportView.as_view()(request)
+        self.assertEqual(response.data["stats"]["total_purchased"], 12)
+
+        # search="max", no date filter — stats scoped to MAX01 only (5),
+        # not the company-wide total (12).
+        request = self.factory.get("/reports/stock-movement/", {"search": "max"})
+        force_authenticate(request, user=self.admin)
+        response = StockMovementReportView.as_view()(request)
+        self.assertEqual(response.data["stats"]["total_purchased"], 5)
+        self.assertEqual([r["product_code"] for r in response.data["results"]], ["MAX01"])
+
+        # search="max" WITH a date filter too — still scoped to MAX01 only.
+        today = timezone.localdate().isoformat()
+        request = self.factory.get("/reports/stock-movement/", {"date": today, "search": "max"})
+        force_authenticate(request, user=self.admin)
+        response = StockMovementReportView.as_view()(request)
+        self.assertEqual(response.data["stats"]["total_purchased"], 5)
+
+    def test_stock_movement_search_scoped_stats_query_count_flat(self):
+        # Query count for a search-scoped stats call must not grow with the
+        # number of UNRELATED products in the system — search_q() resolves
+        # matching product ids first (one indexed query), then every one of
+        # the 6 aggregation queries is scoped to just those ids. This is
+        # what keeps the endpoint fast regardless of company size.
+        self.make_stocked_product(code="MAX01", name="Max Blue")
+        baseline_request = self.factory.get("/reports/stock-movement/", {"search": "max"})
+        force_authenticate(baseline_request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx_baseline:
+            StockMovementReportView.as_view()(baseline_request)
+        baseline_count = len(ctx_baseline.captured_queries)
+
+        for i in range(10):
+            self.make_stocked_product(code=f"OTH{i}", name=f"Other Product {i}")
+
+        grown_request = self.factory.get("/reports/stock-movement/", {"search": "max"})
+        force_authenticate(grown_request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx_grown:
+            StockMovementReportView.as_view()(grown_request)
+        grown_count = len(ctx_grown.captured_queries)
+
+        self.assertEqual(baseline_count, grown_count)

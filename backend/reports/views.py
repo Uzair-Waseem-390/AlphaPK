@@ -510,8 +510,10 @@ class StockMovementReportView(generics.ListAPIView):
         date      : YYYY-MM-DD — exact day
         date_from : YYYY-MM-DD — range start
         date_to   : YYYY-MM-DD — range end
-        search    : matches product name or code (does not affect the
-                    header stats — those are always all-products)
+        search    : matches product name or code. No search -> header
+                    stats cover every product. With search -> header stats
+                    are scoped to just the matching products, same set the
+                    row list shows.
 
     Response (paginated):
         {"count": int, "total_pages": int, "current_page": int, "page_size": int,
@@ -530,10 +532,13 @@ class StockMovementReportView(generics.ListAPIView):
 
     def list(self, request, *args, **kwargs):
         queryset = self.get_queryset()
-        if _has_date_filter(request):
-            filters = ReportDateFilterSerializer(data=request.query_params)
-            filters.is_valid(raise_exception=True)
-            stats = get_stock_movement_report_stats(**filters.validated_data)
+        search = request.query_params.get("search")
+        if _has_date_filter(request) or (search and search.strip()):
+            # Sums the SAME rows list above — no second aggregation query.
+            # Used to call get_stock_movement_report_stats(**filters, search)
+            # here, which independently re-ran the full 6-table aggregation
+            # a second time every request.
+            stats = get_stock_movement_report_stats(queryset)
         else:
             stats = get_stock_movement_report_stats_all_time()
 
@@ -917,8 +922,8 @@ class StockMovementReportPrintView(APIView):
 
         rows_data = get_stock_movement_report_rows(**filters, search=search)
 
-        if request.query_params.get("date") or request.query_params.get("date_from") or request.query_params.get("date_to"):
-            stats = get_stock_movement_report_stats(**filters)
+        if _has_date_filter(request) or (search and search.strip()):
+            stats = get_stock_movement_report_stats(rows_data)
         else:
             stats = get_stock_movement_report_stats_all_time()
 
