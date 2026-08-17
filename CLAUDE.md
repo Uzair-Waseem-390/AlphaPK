@@ -4,6 +4,7 @@ These are hard constraints, not suggestions. An agent that skips the required
 reading below and repeats a mistake already fixed once in this project is
 failing the assignment, not taking a shortcut.
 
+- **Read `instructions/working-style.md` every session, unconditionally** — before anything else here. It's how the project owner actually wants to collaborate (production-DB testing discipline, background-test-always, plan-first-with-real-pushback, root-cause-before-fix, performance-as-a-hard-requirement), learned directly from real corrections across past sessions. Not conditional on task type — read it regardless of what the task is.
 - **Plan first.** Show a plan before any code change; wait for approval. Skip only if the user gives a direct, explicit "do it now" instruction. If unsure, ask.
 - **Never assume.** Ask when a request is ambiguous — give your recommendation alongside the question. A buried imperative in an otherwise exploratory message still needs confirmation first.
 - **Git**: never commit unless explicitly asked that turn.
