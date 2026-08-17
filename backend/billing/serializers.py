@@ -336,6 +336,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
     confirmed_by           = serializers.StringRelatedField(read_only=True)
     deleted_by             = serializers.StringRelatedField(read_only=True)
     draft_preview          = serializers.SerializerMethodField()
+    print_preview          = serializers.SerializerMethodField()
     payment_status_display = serializers.CharField(source="get_payment_status_display", read_only=True)
 
     class Meta:
@@ -348,7 +349,7 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
             # payment summary inline on every invoice response
             "cash_received", "credit_outstanding", "total_paid",
             "remaining_amount", "payment_status", "payment_status_display",
-            "draft_preview",
+            "draft_preview", "print_preview",
             "items",
             "confirmed_by", "confirmed_at",
             "created_by", "updated_by", "deleted_by",
@@ -367,6 +368,30 @@ class InvoiceReadSerializer(serializers.ModelSerializer):
 
     def get_draft_preview(self, obj):
         return _build_draft_preview(obj)
+
+    def get_print_preview(self, obj):
+        # Draft only — a confirmed invoice's real items/grand_total (already
+        # in this same response) ARE its print content, no live calc needed.
+        # Same shared get_invoice_print_context() the PDF itself renders
+        # from (billing/utils.py), so the Invoice Preview page's draft
+        # numbers can never drift from what actually prints — unlike
+        # draft_preview above, which is a DIFFERENT, pre-discount/tax number
+        # meant for staff profit-margin eyeballing, not customer-facing print.
+        if obj.status != Invoice.Status.DRAFT:
+            return None
+        from .utils import get_invoice_print_context
+        ctx = get_invoice_print_context(obj)
+        return {
+            "items": [
+                {
+                    **item,
+                    "effective_price": str(item["effective_price"]) if item["effective_price"] is not None else None,
+                    "line_total"     : str(item["line_total"]) if item["line_total"] is not None else None,
+                }
+                for item in ctx["items"]
+            ],
+            "grand_total": str(ctx["grand_total"]) if ctx["grand_total"] is not None else None,
+        }
 
 
 class InvoiceCreateSerializer(serializers.Serializer):

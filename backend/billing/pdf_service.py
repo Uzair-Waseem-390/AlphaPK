@@ -23,82 +23,33 @@ def _get_invoice_pdf_dir(year: int) -> Path:
     return path
 
 
-def _build_item_context(invoice: Invoice) -> list[dict]:
+def _build_item_context(print_context: dict) -> list[dict]:
     """
-    Builds per-item context for the PDF template.
-    For the printed bill, effective_price and line_total are shown.
-    Discount, GST, WHT are NOT shown on the bill (customer requirement).
+    Per-item display context for the PDF template, from the shared
+    get_invoice_print_context() (see billing/utils.py — also used by the
+    Invoice Preview page's print_preview API field, so the two can never
+    disagree on what a draft's numbers actually are).
     """
-    items = []
-    for item in invoice.items.all():
-        # For draft: use draft_preview calculated effective_price if available
-        # For confirmed: use stored effective_price
-        if invoice.status == Invoice.Status.DRAFT:
-            try:
-                sp   = item.product.rate.selling_price
-                disc = item.discount
-                ep   = sp - disc
-                # Calculate line total with gst/wht for display
-                from .utils import calculate_line_item
-                calc = calculate_line_item(
-                    quantity=item.quantity,
-                    selling_price=sp,
-                    discount=disc,
-                    gst=item.gst,
-                    wht=item.wht,
-                )
-                effective_price_display = f"{ep:,.4f}"
-                line_total_display      = f"{calc['line_total']:,.4f}"
-            except Exception:
-                effective_price_display = "N/A"
-                line_total_display      = "N/A"
-        else:
-            effective_price_display = f"{item.effective_price:,.4f}"
-            line_total_display      = f"{item.line_total:,.4f}"
-
-        items.append({
-            "product_name"           : item.product.name,
-            "product_code"           : item.product.code,
-            "quantity"               : item.quantity,
-            "effective_price_display": effective_price_display,
-            "line_total_display"     : line_total_display,
-        })
-    return items
+    return [
+        {
+            "product_name"           : item["product_name"],
+            "product_code"           : item["product_code"],
+            "quantity"               : item["quantity"],
+            "effective_price_display": f"{item['effective_price']:,.4f}" if item["effective_price"] is not None else "N/A",
+            "line_total_display"     : f"{item['line_total']:,.4f}" if item["line_total"] is not None else "N/A",
+        }
+        for item in print_context["items"]
+    ]
 
 
 def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
     """Renders the invoice HTML template with full context."""
-    items = _build_item_context(invoice)
+    from .utils import get_invoice_print_context
 
-    if invoice.status != Invoice.Status.DRAFT:
-        subtotal_display    = f"{invoice.subtotal:,.4f}"
-        grand_total_display = f"{invoice.grand_total:,.4f}"
-    else:
-        # For draft, compute preview totals
-        from decimal import Decimal
-        from .utils import calculate_line_item, calculate_invoice_totals
-        line_calcs = []
-        for item in invoice.items.all():
-            try:
-                sp   = item.product.rate.selling_price
-                calc = calculate_line_item(
-                    quantity=item.quantity,
-                    selling_price=sp,
-                    discount=item.discount,
-                    gst=item.gst,
-                    wht=item.wht,
-                )
-                calc["line_cogs"] = Decimal("0")
-                line_calcs.append(calc)
-            except Exception:
-                pass
-        if line_calcs:
-            totals = calculate_invoice_totals(line_calcs)
-            subtotal_display    = f"{totals['subtotal']:,.4f}"
-            grand_total_display = f"{totals['grand_total']:,.4f}"
-        else:
-            subtotal_display    = "N/A"
-            grand_total_display = "N/A"
+    print_context = get_invoice_print_context(invoice)
+    items = _build_item_context(print_context)
+    grand_total = print_context["grand_total"]
+    grand_total_display = f"{grand_total:,.4f}" if grand_total is not None else "N/A"
 
     # Resolve invoice date: confirmed_at for confirmed bills, created_at for drafts
     # localtime() converts the UTC-stored value to settings.TIME_ZONE before
@@ -112,7 +63,6 @@ def _render_invoice_html(invoice: Invoice, is_draft: bool) -> str:
         "invoice"            : invoice,
         "items"              : items,
         "is_draft"           : is_draft,
-        "subtotal_display"   : subtotal_display,
         "grand_total_display": grand_total_display,
         "invoice_date"       : invoice_date,
         "generated_at"       : timezone.localtime(timezone.now()).strftime("%d %b %Y %H:%M"),

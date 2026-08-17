@@ -658,15 +658,13 @@ const InvoiceDetailPage = () => {
                 </div>
                 <div className="flex gap-2 flex-wrap sm:justify-end">
                     {!isDraft && (
-                        <>
-                            <Button variant="secondary" icon={Printer} onClick={handlePrint}>
-                                Print
-                            </Button>
-                            <Button variant="secondary" icon={Smartphone} onClick={() => navigate(`/billing/invoices/${id}/preview`)}>
-                                Preview
-                            </Button>
-                        </>
+                        <Button variant="secondary" icon={Printer} onClick={handlePrint}>
+                            Print
+                        </Button>
                     )}
+                    <Button variant="secondary" icon={Smartphone} onClick={() => navigate(`/billing/invoices/${id}/preview`)}>
+                        Preview
+                    </Button>
 
                     {canManage && (
                         <>

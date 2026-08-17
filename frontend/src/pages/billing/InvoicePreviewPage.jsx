@@ -9,10 +9,13 @@ import InlineAlert from '../../components/ui/InlineAlert';
 const COMPANY_NAME = import.meta.env.VITE_APP_NAME;
 
 // Mirrors backend/billing/pdf_service.py's grand_total_display/
-// effective_price_display/line_total_display exactly: {:,.4f}.
+// effective_price_display/line_total_display exactly: {:,.4f}, with the
+// same "N/A" fallback for a draft line item that can't be priced yet
+// (missing rate) — see billing/utils.py's get_invoice_print_context.
 const fmtAmount = (value) => {
+    if (value === null || value === undefined) return 'N/A';
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
-    if (isNaN(num)) return '0.0000';
+    if (isNaN(num)) return 'N/A';
     return num.toLocaleString('en-US', { minimumFractionDigits: 4, maximumFractionDigits: 4 });
 };
 
@@ -69,6 +72,14 @@ const InvoicePreviewPage = () => {
 
     const isDraft = invoice.status === 'draft';
     const invoiceDate = invoice.confirmed_at || invoice.created_at;
+
+    // Drafts don't have real stored effective_price/line_total/grand_total
+    // yet (only set at confirmation) — print_preview computes the exact
+    // same numbers the printed PDF would show for this draft (discount/GST/
+    // WHT included), NOT draft_preview, which is a different pre-tax figure
+    // meant for staff profit-margin eyeballing elsewhere in the app.
+    const previewItems = isDraft ? (invoice.print_preview?.items ?? []) : (invoice.items ?? []);
+    const grandTotal = isDraft ? invoice.print_preview?.grand_total : invoice.grand_total;
 
     return (
         <div className="min-h-screen bg-neutral-200">
@@ -142,8 +153,8 @@ const InvoicePreviewPage = () => {
                                 </tr>
                             </thead>
                             <tbody>
-                                {invoice.items?.map((item, idx) => (
-                                    <tr key={item.id} className={`border-b border-neutral-100 ${idx % 2 === 1 ? 'bg-neutral-50' : ''}`}>
+                                {previewItems.map((item, idx) => (
+                                    <tr key={item.id ?? idx} className={`border-b border-neutral-100 ${idx % 2 === 1 ? 'bg-neutral-50' : ''}`}>
                                         <td className="py-1.5 px-1.5 text-neutral-700">{idx + 1}</td>
                                         <td className="py-1.5 px-1.5 text-neutral-900">{item.product_name}</td>
                                         <td className="py-1.5 px-1.5 text-neutral-600">{item.product_code}</td>
@@ -162,7 +173,7 @@ const InvoicePreviewPage = () => {
                             <div className="w-full max-w-[200px] rounded border border-neutral-200 overflow-hidden">
                                 <div className="flex justify-between items-center bg-neutral-900 px-3 py-2">
                                     <span className="text-white text-xs font-semibold">Grand Total</span>
-                                    <span className="text-white text-sm font-bold">Rs. {fmtAmount(invoice.grand_total)}</span>
+                                    <span className="text-white text-sm font-bold">Rs. {fmtAmount(grandTotal)}</span>
                                 </div>
                             </div>
                         </div>

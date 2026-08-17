@@ -4,6 +4,71 @@ from decimal import Decimal, ROUND_HALF_UP
 PRECISION = Decimal("0.0001")
 
 
+def get_invoice_print_context(invoice) -> dict:
+    """
+    Single source of truth for "what actually gets shown/printed for this
+    invoice" — used by BOTH the PDF (billing.pdf_service) and the Invoice
+    Preview page's `print_preview` API field (billing.serializers), so the
+    two can never drift out of sync (they used to: draft_preview's
+    line_total ignores discount/GST/WHT, which is a DIFFERENT number than
+    what the draft PDF actually prints).
+
+    Confirmed invoices read their real stored fields. Drafts don't have
+    those yet (only set at confirmation), so this computes the exact same
+    math a confirmation would produce via calculate_line_item/
+    calculate_invoice_totals — an item whose product has no rate or
+    otherwise can't be priced comes back with effective_price/line_total
+    as None ("N/A" on the bill), same as the PDF's existing fallback.
+
+    Returns:
+        {"items": [{"product_name", "product_code", "quantity",
+                     "effective_price", "line_total"}, ...],
+         "grand_total": Decimal or None}
+    """
+    from .models import Invoice
+
+    items_ctx = []
+
+    if invoice.status != Invoice.Status.DRAFT:
+        for item in invoice.items.all():
+            items_ctx.append({
+                "product_name"    : item.product.name,
+                "product_code"    : item.product.code,
+                "quantity"        : item.quantity,
+                "effective_price" : item.effective_price,
+                "line_total"      : item.line_total,
+            })
+        return {"items": items_ctx, "grand_total": invoice.grand_total}
+
+    line_calcs = []
+    for item in invoice.items.all():
+        try:
+            selling_price = item.product.rate.selling_price
+            calc = calculate_line_item(
+                quantity=item.quantity, selling_price=selling_price,
+                discount=item.discount, gst=item.gst, wht=item.wht,
+            )
+            items_ctx.append({
+                "product_name"    : item.product.name,
+                "product_code"    : item.product.code,
+                "quantity"        : item.quantity,
+                "effective_price" : calc["effective_price"],
+                "line_total"      : calc["line_total"],
+            })
+            line_calcs.append({**calc, "line_cogs": Decimal("0")})
+        except Exception:
+            items_ctx.append({
+                "product_name"    : item.product.name,
+                "product_code"    : item.product.code,
+                "quantity"        : item.quantity,
+                "effective_price" : None,
+                "line_total"      : None,
+            })
+
+    grand_total = calculate_invoice_totals(line_calcs)["grand_total"] if line_calcs else None
+    return {"items": items_ctx, "grand_total": grand_total}
+
+
 def quantize(value: Decimal) -> Decimal:
     return value.quantize(PRECISION, rounding=ROUND_HALF_UP)
 

@@ -636,6 +636,129 @@ class InvoiceQueryCountTests(BillingTestBase):
         self.assertEqual(baseline, grown)
 
 
+class PrintPreviewTests(BillingTestBase):
+    """print_preview (Invoice Preview page's data source for drafts) must
+    match the actual print/PDF math exactly — unlike draft_preview, which
+    is a DIFFERENT pre-discount/tax number for staff profit-margin
+    eyeballing. See billing.utils.get_invoice_print_context, shared by both
+    pdf_service.py and InvoiceReadSerializer.get_print_preview."""
+
+    def test_confirmed_invoice_print_preview_is_none(self):
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+        view = InvoiceRetrieveUpdateDestroyView.as_view()
+
+        request = self.factory.get(f"/billing/invoices/{invoice.id}/")
+        force_authenticate(request, user=self.admin)
+        response = view(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 200)
+        self.assertIsNone(response.data["print_preview"])
+
+    def test_draft_print_preview_includes_discount_and_tax_unlike_draft_preview(self):
+        product = self.make_stocked_product(stock=10, selling_price="100")
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 2}],
+            user=self.admin,
+        )
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{
+                "product_id": product.id, "quantity": 2,
+                "discount": Decimal("10"), "gst": Decimal("5"), "wht": Decimal("2"),
+            }],
+            user=self.admin,
+        )
+
+        view = InvoiceRetrieveUpdateDestroyView.as_view()
+        request = self.factory.get(f"/billing/invoices/{invoice.id}/")
+        force_authenticate(request, user=self.admin)
+        response = view(request, pk=invoice.id)
+        self.assertEqual(response.status_code, 200)
+
+        preview = response.data["print_preview"]
+        item = preview["items"][0]
+        # effective_price = 100 - 10 = 90; line_gross = 2*90 = 180;
+        # gst = 180*0.05 = 9; wht = 180*0.02 = 3.6; line_total = 180+9-3.6 = 185.4
+        self.assertEqual(Decimal(item["effective_price"]), Decimal("90.0000"))
+        self.assertEqual(Decimal(item["line_total"]), Decimal("185.4000"))
+        self.assertEqual(Decimal(preview["grand_total"]), Decimal("185.4000"))
+
+        # draft_preview, by contrast, ignores discount/gst/wht entirely —
+        # confirms the two fields are genuinely different numbers, not
+        # accidentally aliased.
+        draft_item = response.data["draft_preview"]["items"][0]
+        self.assertEqual(Decimal(draft_item["line_total"]), Decimal("200.0000"))  # 100*2, no discount/tax
+
+    def test_draft_print_preview_query_count_flat_in_item_count(self):
+        p1 = self.make_stocked_product("PP01")
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": p1.id, "quantity": 1}],
+            user=self.admin,
+        )
+        view = InvoiceRetrieveUpdateDestroyView.as_view()
+
+        def fetch():
+            request = self.factory.get(f"/billing/invoices/{invoice.id}/")
+            force_authenticate(request, user=self.admin)
+            with CaptureQueriesContext(connection) as ctx:
+                response = view(request, pk=invoice.id)
+                response.render()
+            self.assertEqual(response.status_code, 200)
+            return len(ctx.captured_queries)
+
+        baseline = fetch()
+
+        products = [p1] + [self.make_stocked_product(f"PP0{i}", f"Preview Product {i}") for i in range(2, 5)]
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": p.id, "quantity": 1} for p in products],
+            user=self.admin,
+        )
+        grown = fetch()
+        self.assertEqual(baseline, grown)
+
+    def test_render_invoice_html_matches_print_preview_for_draft(self):
+        # Direct sanity check on the refactored pdf_service.py functions
+        # (_build_item_context/_render_invoice_html now take their content
+        # from the shared get_invoice_print_context instead of duplicating
+        # the calculation inline) — same numbers as the API's print_preview.
+        from .pdf_service import _render_invoice_html
+
+        product = self.make_stocked_product(stock=10, selling_price="100")
+        invoice = create_invoice(
+            customer_id=self.customer.id,
+            items=[{"product_id": product.id, "quantity": 2}],
+            user=self.admin,
+        )
+        update_invoice_items(
+            invoice_id=invoice.id,
+            items=[{"product_id": product.id, "quantity": 2, "discount": Decimal("10"), "gst": Decimal("5"), "wht": Decimal("2")}],
+            user=self.admin,
+        )
+        invoice.refresh_from_db()
+
+        html = _render_invoice_html(invoice, is_draft=True)
+        self.assertIn("185.4000", html)  # grand_total_display
+        self.assertIn("90.0000", html)   # effective_price_display
+        self.assertIn("DRAFT INVOICE", html)
+
+    def test_render_invoice_html_confirmed_uses_stored_fields(self):
+        from .pdf_service import _render_invoice_html
+
+        product = self.make_stocked_product(stock=10)
+        invoice = self.make_confirmed_invoice(product, quantity=4)
+
+        html = _render_invoice_html(invoice, is_draft=False)
+        self.assertIn(f"{invoice.grand_total:,.4f}", html)
+        # "DRAFT" appears unconditionally as a CSS comment ("/* DRAFT
+        # watermark */") regardless of is_draft — check the actual visible
+        # header text instead, not a substring that includes template comments.
+        self.assertIn("<h2>INVOICE</h2>", html)
+        self.assertNotIn("DRAFT INVOICE", html)
+
+
 class PaymentAllocationQueryCountTests(BillingTestBase):
     """Phase 3's PaymentReadSerializer.allocations must not N+1 — one query
     for the whole page's allocations, not one per payment (architecture.md's
