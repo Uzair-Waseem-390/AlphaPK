@@ -7,7 +7,10 @@ const LostInventorySectionStats = ({ stats, loading, onCardClick }) => {
     if (loading) {
         return (
             <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-neutral-900">Lost Inventory</h2>
+                <div className="flex items-center gap-2">
+                    <span className="w-1 h-4 rounded-full bg-red-500 flex-shrink-0" />
+                    <h2 className="text-sm font-semibold text-neutral-700 uppercase tracking-wider">Lost Inventory</h2>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                     <StatCardSkeleton color="red" />
                     <StatCardSkeleton color="green" />
@@ -19,7 +22,10 @@ const LostInventorySectionStats = ({ stats, loading, onCardClick }) => {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-neutral-900">Lost Inventory</h2>
+            <div className="flex items-center gap-2">
+                <span className="w-1 h-4 rounded-full bg-red-500 flex-shrink-0" />
+                <h2 className="text-sm font-semibold text-neutral-700 uppercase tracking-wider">Lost Inventory</h2>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
                 <StatCard
                     label="Total Lost (Gross)"

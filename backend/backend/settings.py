@@ -109,6 +109,7 @@ DATABASES = {
         # of paying a fresh TCP+TLS+auth handshake on every request (the
         # dominant cost behind the ~6s customer-list load — see chat).
         "CONN_MAX_AGE": 120,
+        "CONN_HEALTH_CHECKS": True
     }
 }
 

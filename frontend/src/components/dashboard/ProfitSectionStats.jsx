@@ -5,19 +5,31 @@ import StatCardSkeleton from './StatCardSkeleton';
 
 const fmt = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : Number(value);
-    return isNaN(num) ? '0.00' : num.toLocaleString('en-PK', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+    if (isNaN(num)) return '0';
+    const sign = num < 0 ? '-' : '';
+    const abs = Math.abs(num);
+    if (abs >= 1_000_000) return `${sign}Rs. ${(abs / 1_000_000).toFixed(2)}M`;
+    if (abs >= 1_000) return `${sign}Rs. ${(abs / 1_000).toFixed(1)}K`;
+    return `${sign}Rs. ${abs.toLocaleString('en-PK', { minimumFractionDigits: 0, maximumFractionDigits: 0 })}`;
 };
+
+const SectionHeader = ({ color, label }) => (
+    <div className="flex items-center gap-2">
+        <span className={`w-1 h-4 rounded-full flex-shrink-0 ${color}`} />
+        <h2 className="text-sm font-semibold text-neutral-700 uppercase tracking-wider">{label}</h2>
+    </div>
+);
 
 const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
     if (loading) {
         return (
             <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-neutral-900">Profit</h2>
+                <SectionHeader color="bg-primary-500" label="Profit" />
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
-                    <StatCardSkeleton color="primary" />
-                    <StatCardSkeleton color="green" />
-                    <StatCardSkeleton color="amber" />
-                    <StatCardSkeleton color="green" />
+                    <StatCardSkeleton />
+                    <StatCardSkeleton />
+                    <StatCardSkeleton />
+                    <StatCardSkeleton />
                 </div>
             </div>
         );
@@ -25,7 +37,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-neutral-900">Profit</h2>
+            <SectionHeader color="bg-primary-500" label="Profit" />
             <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
                 <StatCard
                     label="Cash in Hand"
@@ -39,7 +51,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                     value={stats?.net_invoice_revenue}
                     icon={TrendingUp}
                     color="green"
-                    subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_revenue)}`}
+                    subtitle={`Before returns: ${fmt(stats?.total_invoice_revenue)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
                 <StatCard
@@ -47,7 +59,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                     value={stats?.net_invoice_cogs}
                     icon={Package}
                     color="amber"
-                    subtitle={`Before returns: Rs. ${fmt(stats?.total_invoice_cogs)}`}
+                    subtitle={`Before returns: ${fmt(stats?.total_invoice_cogs)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
                 <StatCard
@@ -55,7 +67,7 @@ const ProfitSectionStats = ({ stats, loading, onCardClick }) => {
                     value={stats?.net_gross_profit}
                     icon={DollarSign}
                     color="green"
-                    subtitle={`Gross (before returns): Rs. ${fmt(stats?.total_gross_profit)}`}
+                    subtitle={`Gross: ${fmt(stats?.total_gross_profit)}`}
                     onClick={() => onCardClick('profit', 'Profit Breakdown')}
                 />
             </div>

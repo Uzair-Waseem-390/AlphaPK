@@ -186,9 +186,5 @@ export const navGroups = [
 
 // Standalone links — not grouped, rendered after navGroups (in this order)
 export const standaloneLinks = [
-    // Listing all users is superuser-only (see users app permission matrix)
-    { name: 'Users', path: '/users', icon: Users, superuserOnly: true },
     { name: 'Backups', path: '/backups', icon: Archive, adminOnly: true },
-    // System-wide audit trail — superuser only
-    { name: 'Activity Log', path: '/activity-log', icon: History, superuserOnly: true },
 ];

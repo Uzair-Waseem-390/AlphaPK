@@ -48,7 +48,7 @@ const NetProfitTrendChart = () => {
     const { data, loading, error, refetch } = useNetProfitTrend(months);
 
     return (
-        <Card className="p-6">
+        <Card hover={false}>
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 mb-6">
                 <div>
                     <h2 className="text-lg font-semibold text-neutral-900">Net Profit Trend</h2>

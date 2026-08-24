@@ -8,7 +8,10 @@ const PayablesSection = ({ stats, loading, onCardClick }) => {
     if (loading) {
         return (
             <div className="space-y-4">
-                <h2 className="text-lg font-semibold text-neutral-900">Payables</h2>
+                <div className="flex items-center gap-2">
+                    <span className="w-1 h-4 rounded-full bg-red-500 flex-shrink-0" />
+                    <h2 className="text-sm font-semibold text-neutral-700 uppercase tracking-wider">Payables</h2>
+                </div>
                 <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                     <StatCardSkeleton color="green" />
                     <StatCardSkeleton color="red" />
@@ -21,7 +24,10 @@ const PayablesSection = ({ stats, loading, onCardClick }) => {
 
     return (
         <div className="space-y-4">
-            <h2 className="text-lg font-semibold text-neutral-900">Payables</h2>
+            <div className="flex items-center gap-2">
+                <span className="w-1 h-4 rounded-full bg-red-500 flex-shrink-0" />
+                <h2 className="text-sm font-semibold text-neutral-700 uppercase tracking-wider">Payables</h2>
+            </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
                 <StatCard
                     label="Total Paid Payables"

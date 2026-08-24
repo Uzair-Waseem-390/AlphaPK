@@ -1,27 +1,21 @@
 import PropTypes from 'prop-types';
-import Card from '../ui/Card';
 
-const StatCardSkeleton = ({ color = 'primary' }) => {
-    const colors = {
-        primary: 'border-l-4 border-primary-500',
-        green: 'border-l-4 border-success-500',
-        amber: 'border-l-4 border-warning-500',
-        red: 'border-l-4 border-error-500',
-        blue: 'border-l-4 border-info-500',
-        orange: 'border-l-4 border-orange-500',
-        purple: 'border-l-4 border-purple-500',
-    };
-
+// Matches the new StatCard layout: thin left dot, icon top-right, label + value
+const StatCardSkeleton = () => {
     return (
-        <Card className={`p-5 ${colors[color] || colors.primary}`}>
-            <div className="flex items-start justify-between">
-                <div className="flex-1">
-                    <div className="h-4 bg-neutral-200 rounded w-24 animate-pulse"></div>
-                    <div className="h-8 bg-neutral-200 rounded w-32 mt-2 animate-pulse"></div>
+        <div className="relative h-full min-h-[108px] bg-white rounded-2xl p-5 shadow-card ring-1 ring-neutral-100 overflow-hidden">
+            {/* Left dot accent placeholder */}
+            <span className="absolute top-0 left-0 w-1 h-full rounded-l-2xl bg-neutral-200" />
+
+            <div className="flex items-start justify-between gap-3 pl-2">
+                <div className="flex-1 space-y-2 mt-0.5">
+                    <div className="h-3 w-20 bg-neutral-200 rounded animate-pulse" />
+                    <div className="h-6 w-28 bg-neutral-200 rounded-lg animate-pulse" />
+                    <div className="h-2.5 w-16 bg-neutral-100 rounded animate-pulse" />
                 </div>
-                <div className="w-10 h-10 bg-neutral-200 rounded-xl animate-pulse"></div>
+                <div className="w-10 h-10 bg-neutral-100 rounded-xl animate-pulse flex-shrink-0" />
             </div>
-        </Card>
+        </div>
     );
 };
 
