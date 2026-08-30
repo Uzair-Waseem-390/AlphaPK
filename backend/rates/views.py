@@ -1,9 +1,12 @@
+from django.http import HttpResponse
 from rest_framework import generics, status
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.response import Response
+from rest_framework.views import APIView
 
 from purchases.serializers import ProductReadSerializer
 
+from .pdf_service import generate_rate_list_pdf_bytes
 from .permissions import IsAdminOrSuperuserOrReadOnly
 from .selectors import (
     get_all_rates,
@@ -100,6 +103,34 @@ class ProductRateRetrieveUpdateView(generics.RetrieveUpdateAPIView):
             note=d.get("note", ""),
         )
         return Response(ProductRateReadSerializer(rate).data, status=status.HTTP_200_OK)
+
+
+# ---------------------------------------------------------------------------
+# Rate list — print
+# ---------------------------------------------------------------------------
+
+class RateListPrintView(APIView):
+    """
+    GET /rates/print/?search=&category=&min_price=&max_price=
+
+    Streams the PDF directly — nothing saved to disk. Only currently-priced
+    products print (same source as the on-screen list — get_all_rates reads
+    ProductRate directly, so unpriced products are structurally excluded),
+    filtered by the exact params the list page was showing when printed.
+    """
+    permission_classes = [IsAdminOrSuperuserOrReadOnly]
+
+    def get(self, request):
+        params = request.query_params
+        pdf_bytes, filename = generate_rate_list_pdf_bytes(
+            search=params.get("search"),
+            category_id=params.get("category"),
+            min_price=params.get("min_price"),
+            max_price=params.get("max_price"),
+        )
+        response = HttpResponse(pdf_bytes, content_type="application/pdf")
+        response["Content-Disposition"] = f'inline; filename="{filename}"'
+        return response
 
 
 # ---------------------------------------------------------------------------

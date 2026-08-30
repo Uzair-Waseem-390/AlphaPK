@@ -4,12 +4,16 @@ from .views import (
     ProductRateHistoryView,
     ProductRateListCreateView,
     ProductRateRetrieveUpdateView,
+    RateListPrintView,
     UnpricedProductListView,
 )
 
 urlpatterns = [
     # Current rates — list + create
     path("", ProductRateListCreateView.as_view(), name="rate-list-create"),
+
+    # Print current rates (respects the same filters as the list)
+    path("print/", RateListPrintView.as_view(), name="rate-list-print"),
 
     # Products with no rate set yet
     path("unpriced/", UnpricedProductListView.as_view(), name="rate-unpriced-products"),

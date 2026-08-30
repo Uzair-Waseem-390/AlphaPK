@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useRates } from '../../hooks/useRates';
@@ -11,6 +12,8 @@ import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import { printReport } from '../../utils/print';
+import { extractErrorMessage } from '../../utils/errorMessage';
 import { useNavigate, Link } from 'react-router-dom';
 
 const RatesPage = () => {
@@ -40,6 +43,18 @@ const RatesPage = () => {
     const [selectedProduct, setSelectedProduct] = useState(null);
     const [selectedRate, setSelectedRate] = useState(null);
     const [formLoading, setFormLoading] = useState(false);
+    const [printing, setPrinting] = useState(false);
+
+    const handlePrint = async () => {
+        setPrinting(true);
+        try {
+            await printReport('/rates/print/', filters);
+        } catch (err) {
+            toast.error(extractErrorMessage(err, 'Failed to print rates'));
+        } finally {
+            setPrinting(false);
+        }
+    };
 
     const handleSearch = (value) => {
         setFilters({ ...filters, search: value });
@@ -111,11 +126,16 @@ const RatesPage = () => {
                         {isAdmin ? 'Admin users can set and edit prices' : 'View-only mode'}
                     </p>
                 </div>
-                <Link to="/rates/unpriced">
-                    <Button variant="secondary">
-                        Unpriced Products{unpricedCount !== null ? ` (${unpricedCount})` : ''}
+                <div className="flex gap-3">
+                    <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
+                        Print
                     </Button>
-                </Link>
+                    <Link to="/rates/unpriced">
+                        <Button variant="secondary">
+                            Unpriced Products{unpricedCount !== null ? ` (${unpricedCount})` : ''}
+                        </Button>
+                    </Link>
+                </div>
             </div>
 
             {/* Filters */}

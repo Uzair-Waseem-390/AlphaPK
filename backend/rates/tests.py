@@ -14,7 +14,7 @@ from users.models import User
 from .models import ProductRate, ProductRateHistory
 from .selectors import get_price_at_date
 from .services import create_rate, update_rate
-from .views import ProductRateHistoryView, ProductRateListCreateView
+from .views import ProductRateHistoryView, ProductRateListCreateView, RateListPrintView
 
 
 def make_admin(email="admin@example.com"):
@@ -132,6 +132,72 @@ class RateListQueryCountTests(RatesTestBase):
             p = self.make_product(f"P10{i}", f"Product 10{i}")
             create_rate(product_id=p.id, selling_price=Decimal("100"), user=self.admin)
         grown = self.count_queries()
+        self.assertEqual(baseline, grown)
+
+
+class RateListPrintViewTests(RatesTestBase):
+    def print_rates(self, user=None, **params):
+        request = self.factory.get("/rates/print/", params)
+        force_authenticate(request, user=user or self.admin)
+        return RateListPrintView.as_view()(request)
+
+    def count_print_queries(self, **params):
+        request = self.factory.get("/rates/print/", params)
+        force_authenticate(request, user=self.admin)
+        with CaptureQueriesContext(connection) as ctx:
+            response = RateListPrintView.as_view()(request)
+        self.assertEqual(response.status_code, 200)
+        return len(ctx.captured_queries)
+
+    def test_only_priced_products_appear(self):
+        priced = self.make_product("P001", "Priced Product")
+        create_rate(product_id=priced.id, selling_price=Decimal("100"), user=self.admin)
+        Product.objects.create(name="Unpriced Product", code="P002", category=self.category)
+
+        response = self.print_rates()
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response["Content-Type"], "application/pdf")
+
+    def test_respects_search_and_category_filters(self):
+        cat_b = Category.objects.create(name="Cat B")
+        p1 = self.make_product("P001", "Alpha Widget")
+        p2 = Product.objects.create(name="Beta Gadget", code="P002", category=cat_b)
+        create_rate(product_id=p1.id, selling_price=Decimal("100"), user=self.admin)
+        create_rate(product_id=p2.id, selling_price=Decimal("200"), user=self.admin)
+
+        self.assertEqual(self.print_rates(search="Alpha").status_code, 200)
+        self.assertEqual(self.print_rates(category=cat_b.id).status_code, 200)
+        self.assertEqual(self.print_rates(min_price="150").status_code, 200)
+        self.assertEqual(self.print_rates(max_price="150").status_code, 200)
+
+    def test_normal_user_can_view_print(self):
+        # GET is a SAFE_METHOD under IsAdminOrSuperuserOrReadOnly — mirrors
+        # the list endpoint's own read access (view-only for normal users).
+        response = self.print_rates(user=make_normal_user())
+        self.assertEqual(response.status_code, 200)
+
+    def test_query_count_flat_as_priced_product_count_grows(self):
+        p0 = self.make_product("P000", "Product 0")
+        create_rate(product_id=p0.id, selling_price=Decimal("100"), user=self.admin)
+        baseline = self.count_print_queries()
+
+        for i in range(9):
+            p = self.make_product(f"P10{i}", f"Product 10{i}")
+            create_rate(product_id=p.id, selling_price=Decimal("100"), user=self.admin)
+        grown = self.count_print_queries()
+        self.assertEqual(baseline, grown)
+
+    def test_query_count_with_category_filter_stays_fixed(self):
+        # One extra query to resolve the category's name for the header —
+        # still flat regardless of row count, not proportional to it.
+        p0 = self.make_product("P000", "Product 0")
+        create_rate(product_id=p0.id, selling_price=Decimal("100"), user=self.admin)
+        baseline = self.count_print_queries(category=self.category.id)
+
+        for i in range(9):
+            p = self.make_product(f"P20{i}", f"Product 20{i}")
+            create_rate(product_id=p.id, selling_price=Decimal("100"), user=self.admin)
+        grown = self.count_print_queries(category=self.category.id)
         self.assertEqual(baseline, grown)
 
 
