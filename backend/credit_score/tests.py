@@ -145,8 +145,13 @@ class CreditScoreRecalculationTests(CreditScoreTestBase):
         item = invoice.items.first()
 
         history_count_before = CreditScoreHistory.objects.filter(customer=self.customer).count()
+        # Returning 1 of 4 units (25% of invoice value) doesn't move the
+        # rounded score at this customer's low confidence (1 confirmed
+        # invoice) — returning 3 of 4 (75%) does, so this test exercises a
+        # real recalculation instead of a no-op (see recalculate_credit_score:
+        # a no-op recompute correctly writes no history row since 2026-08-31).
         ret = create_return(invoice_id=invoice.id,
-                            items=[{"invoice_item_id": item.id, "quantity": 1}],
+                            items=[{"invoice_item_id": item.id, "quantity": 3}],
                             user=self.admin)
         for return_item in ret.items.all():
             set_return_item_shelf_allocations(
@@ -186,6 +191,22 @@ class CreditScoreRecalculationTests(CreditScoreTestBase):
         score = CustomerCreditScore.objects.get(customer=self.customer)
         self.assertEqual(score.score, 50)
         self.assertEqual(score.tier, ScoreTier.AVERAGE)
+
+    def test_noop_recalculation_does_not_write_history_row(self):
+        # Found 2026-08-31: a no-op recompute (e.g. daily overdue_catchup
+        # re-checking a customer whose score/tier hasn't moved) was writing
+        # a fresh "44 -> 44" history row every time — CreditScoreHistory
+        # exists to answer "why did this score change", so nothing should
+        # be written when nothing changed.
+        recalculate_credit_score(customer_id=self.customer.id, user=self.admin, trigger="test")
+        count_after_first = CreditScoreHistory.objects.filter(customer=self.customer).count()
+
+        # Repeat calls with identical inputs — score/tier stay at baseline.
+        recalculate_credit_score(customer_id=self.customer.id, user=self.admin, trigger="overdue_catchup")
+        recalculate_credit_score(customer_id=self.customer.id, user=self.admin, trigger="overdue_catchup")
+
+        count_after_repeats = CreditScoreHistory.objects.filter(customer=self.customer).count()
+        self.assertEqual(count_after_first, count_after_repeats)
 
 
 class OverdueCatchupTests(CreditScoreTestBase):
@@ -237,3 +258,50 @@ class BackfillCreditScoresIdempotencyTests(CreditScoreTestBase):
 
         self.assertEqual(first_score, second_score)
         self.assertEqual(CustomerCreditScore.objects.filter(customer=self.customer).count(), 1)
+
+
+class CleanupNoopCreditScoreHistoryTests(CreditScoreTestBase):
+    """Cleans up the no-op rows that existed before recalculate_credit_score
+    was fixed (2026-08-31) to stop writing them going forward."""
+
+    def make_noop_row(self, score=44, tier=ScoreTier.AVERAGE):
+        return CreditScoreHistory.objects.create(
+            customer=self.customer,
+            score_before=score, score_after=score,
+            tier_before=tier, tier_after=tier,
+            trigger="overdue_catchup",
+        )
+
+    def test_dry_run_deletes_nothing(self):
+        self.make_noop_row()
+        before = CreditScoreHistory.objects.count()
+        call_command("cleanup_noop_credit_score_history", verbosity=0)
+        self.assertEqual(CreditScoreHistory.objects.count(), before)
+
+    def test_apply_deletes_only_noop_rows(self):
+        noop = self.make_noop_row()
+        real = CreditScoreHistory.objects.create(
+            customer=self.customer,
+            score_before=40, score_after=44,
+            tier_before=ScoreTier.AVERAGE, tier_after=ScoreTier.AVERAGE,
+            trigger="overdue_catchup",
+        )
+        # The customer_created row (score_before=None) must survive too —
+        # None != 50 under an F() comparison, never matches the no-op filter.
+        created_row_count_before = CreditScoreHistory.objects.filter(trigger="customer_created").count()
+
+        call_command("cleanup_noop_credit_score_history", "--apply", verbosity=0)
+
+        self.assertFalse(CreditScoreHistory.objects.filter(pk=noop.pk).exists())
+        self.assertTrue(CreditScoreHistory.objects.filter(pk=real.pk).exists())
+        self.assertEqual(
+            CreditScoreHistory.objects.filter(trigger="customer_created").count(),
+            created_row_count_before,
+        )
+
+    def test_idempotent(self):
+        self.make_noop_row()
+        call_command("cleanup_noop_credit_score_history", "--apply", verbosity=0)
+        remaining = CreditScoreHistory.objects.count()
+        call_command("cleanup_noop_credit_score_history", "--apply", verbosity=0)
+        self.assertEqual(CreditScoreHistory.objects.count(), remaining)

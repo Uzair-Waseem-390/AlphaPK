@@ -64,6 +64,15 @@ def recalculate_credit_score(*, customer_id, user, trigger: str, reference: str 
     result = compute_score(**inputs)
 
     score_before, tier_before = score_obj.score, score_obj.tier
+    if score_before == result["score"] and tier_before == result["tier"]:
+        # Recomputed, but nothing actually changed — CreditScoreHistory
+        # exists to answer "why did this score change" (see its docstring),
+        # so a no-op recompute (e.g. overdue_catchup re-checking a customer
+        # whose overdue bucket hasn't moved) must not write a row. Found
+        # 2026-08-31: daily catch-up was logging a fresh "44 -> 44" row for
+        # every unaffected customer, forever.
+        return score_obj
+
     score_obj.score = result["score"]
     score_obj.tier = result["tier"]
     score_obj.factor_breakdown = result["factor_breakdown"]
