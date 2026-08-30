@@ -1,10 +1,11 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { Plus, Pencil, Trash2, FolderKanban } from 'lucide-react';
 import { useExpenseCategories } from '../../hooks/useCashFlow';
 import { useToast } from '../../context/ToastContext';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -172,10 +173,7 @@ const ExpenseCategoriesPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <FolderKanban className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Expense Categories</h1>
-                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage expense categories for your business</p>
-                    </div>
+                    <PageHeader title="Expense Categories" subtitle="Manage expense categories for your business" />
                 </div>
                 <Button
                     onClick={() => {

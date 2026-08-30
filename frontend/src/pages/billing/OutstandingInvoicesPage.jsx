@@ -14,6 +14,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
+import PageHeader from '../../components/ui/PageHeader';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 const formatCurrency = (value) => {
@@ -139,22 +140,11 @@ const OutstandingInvoicesPage = () => {
             transition={{ duration: 0.3 }}
             className="space-y-6"
         >
-            <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-warning-500 to-error-500 flex items-center justify-center shadow-lg shadow-warning-500/20">
-                    <AlertTriangle className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Outstanding Invoices</h1>
-                    <p className="text-neutral-500 mt-0.5">
-                        All invoices with an outstanding balance
-                    </p>
-                    {!error && (
-                        <p className="text-sm text-neutral-400 mt-0.5">
-                            {meta.count} invoice{meta.count !== 1 ? 's' : ''} with outstanding balance
-                        </p>
-                    )}
-                </div>
-            </div>
+            <PageHeader
+                title="Outstanding Invoices"
+                subtitle={`All invoices with an outstanding balance · ${meta.count} invoice${meta.count !== 1 ? 's' : ''} outstanding`}
+                icon={AlertTriangle}
+            />
 
             <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row gap-3">

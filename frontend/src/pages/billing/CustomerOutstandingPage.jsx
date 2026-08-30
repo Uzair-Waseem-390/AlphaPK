@@ -11,6 +11,7 @@ import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import { billingApi } from '../../services/billingApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
@@ -89,13 +90,11 @@ const CustomerOutstandingPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Customers Outstanding</h1>
-                <p className="text-neutral-500 mt-1">View customers with outstanding balances</p>
-                <p className="text-sm text-neutral-400 mt-1">
-                    {meta.count} customer{meta.count !== 1 ? 's' : ''} with outstanding balance
-                </p>
-            </div>
+            <PageHeader
+                title="Customers Outstanding"
+                subtitle="View customers with outstanding balances"
+                icon={CheckCircle2}
+            />
 
             <Card className="p-4 sm:p-5" hover={false}>
                 <div className="flex flex-col sm:flex-row gap-3">

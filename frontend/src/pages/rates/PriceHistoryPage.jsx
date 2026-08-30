@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useRateHistory } from '../../hooks/useRates';
@@ -9,6 +9,7 @@ import PriceHistoryTable from '../../components/rates/PriceHistoryTable';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Badge from '../../components/ui/Badge';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -53,12 +54,9 @@ const PriceHistoryPage = () => {
     return (
         <div className="space-y-6">
             <div className="flex items-center justify-between">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Price History</h1>
-                    <p className="text-neutral-500 mt-1">
+                <PageHeader title="Price History" subtitle="
                         Complete price change log for this product
-                    </p>
-                </div>
+                    " />
                 <Link to="/rates">
                     <Button variant="secondary">
                         ← Back to Rates

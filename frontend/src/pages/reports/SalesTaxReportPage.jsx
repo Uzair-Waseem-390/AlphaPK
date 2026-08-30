@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Calculator, Printer, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -14,6 +14,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -100,10 +101,7 @@ const SalesTaxReportPage = () => {
             <div>
                 <BackLink to="/reports">Back to Reports</BackLink>
                 <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <Calculator className="w-5 h-5 text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Sales Tax Report</h1>
+                    <PageHeader title="Sales Tax Report" />
                 </div>
                 <p className="text-neutral-500 mt-1">
                     Input Tax (GST paid to suppliers) vs Output Tax (GST charged to customers) — see{' '}

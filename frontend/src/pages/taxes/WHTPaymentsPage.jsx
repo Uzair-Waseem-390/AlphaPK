@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, SlidersHorizontal, X, AlertTriangle, Trash2, Receipt, Info } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -17,6 +17,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -185,7 +186,7 @@ const WHTPaymentsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/taxes">Back to Taxes</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">WHT Payments</h1>
+                    <PageHeader title="WHT Payments" />
                     <p className="text-neutral-500 mt-1">
                         Every withholding tax deposit made to FBR, against tax withheld from suppliers.
                     </p>

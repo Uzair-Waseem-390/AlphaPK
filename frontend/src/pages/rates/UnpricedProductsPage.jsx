@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useUnpricedProducts } from '../../hooks/useRates';
@@ -11,6 +11,7 @@ import Select from '../../components/ui/Select';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import { useNavigate } from 'react-router-dom';
 
 const UnpricedProductsPage = () => {
@@ -97,9 +98,9 @@ const UnpricedProductsPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/rates">Back to Product Rates</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">
+                <PageHeader title="
                     Unpriced Products {meta.count ? `(${meta.count})` : ''}
-                </h1>
+                " />
                 <p className="text-neutral-500 mt-1">
                     Products that don't have a selling price set yet
                 </p>

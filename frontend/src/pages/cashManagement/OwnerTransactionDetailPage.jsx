@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Trash2, ArrowUpCircle, ArrowDownCircle, Calendar, User, Clock, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -128,7 +129,7 @@ const OwnerTransactionDetailPage = () => {
                 <div>
                     <BackLink to="/cash-management/owner-transactions">Back to Owner Transactions</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Owner Transaction Details</h1>
+                        <PageHeader title="Owner Transaction Details" />
                         {isContribution ? <Badge variant="success">Contribution</Badge> : <Badge variant="warning">Drawing</Badge>}
                     </div>
                     <p className={`mt-1 text-lg font-semibold ${isContribution ? 'text-success-600' : 'text-warning-700'}`}>

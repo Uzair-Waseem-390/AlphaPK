@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Receipt, ListPlus, User, CalendarDays, Wallet } from 'lucide-react';
@@ -12,6 +12,7 @@ import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import SearchableSelect from '../../components/ui/SearchableSelect';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 import LineItemRow from '../../components/billing/LineItemRow';
@@ -231,10 +232,7 @@ const CreateInvoicePage = () => {
     return (
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Create Invoice</h1>
-                    <p className="text-neutral-500 mt-1">Create a new draft invoice</p>
-                </div>
+                <PageHeader title="Create Invoice" subtitle="Create a new draft invoice" />
                 <div className="flex gap-3">
                     <Button variant="secondary" onClick={handleCancel}>
                         Cancel

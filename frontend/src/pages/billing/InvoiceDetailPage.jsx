@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import {
@@ -11,6 +11,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import { creditScoreColorClass } from '../../utils/helpers';
 import { billingApi } from '../../services/billingApi';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -648,7 +649,7 @@ const InvoiceDetailPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
                 <div>
                     <BackLink to="/billing/invoices">Back to Invoices</BackLink>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mt-2">{invoice.bill_number}</h1>
+                    <PageHeader title="{invoice.bill_number}" />
                     <p className="text-sm text-neutral-500 mt-0.5">{invoice.customer?.name || 'N/A'}</p>
                     <div className="flex gap-2 mt-2 flex-wrap">
                         <InvoiceStatusBadge status={invoice.status} />

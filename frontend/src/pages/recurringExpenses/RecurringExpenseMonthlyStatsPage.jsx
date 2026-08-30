@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { CalendarRange, SlidersHorizontal, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import Pagination from '../../components/ui/Pagination';
 import Button from '../../components/ui/Button';
 import FilterBar from '../../components/ui/FilterBar';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 
 const fmt = (value) => {
@@ -68,7 +69,7 @@ const RecurringExpenseMonthlyStatsPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Monthly Breakdown</h1>
+                <PageHeader title="Monthly Breakdown" />
                 <p className="text-neutral-500 mt-1 max-w-2xl">
                     Assigned, paid, and pending totals per month — synced, not computed on the fly.
                     A payment always counts toward the month it was assigned for, no matter when it was actually paid.

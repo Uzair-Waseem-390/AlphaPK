@@ -1,10 +1,10 @@
 import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
+import { Mail, Lock } from 'lucide-react';
 import { useAuth } from '../context/AuthContext';
-import Input from '../components/common/Input';
-import Button from '../components/common/Button';
-import Card from '../components/common/Card';
+import Input from '../components/ui/Input';
+import Button from '../components/ui/Button';
 import InlineAlert from '../components/ui/InlineAlert';
 
 const Login = () => {
@@ -19,7 +19,6 @@ const Login = () => {
         e.preventDefault();
         setError('');
         setLoading(true);
-
         const result = await login(email, password);
         if (result.success) {
             navigate('/dashboard');
@@ -30,36 +29,43 @@ const Login = () => {
     };
 
     return (
-        <div className="min-h-screen bg-gradient-to-br from-primary-50 to-accent-50 flex items-center justify-center p-4">
+        <div className="min-h-screen bg-gradient-to-br from-primary-900 via-primary-800 to-accent-900 flex items-center justify-center p-4">
+            {/* Decorative blobs */}
+            <div className="absolute inset-0 overflow-hidden pointer-events-none">
+                <div className="absolute -top-40 -right-40 w-96 h-96 rounded-full bg-accent-600/10 blur-3xl" />
+                <div className="absolute -bottom-40 -left-40 w-96 h-96 rounded-full bg-primary-600/20 blur-3xl" />
+            </div>
+
             <motion.div
-                initial={{ opacity: 0, y: 20 }}
+                initial={{ opacity: 0, y: 24 }}
                 animate={{ opacity: 1, y: 0 }}
-                className="w-full max-w-md"
+                transition={{ duration: 0.4 }}
+                className="w-full max-w-md relative z-10"
             >
-                <Card className="p-8">
+                <div className="bg-white rounded-3xl shadow-premium p-8">
+                    {/* Logo + heading */}
                     <div className="text-center mb-8">
-                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden bg-white border border-neutral-200">
-                            <img src="/logo.svg" alt={import.meta.env.VITE_APP_NAME} className="w-full h-full object-contain p-1.5" />
+                        <div className="w-16 h-16 rounded-2xl flex items-center justify-center mx-auto mb-4 overflow-hidden bg-neutral-50 border border-neutral-200 shadow-sm">
+                            <img
+                                src="/logo.svg"
+                                alt={import.meta.env.VITE_APP_NAME}
+                                className="w-full h-full object-contain p-1.5"
+                            />
                         </div>
-                        <h1 className="text-2xl font-bold text-neutral-900">Welcome Back</h1>
-                        <p className="text-neutral-500 mt-1">Sign in to your account</p>
+                        <h1 className="text-2xl font-bold text-neutral-900">Welcome back</h1>
+                        <p className="text-neutral-500 mt-1 text-sm">Sign in to {import.meta.env.VITE_APP_NAME}</p>
                     </div>
 
-                    <form onSubmit={handleSubmit} className="space-y-4">
+                    <form onSubmit={handleSubmit} className="space-y-5">
                         <Input
-                            label="Email"
+                            label="Email address"
                             type="email"
                             value={email}
                             onChange={(e) => setEmail(e.target.value)}
-                            placeholder="admin@example.com"
+                            placeholder="you@example.com"
                             required
-                            icon={({ className }) => (
-                                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 8l7.89 5.26a2 2 0 002.22 0L21 8M5 19h14a2 2 0 002-2V7a2 2 0 00-2-2H5a2 2 0 00-2 2v10a2 2 0 002 2z" />
-                                </svg>
-                            )}
+                            icon={Mail}
                         />
-
                         <Input
                             label="Password"
                             type="password"
@@ -67,11 +73,7 @@ const Login = () => {
                             onChange={(e) => setPassword(e.target.value)}
                             placeholder="Enter your password"
                             required
-                            icon={({ className }) => (
-                                <svg className={className} fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
-                                </svg>
-                            )}
+                            icon={Lock}
                         />
 
                         {error && (
@@ -80,20 +82,11 @@ const Login = () => {
                             </motion.div>
                         )}
 
-                        <Button
-                            type="submit"
-                            loading={loading}
-                            className="w-full"
-                        >
-                            Sign In
+                        <Button type="submit" loading={loading} className="w-full" size="md">
+                            Sign in
                         </Button>
                     </form>
-
-                    <div className="mt-6 text-center text-sm text-neutral-500">
-                        <p>Demo credentials:</p>
-                        <p className="font-mono text-xs">admin@example.com / admin123</p>
-                    </div>
-                </Card>
+                </div>
             </motion.div>
         </div>
     );

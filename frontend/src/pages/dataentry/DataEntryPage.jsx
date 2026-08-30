@@ -1,10 +1,11 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { DatabaseZap } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Tabs from '../../components/ui/Tabs';
 import InlineAlert from '../../components/ui/InlineAlert';
+import PageHeader from '../../components/ui/PageHeader';
 import SupplierOpeningBalancePanel from '../../components/dataentry/SupplierOpeningBalancePanel';
 import CustomerOpeningBalancePanel from '../../components/dataentry/CustomerOpeningBalancePanel';
 import OpeningCashPanel from '../../components/dataentry/OpeningCashPanel';
@@ -40,7 +41,7 @@ const DataEntryPage = () => {
                     <DatabaseZap className="w-6 h-6 text-white" />
                 </div>
                 <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Data Entry</h1>
+                    <PageHeader title="Data Entry" />
                     <p className="text-neutral-500 mt-1">
                         One-time bootstrap of opening balances, cash and stock before go-live.
                         Opening balances are <span className="font-medium text-neutral-700">permanently locked</span> after creation.

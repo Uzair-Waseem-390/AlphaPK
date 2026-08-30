@@ -1,9 +1,10 @@
-import { useNavigate } from 'react-router-dom';
+﻿import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useInvestorProfitPayouts } from '../../hooks/useProfits';
 import Badge from '../../components/ui/Badge';
 import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import PageHeader from '../../components/ui/PageHeader';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
@@ -65,14 +66,11 @@ const InvestorPayoutsPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                     <HandCoins className="w-5 h-5 text-white" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Investor Payments</h1>
-                    <p className="text-neutral-500 mt-0.5">
+                <PageHeader title="Investor Payments" subtitle="
                         Every profit payout and reinvestment ever recorded, across every investor and month —
                         newest first. Capital withdrawals aren't shown here; see the Investors page in Cash
                         Management for those.
-                    </p>
-                </div>
+                    " />
             </div>
 
             {error ? (

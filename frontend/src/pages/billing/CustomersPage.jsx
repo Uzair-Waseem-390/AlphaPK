@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, Filter as FilterIcon, X } from 'lucide-react';
+import { Plus, Filter as FilterIcon, X, User } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useBillingCRUD } from '../../hooks/useBilling';
 import { billingApi } from '../../services/billingApi';
@@ -16,6 +16,7 @@ import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 
 const TIER_TABS = [
     { value: '', label: 'All' },
@@ -123,23 +124,16 @@ const CustomersPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Customers</h1>
-                    <p className="text-neutral-500 mt-1">Manage customers and view their outstanding</p>
-                </div>
-                {isAdmin && (
-                    <Button
-                        onClick={() => {
-                            setEditingCustomer(null);
-                            setShowModal(true);
-                        }}
-                        icon={Plus}
-                    >
+            <PageHeader
+                title="Customers"
+                subtitle="Manage customers and view their outstanding"
+                icon={User}
+                actions={isAdmin && (
+                    <Button onClick={() => { setEditingCustomer(null); setShowModal(true); }} icon={Plus}>
                         Add Customer
                     </Button>
                 )}
-            </div>
+            />
 
             <Card className="p-4 sm:p-5" hover={false}>
                 <div className="flex flex-col sm:flex-row gap-3">

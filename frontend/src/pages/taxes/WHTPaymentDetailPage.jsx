@@ -1,11 +1,13 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { AlertTriangle, Trash2, Receipt, Calendar, User, Clock, StickyNote, Wallet } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { taxesApi } from '../../services/taxesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
+import PageHeader from '../../components/ui/PageHeader';
 import BackLink from '../../components/ui/BackLink';
+// import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -118,19 +120,13 @@ const WHTPaymentDetailPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <BackLink to="/taxes/wht-payments">Back to WHT Payments</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2 flex items-center gap-2.5">
-                        <Receipt className="w-7 h-7 text-primary-600" />
-                        WHT Payment Details
-                    </h1>
-                    <p className="text-neutral-500 mt-1">Rs. {fmt(payment.amount)} deposited to FBR</p>
-                </div>
-                <Button variant="danger" onClick={() => setDeleteConfirm(true)} icon={Trash2}>
-                    Delete
-                </Button>
-            </div>
+            <PageHeader
+                title="WHT Payment Details"
+                subtitle={`Rs. ${fmt(payment.amount)} deposited to FBR`}
+                icon={Receipt}
+                backLink={<BackLink to="/taxes/wht-payments">Back to WHT Payments</BackLink>}
+                actions={<Button variant="danger" onClick={() => setDeleteConfirm(true)} icon={Trash2}>Delete</Button>}
+            />
 
             {/* Payment Information */}
             <Card className="p-6">

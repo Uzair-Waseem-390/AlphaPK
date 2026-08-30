@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -12,6 +12,7 @@ import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
@@ -228,7 +229,7 @@ const InventoryPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Inventory</h1>
+                    <PageHeader title="Inventory" />
                     <p className="text-neutral-500 mt-1">View current inventory levels across all products</p>
                     <p className="text-sm text-neutral-400 mt-1">Click on any row to view detailed product information</p>
                 </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -6,6 +6,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
@@ -195,10 +196,7 @@ const AllReturnsPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center flex-shrink-0">
                         <Undo2 className="w-5.5 h-5.5" />
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-bold text-neutral-900">All Returns</h1>
-                        <p className="text-neutral-500 mt-1">View all purchase returns across all orders</p>
-                    </div>
+                    <PageHeader title="All Returns" subtitle="View all purchase returns across all orders" />
                 </div>
                 <BackLink to="/purchases/orders">Back to Orders</BackLink>
             </div>

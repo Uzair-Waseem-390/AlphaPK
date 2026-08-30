@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
     ShieldAlert, FileQuestion, ScrollText, Info, AlertTriangle,
@@ -11,6 +11,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
 import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
@@ -251,7 +252,7 @@ const AssetDetailPage = () => {
                 <div>
                     <BackLink to="/assets/items">Back to Assets</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-3xl font-bold text-neutral-900">{asset.name}</h1>
+                        <PageHeader title="{asset.name}" />
                         {asset.is_disposed
                             ? <Badge variant="error">Disposed</Badge>
                             : <Badge variant="success">Active</Badge>}

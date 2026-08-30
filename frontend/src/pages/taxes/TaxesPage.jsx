@@ -6,6 +6,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useTaxesStats } from '../../hooks/useTaxes';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -34,7 +35,7 @@ const StatBox = ({ label, value, tone = 'neutral', subtitle, icon: Icon }) => {
                 <p className="text-xs font-medium text-neutral-500 uppercase tracking-wide">{label}</p>
                 {Icon && (
                     <div className={`w-9 h-9 rounded-lg flex items-center justify-center ${t.bg}`}>
-                        <Icon className={`w-4.5 h-4.5 ${t.icon}`} />
+                        <Icon className={`w-5 h-5 ${t.icon}`} />
                     </div>
                 )}
             </div>
@@ -82,29 +83,17 @@ const TaxesPage = () => {
             </div>
 
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900 flex items-center gap-2.5">
-                        <Landmark className="w-7 h-7 text-primary-600" />
-                        Taxes
-                    </h1>
-                    <p className="text-neutral-500 mt-1">
-                        Sales tax (GST) position and withholding tax (WHT) position — see{' '}
-                        <Link to="/reports/sales-tax" className="text-primary-600 hover:text-primary-700 font-medium">
-                            Sales Tax Report
-                        </Link>{' '}
-                        for a transaction-level breakdown.
-                    </p>
-                </div>
+                <PageHeader
+                    title="Taxes"
+                    subtitle="Sales tax (GST) and withholding tax (WHT) position"
+                    icon={Landmark}
+                />
                 <div className="flex gap-3">
                     <Link to="/taxes/payments">
-                        <Button variant="secondary" icon={Receipt}>
-                            GST Payments
-                        </Button>
+                        <Button variant="secondary" icon={Receipt}>GST Payments</Button>
                     </Link>
                     <Link to="/taxes/wht-payments">
-                        <Button icon={Receipt}>
-                            WHT Payments
-                        </Button>
+                        <Button icon={Receipt}>WHT Payments</Button>
                     </Link>
                 </div>
             </div>

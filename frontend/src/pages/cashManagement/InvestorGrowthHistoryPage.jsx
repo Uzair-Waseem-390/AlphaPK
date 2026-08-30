@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { TrendingUp, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import Button from '../../components/ui/Button';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -77,10 +78,7 @@ const InvestorGrowthHistoryPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/cash-management/investors">Back to Investors</BackLink>
-                <div className="flex items-center gap-2.5 mt-2">
-                    <TrendingUp className="w-6 h-6 text-primary-600" />
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investor Growth History</h1>
-                </div>
+                <PageHeader title="Investor Growth History" />
                 <p className="text-neutral-500 mt-1">
                     Every monthly compounding entry ever posted, across all investors — informational only, never used for withdrawal validation.
                 </p>

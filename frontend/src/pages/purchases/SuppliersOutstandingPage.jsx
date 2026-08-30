@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { SlidersHorizontal, X, CircleCheckBig, Wallet } from 'lucide-react';
 import { useSuppliersOutstanding } from '../../hooks/usePurchases';
@@ -9,6 +9,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -83,12 +84,9 @@ const SuppliersOutstandingPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                     <Wallet className="w-5 h-5 text-white" />
                 </div>
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Suppliers Outstanding</h1>
-                    <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">
+                <PageHeader title="Suppliers Outstanding" subtitle="
                         {data.length} supplier{data.length !== 1 ? 's' : ''} with an outstanding balance
-                    </p>
-                </div>
+                    " />
             </div>
 
             {error && (

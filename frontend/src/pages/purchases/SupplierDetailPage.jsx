@@ -1,8 +1,9 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { Truck, Wallet, CheckCircle2, FileText } from 'lucide-react';
 import { purchasesApi } from '../../services/purchasesApi';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
@@ -139,10 +140,7 @@ const SupplierDetailPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <Truck className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{supplier.name}</h1>
-                        <p className="text-neutral-500 text-sm sm:text-base">Code: {supplier.code}</p>
-                    </div>
+                    <PageHeader title="{supplier.name}" subtitle="Code: {supplier.code}" />
                 </div>
             </div>
 

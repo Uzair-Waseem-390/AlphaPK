@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,6 +13,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import PaymentStatusBadge from '../../components/billing/PaymentStatusBadge';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import { useToast } from '../../context/ToastContext';
@@ -178,7 +179,7 @@ const PaymentDetailPage = () => {
                             <Receipt className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Payment Details</h1>
+                            <PageHeader title="Payment Details" />
                             <p className="text-neutral-500 flex items-center gap-1 text-sm">
                                 <Hash className="w-3.5 h-3.5" />
                                 {payment.reference_number}

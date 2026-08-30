@@ -1,4 +1,4 @@
-import { Link } from 'react-router-dom';
+﻿import { Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
     ShieldAlert, Building2, Tag, Package, Trash2,
@@ -7,6 +7,7 @@ import {
 import { useAuth } from '../../context/AuthContext';
 import { useAssetStats } from '../../hooks/useAssets';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -117,12 +118,9 @@ const AssetsPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-primary-50 flex items-center justify-center flex-shrink-0 mt-0.5">
                     <Building2 className="w-5.5 h-5.5 text-primary-700" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Fixed Assets</h1>
-                    <p className="text-neutral-500 mt-1">
+                <PageHeader title="Fixed Assets" subtitle="
                         Track equipment, vehicles, and land — depreciation and revaluation, computed automatically.
-                    </p>
-                </div>
+                    " />
             </div>
 
             {statsError && (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, SlidersHorizontal, X, AlertTriangle, Trash2, Receipt } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -9,6 +9,7 @@ import { todayLocalDate } from '../../utils/helpers';
 import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -185,7 +186,7 @@ const TaxPaymentsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/taxes">Back to Taxes</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Tax Payments</h1>
+                    <PageHeader title="Tax Payments" />
                     <p className="text-neutral-500 mt-1">Every GST payment made to FBR</p>
                 </div>
                 <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>

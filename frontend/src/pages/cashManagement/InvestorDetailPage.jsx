@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, TrendingUp, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,7 @@ import Table from '../../components/ui/Table';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -215,7 +216,7 @@ const InvestorDetailPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/cash-management/investors">Back to Investors</BackLink>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900 mt-2">{investor.name}</h1>
+                    <PageHeader title="{investor.name}" />
                     <p className="text-neutral-500">
                         {investor.contact_number || 'No contact number'}{investor.email ? ` · ${investor.email}` : ''}
                     </p>

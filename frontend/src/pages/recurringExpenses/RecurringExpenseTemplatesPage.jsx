@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Plus, Pencil, Trash2, ShieldAlert, Repeat, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,6 +8,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -190,7 +191,7 @@ const RecurringExpenseTemplatesPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Recurring Expense Templates</h1>
+                    <PageHeader title="Recurring Expense Templates" />
                     <p className="text-neutral-500 mt-1 max-w-2xl">
                         Salaries, rent, and anything else that recurs monthly. Creating one here never moves cash by itself —
                         use Post Dues to assign a month, then record a payment against it.

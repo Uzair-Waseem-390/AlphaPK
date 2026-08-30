@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Trash2, Calendar, User, Clock, StickyNote, Receipt, TrendingDown } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -137,7 +138,7 @@ const RecurringExpensePaymentDetailPage = () => {
                 <div>
                     <BackLink to={backHref}>Back to Assignment</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Payment Details</h1>
+                        <PageHeader title="Payment Details" />
                     </div>
                     {assignment && (
                         <p className="text-neutral-500 text-sm sm:text-base mt-1">

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Trash2, ArrowDownCircle, ArrowUpCircle, Calendar, User, Clock, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +11,7 @@ import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 
 const fmt = (value) => {
@@ -129,7 +130,7 @@ const CashAdjustmentDetailPage = () => {
                 <div>
                     <BackLink to="/cash-management/adjustments">Back to Cash Adjustments</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Cash Adjustment Details</h1>
+                        <PageHeader title="Cash Adjustment Details" />
                         {isLost ? <Badge variant="error">Lost</Badge> : <Badge variant="success">Found</Badge>}
                     </div>
                     <p className={`mt-1 text-lg font-semibold ${isLost ? 'text-error-600' : 'text-success-600'}`}>

@@ -1,5 +1,6 @@
 import { useState, useEffect } from 'react';
 import { motion } from 'framer-motion';
+import { Tag } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { useRates } from '../../hooks/useRates';
@@ -11,6 +12,7 @@ import Select from '../../components/ui/Select';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
+import PageHeader from '../../components/ui/PageHeader';
 import { useNavigate, Link } from 'react-router-dom';
 
 const RatesPage = () => {
@@ -101,22 +103,18 @@ const RatesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Product Rates</h1>
-                    <p className="text-neutral-500 mt-1">
-                        Manage selling prices for all products
-                    </p>
-                    <p className="text-sm text-neutral-400 mt-1">
-                        {isAdmin ? 'Admin users can set and edit prices' : 'View-only mode'}
-                    </p>
-                </div>
-                <Link to="/rates/unpriced">
-                    <Button variant="secondary">
-                        Unpriced Products{unpricedCount !== null ? ` (${unpricedCount})` : ''}
-                    </Button>
-                </Link>
-            </div>
+            <PageHeader
+                title="Product Rates"
+                subtitle="Manage selling prices for all products"
+                icon={Tag}
+                actions={
+                    <Link to="/rates/unpriced">
+                        <Button variant="secondary">
+                            Unpriced{unpricedCount !== null ? ` (${unpricedCount})` : ''}
+                        </Button>
+                    </Link>
+                }
+            />
 
             {/* Filters */}
             <div className="flex flex-col sm:flex-row gap-4">

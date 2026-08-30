@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -11,6 +11,7 @@ import { useBackupStats } from '../../hooks/useBackups';
 import { backupsApi } from '../../services/backupsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -127,12 +128,9 @@ const BackupPage = () => {
                     <div className="hidden sm:flex w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-700 to-accent-600 items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <DatabaseBackup className="w-6 h-6 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-bold text-neutral-900">Backups</h1>
-                        <p className="text-neutral-500 mt-1">
+                    <PageHeader title="Backups" subtitle="
                             Create a full or incremental backup, locally or to a remote database.
-                        </p>
-                    </div>
+                        " />
                 </div>
                 <Link to="/backups/history">
                     <Button variant="secondary" icon={History}>View History</Button>

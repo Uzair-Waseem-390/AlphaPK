@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Navigate } from 'react-router-dom';
 import { Plus, Trash2, ArrowLeftRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -17,6 +17,7 @@ import Table from '../../components/ui/Table';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -134,10 +135,7 @@ const AccountTransfersPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/payment-methods">Back to Payment Methods</BackLink>
-                    <div className="flex items-center gap-2.5 mt-2">
-                        <ArrowLeftRight className="w-6 h-6 text-primary-600" />
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Account Transfers</h1>
-                    </div>
+                    <PageHeader title="Account Transfers" />
                     <p className="text-neutral-500 mt-1">Move balance between payment methods</p>
                 </div>
                 <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus} disabled={methodsLoading}>

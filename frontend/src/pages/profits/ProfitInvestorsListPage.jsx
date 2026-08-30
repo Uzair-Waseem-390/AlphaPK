@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 import { Users, ShieldAlert } from 'lucide-react';
@@ -61,12 +62,9 @@ const ProfitInvestorsListPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                     <Users className="w-5 h-5 text-white" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Investors</h1>
-                    <p className="text-neutral-500 mt-0.5">
+                <PageHeader title="Investors" subtitle="
                         Click an investor to view their profit history and settle monthly shares.
-                    </p>
-                </div>
+                    " />
             </div>
 
             {error ? (

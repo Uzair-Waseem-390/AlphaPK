@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -16,6 +16,7 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -266,7 +267,7 @@ const ReturnDetailPage = () => {
                             <Undo2 className="w-5 h-5 text-white" />
                         </div>
                         <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{returnItem.reference_number}</h1>
+                            <PageHeader title="{returnItem.reference_number}" />
                             <div className="flex items-center gap-2 mt-0.5">
                                 {getStatusBadge(returnItem.status)}
                             </div>

@@ -1,4 +1,4 @@
-import { useState, useEffect, useRef } from 'react';
+﻿import { useState, useEffect, useRef } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Card from '../../components/ui/Card';
@@ -10,6 +10,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import InlineAlert from '../../components/ui/InlineAlert';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -251,7 +252,7 @@ const LostInventoryPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Manage Inventory</h1>
+                <PageHeader title="Manage Inventory" />
                 <p className="text-neutral-500 mt-1">Mark lost, damaged, or missing products from inventory</p>
                 <div className="mt-2 flex gap-4">
                     <BackLink to="/purchases/inventory">Back to Inventory</BackLink>

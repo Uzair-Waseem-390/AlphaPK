@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion, AnimatePresence } from 'framer-motion';
 import { Printer, FileDown, CreditCard, Undo2, Pencil, CheckCircle2, Trash2, FileText } from 'lucide-react';
@@ -6,6 +6,7 @@ import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
@@ -421,7 +422,7 @@ const PurchaseOrderDetailPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/purchases/orders">Back to Orders</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">{order.order_number}</h1>
+                    <PageHeader title="{order.order_number}" />
                     <div className="flex gap-2 mt-1 flex-wrap">
                         <OrderStatusBadge status={order.status} />
                         <OrderPaymentStatusBadge status={order.payment_status} />

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -6,6 +6,7 @@ import { purchasesApi } from '../../services/purchasesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
@@ -113,10 +114,7 @@ const PurchasePaymentDetailPage = () => {
                         <div className="w-10 h-10 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center flex-shrink-0">
                             <Wallet className="w-5 h-5" />
                         </div>
-                        <div>
-                            <h1 className="text-3xl font-bold text-neutral-900">Payment Details</h1>
-                            <p className="text-neutral-500">{payment.reference_number}</p>
-                        </div>
+                        <PageHeader title="Payment Details" subtitle="{payment.reference_number}" />
                     </div>
                 </div>
                 {isAdmin && (

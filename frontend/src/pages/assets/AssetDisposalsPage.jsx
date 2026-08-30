@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Trash2, ShieldAlert, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -12,6 +12,7 @@ import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -107,7 +108,7 @@ const AssetDisposalsPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/assets">Back to Assets</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-2">Asset Disposals</h1>
+                <PageHeader title="Asset Disposals" />
                 <p className="text-neutral-500 mt-1">Audit trail of every asset that's been scrapped or sold</p>
             </div>
 

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { motion, AnimatePresence } from 'framer-motion';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, ListPlus, CalendarDays, Wallet, FileWarning } from 'lucide-react';
@@ -7,6 +7,7 @@ import { ratesApi } from '../../services/ratesApi';
 import { useToast } from '../../context/ToastContext';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
 import SearchableSelect from '../../components/ui/SearchableSelect';
@@ -270,7 +271,7 @@ const EditInvoicePage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to={`/billing/invoices/${id}`}>Back to Invoice</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Edit Invoice</h1>
+                    <PageHeader title="Edit Invoice" />
                     <p className="text-neutral-500">{invoice.bill_number}</p>
                 </div>
                 <div className="flex gap-3">

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -7,6 +7,7 @@ import Table from '../../components/ui/Table';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
@@ -137,7 +138,7 @@ const LostInventoryRecordsPage = () => {
     return (
         <div className="space-y-6">
             <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Lost Inventory Records</h1>
+                <PageHeader title="Lost Inventory Records" />
                 <p className="text-neutral-500 mt-1">Full history of products marked as lost, damaged, or missing</p>
                 <div className="mt-2 flex gap-4">
                     <BackLink to="/purchases/inventory">Back to Inventory</BackLink>

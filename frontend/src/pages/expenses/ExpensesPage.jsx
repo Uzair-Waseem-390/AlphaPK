@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate } from 'react-router-dom';
 import {
@@ -11,6 +11,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import { todayLocalDate } from '../../utils/helpers';
 import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -304,10 +305,7 @@ const ExpensesPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <Receipt className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Expenses</h1>
-                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage all business expenses</p>
-                    </div>
+                    <PageHeader title="Expenses" subtitle="Manage all business expenses" />
                 </div>
                 <Button
                     onClick={() => {

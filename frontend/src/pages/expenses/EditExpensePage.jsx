@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import { Info, PenSquare } from 'lucide-react';
@@ -9,6 +9,7 @@ import { cashFlowApi } from '../../services/cashFlowApi';
 import { useAllExpenseCategories, useCashFlowStats } from '../../hooks/useCashFlow';
 import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -220,10 +221,7 @@ const EditExpensePage = () => {
                         <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                             <PenSquare className="w-5 h-5 text-white" />
                         </div>
-                        <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Edit Expense</h1>
-                            <p className="text-neutral-500 text-sm sm:text-base">Update expense details</p>
-                        </div>
+                        <PageHeader title="Edit Expense" subtitle="Update expense details" />
                     </div>
                 </div>
                 <div className="flex gap-3">

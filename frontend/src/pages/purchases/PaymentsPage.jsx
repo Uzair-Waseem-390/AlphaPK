@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -7,6 +7,7 @@ import { todayLocalDate } from '../../utils/helpers';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import SearchBar from '../../components/ui/SearchBar';
@@ -209,7 +210,7 @@ const PaymentsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Order Payments</h1>
+                    <PageHeader title="Order Payments" />
                     <p className="text-neutral-500 mt-1">
                         Manage payments for Order #{orderDetails?.order_number || orderId}
                     </p>

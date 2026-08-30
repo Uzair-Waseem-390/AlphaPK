@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Trash2, Landmark, HandCoins, SlidersHorizontal } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -19,6 +19,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -181,10 +182,7 @@ const OwnerTransactionsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/cash-management">Back to Cash Management</BackLink>
-                    <div className="flex items-center gap-2.5 mt-2">
-                        <Landmark className="w-6 h-6 text-primary-600" />
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Owner Transactions</h1>
-                    </div>
+                    <PageHeader title="Owner Transactions" />
                     <p className="text-neutral-500 mt-1">
                         Money the owner deposits into or withdraws from the business — distinct from
                         investor capital and from unexplained lost/found cash.

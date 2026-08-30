@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Calendar, User, Clock, Receipt, TrendingDown, TrendingUp, StickyNote, Package } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { assetsApi } from '../../services/assetsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -108,7 +109,7 @@ const AssetPaymentDetailPage = () => {
                 <div>
                     <BackLink to="/assets/payments">Back to Asset Payments</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Asset Payment Details</h1>
+                        <PageHeader title="Asset Payment Details" />
                         {isSale ? <Badge variant="info">Sale</Badge> : <Badge variant="success">Purchase</Badge>}
                     </div>
                     <p className="text-neutral-500 text-sm sm:text-base mt-1">

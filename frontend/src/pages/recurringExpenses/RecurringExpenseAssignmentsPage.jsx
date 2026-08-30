@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link, useNavigate, useLocation } from 'react-router-dom';
 import { CalendarPlus, ClipboardList, SlidersHorizontal, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useRecurringExpenseAssignments } from '../../hooks/useRecurringExpenses
 import { recurringExpensesApi } from '../../services/recurringExpensesApi';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Badge from '../../components/ui/Badge';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
@@ -90,7 +91,7 @@ const RecurringExpenseAssignmentsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Assignments</h1>
+                    <PageHeader title="Assignments" />
                     <p className="text-neutral-500 mt-1">Every month due ever assigned — click one to record a payment.</p>
                 </div>
                 <Link to="/recurring-expenses/post-dues">

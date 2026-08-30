@@ -1,7 +1,8 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
@@ -138,12 +139,9 @@ const GlobalPaymentsPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-primary-50 text-primary-600 flex items-center justify-center flex-shrink-0">
                     <Wallet className="w-5.5 h-5.5" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
-                    <p className="text-neutral-500 mt-1">
+                <PageHeader title="All Payments" subtitle="
                         Search and manage all payments across all purchase orders
-                    </p>
-                </div>
+                    " />
             </div>
 
             <div className="space-y-4">

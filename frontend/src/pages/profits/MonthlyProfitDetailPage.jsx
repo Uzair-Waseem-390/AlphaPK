@@ -1,4 +1,4 @@
-import { useState, Fragment } from 'react';
+﻿import { useState, Fragment } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -13,6 +13,7 @@ import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -222,10 +223,7 @@ const MonthlyProfitDetailPage = () => {
             <div>
                 <BackLink to="/monthly-profits">Back to Monthly Profits</BackLink>
                 <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
-                        <TrendingUp className="w-5 h-5 text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">{formatMonthLabel(mp.period)}</h1>
+                    <PageHeader title="{formatMonthLabel(mp.period)}" />
                     {isCurrent && (
                         <span className="text-xs font-medium text-amber-700 bg-amber-100 px-2 py-0.5 rounded-full">
                             In progress — provisional

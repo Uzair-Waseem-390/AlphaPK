@@ -10,6 +10,7 @@ import { usersApi } from '../utils/api';
 import { activityLogApi } from '../services/activityLogApi';
 import { extractErrorMessage } from '../utils/errorMessage';
 import { useActivityLogEvents, useActivityLogStats } from '../hooks/useActivityLog';
+import PageHeader from '../components/ui/PageHeader';
 import Card from '../components/ui/Card';
 import Table from '../components/ui/Table';
 import Badge from '../components/ui/Badge';
@@ -239,32 +240,25 @@ const ActivityLogPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-start justify-between gap-3 flex-wrap">
-                <div className="flex items-center gap-3">
-                    <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
-                        <History className="w-5 h-5 text-white" />
-                    </div>
-                    <div>
-                        <h1 className="text-3xl font-bold text-neutral-900">Activity Log</h1>
-                        <p className="text-neutral-500 mt-0.5">
-                            System-wide audit trail of every create, update, delete, and status change.
-                        </p>
-                    </div>
-                </div>
-
-                {!statsLoading && !statsError && (
-                    <div className="flex items-center gap-2.5">
-                        <span className={`text-sm font-medium ${stats?.is_enabled === false ? 'text-neutral-500' : 'text-success-600'}`}>
-                            Tracking: {stats?.is_enabled === false ? 'Off' : 'On'}
-                        </span>
-                        <Switch
-                            checked={stats?.is_enabled !== false}
-                            onChange={handleTrackingToggleClick}
-                            loading={togglingTracking}
-                        />
-                    </div>
-                )}
-            </div>
+            <PageHeader
+                title="Activity Log"
+                subtitle="System-wide audit trail of every create, update, delete, and status change"
+                icon={History}
+                actions={
+                    !statsLoading && !statsError && (
+                        <div className="flex items-center gap-2.5">
+                            <span className={`text-sm font-medium ${stats?.is_enabled === false ? 'text-neutral-500' : 'text-success-600'}`}>
+                                Tracking: {stats?.is_enabled === false ? 'Off' : 'On'}
+                            </span>
+                            <Switch
+                                checked={stats?.is_enabled !== false}
+                                onChange={handleTrackingToggleClick}
+                                loading={togglingTracking}
+                            />
+                        </div>
+                    )
+                }
+            />
 
             {/* Lifetime stats */}
             {statsError ? (

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, X, LayoutGrid } from 'lucide-react';
 import { useCRUD } from '../../hooks/usePurchases';
@@ -11,6 +11,7 @@ import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
@@ -177,10 +178,7 @@ const ShelvesPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <LayoutGrid className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Shelves</h1>
-                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage product shelves</p>
-                    </div>
+                    <PageHeader title="Shelves" subtitle="Manage product shelves" />
                 </div>
                 {isAdmin && (
                     <Button

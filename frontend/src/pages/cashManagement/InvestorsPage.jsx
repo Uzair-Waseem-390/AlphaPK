@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Users } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -14,6 +14,7 @@ import SearchBar from '../../components/ui/SearchBar';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -182,10 +183,7 @@ const InvestorsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/cash-management">Back to Cash Management</BackLink>
-                    <div className="flex items-center gap-2.5 mt-2">
-                        <Users className="w-6 h-6 text-primary-600" />
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investors</h1>
-                    </div>
+                    <PageHeader title="Investors" />
                     <p className="text-neutral-500 mt-1">Manage investors and their capital</p>
                 </div>
                 <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>

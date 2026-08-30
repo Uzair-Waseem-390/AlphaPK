@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { motion } from 'framer-motion';
 import { useNavigate, useLocation } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,7 @@ import { ledgerApi, customerLedgerApi } from '../../services/ledgerApi';
 import LedgerListTable, { SUPPLIER_COLUMNS } from '../../components/ledger/LedgerListTable';
 import SearchBar from '../../components/ui/SearchBar';
 import Button from '../../components/ui/Button';
+import PageHeader from '../../components/ui/PageHeader';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -84,12 +85,7 @@ const LedgerListPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">{config.heading}</h1>
-                    <p className="text-neutral-500 mt-1">{config.subheading}</p>
-                </div>
-            </div>
+            <PageHeader title="{config.heading}" subtitle="{config.subheading}" />
 
             <div className="flex gap-4">
                 <SearchBar

@@ -1,6 +1,5 @@
 import { useState } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
-import { motion } from 'framer-motion';
 import {
     Wallet, SlidersHorizontal, X, Banknote, Smartphone, Landmark, CreditCard,
     ChevronRight, Hash,
@@ -15,6 +14,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
+import PageHeader from '../../components/ui/PageHeader';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 // Payment method → icon/color mapping, reused across the payments UI.
@@ -178,23 +178,12 @@ const PaymentsPage = () => {
     }
 
     return (
-        <motion.div
-            initial={{ opacity: 0, y: 12 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.3 }}
-            className="space-y-6"
-        >
-            <div className="flex items-center gap-3">
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20">
-                    <Wallet className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">All Payments</h1>
-                    <p className="text-neutral-500 mt-0.5">
-                        Search and manage all payments across all invoices
-                    </p>
-                </div>
-            </div>
+        <div className="space-y-6">
+            <PageHeader
+                title="All Payments"
+                subtitle="Search and manage all payments across all invoices"
+                icon={Wallet}
+            />
 
             <div className="space-y-4">
                 <div className="flex flex-col sm:flex-row gap-3">
@@ -261,7 +250,7 @@ const PaymentsPage = () => {
                     onPageChange={setPage}
                 />
             )}
-        </motion.div>
+        </div>
     );
 };
 

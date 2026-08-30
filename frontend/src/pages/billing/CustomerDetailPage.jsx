@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { TrendingUp, FileText, ArrowRight } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { billingApi } from '../../services/billingApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -144,7 +145,7 @@ const CustomerDetailPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/billing/customers">Back to Customers</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">{customer.name}</h1>
+                    <PageHeader title="{customer.name}" />
                     <p className="text-neutral-500">Code: {customer.code}</p>
                 </div>
                 <Link to={`/billing/customers/${id}/credit-score`}>

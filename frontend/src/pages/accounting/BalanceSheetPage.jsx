@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, CheckCircle2, Clock, Landmark, Wallet, Scale, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -7,6 +7,7 @@ import { useBalanceSheet } from '../../hooks/useAccounting';
 import { printReport } from '../../utils/print';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import InlineAlert from '../../components/ui/InlineAlert';
@@ -69,15 +70,9 @@ const BalanceSheetPage = () => {
 
             <div className="flex items-start justify-between gap-4">
                 <div>
-                    <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                            <Landmark className="w-5 h-5 text-white" />
-                        </div>
-                        <h1 className="text-3xl font-bold text-neutral-900">Balance Sheet</h1>
-                    </div>
-                    <p className="text-neutral-500 mt-1">
+                    <PageHeader title="Balance Sheet" subtitle="
                         A snapshot of everything your business owns, owes, and is worth, as of today.
-                    </p>
+                    " />
                 </div>
                 <Button variant="secondary" icon={Printer} onClick={handlePrint} loading={printing}>
                     Print

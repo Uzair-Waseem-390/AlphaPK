@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+﻿import { useNavigate } from 'react-router-dom';
 import { CreditCard } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { creditScoreApi } from '../../services/creditScoreApi';
@@ -7,6 +7,7 @@ import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Badge from '../../components/ui/Badge';
 import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -82,13 +83,7 @@ const CreditCustomerReportPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/reports">Back to Reports</BackLink>
-                <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <CreditCard className="w-5 h-5 text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Credit Customer Report</h1>
-                </div>
-                <p className="text-neutral-500 mt-1">Customers grouped by their system-calculated credit score</p>
+                <PageHeader title="Credit Customer Report" subtitle="Customers grouped by their system-calculated credit score" />
             </div>
 
             <div className="space-y-4">

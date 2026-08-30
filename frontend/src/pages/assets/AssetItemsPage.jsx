@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { Link, useNavigate } from 'react-router-dom';
 import { Package, ShieldAlert, Info, AlertTriangle, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -18,6 +18,7 @@ import Table from '../../components/ui/Table';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -193,7 +194,7 @@ const AssetItemsPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/assets">Back to Assets</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Assets</h1>
+                    <PageHeader title="Assets" />
                     <p className="text-neutral-500 mt-1">Every registered fixed asset</p>
                 </div>
                 <Button

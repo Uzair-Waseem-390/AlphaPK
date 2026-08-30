@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { Plus, Trash2, ShieldAlert, Receipt } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -10,6 +10,7 @@ import { todayLocalDate } from '../../utils/helpers';
 import MethodSplitPicker, { isSplitBalanced } from '../../components/paymentMethods/MethodSplitPicker';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -202,7 +203,7 @@ const RecurringExpenseAssignmentDetailPage = () => {
                 <div>
                     <BackLink to="/recurring-expenses/assignments">Back to Assignments</BackLink>
                     <div className="flex items-center gap-3 mt-1">
-                        <h1 className="text-3xl font-bold text-neutral-900">{assignment.name_snapshot}</h1>
+                        <PageHeader title="{assignment.name_snapshot}" />
                         {statusBadge(assignment.payment_status)}
                     </div>
                     <p className="text-neutral-500">{assignment.category_name_snapshot} · {assignment.period}</p>

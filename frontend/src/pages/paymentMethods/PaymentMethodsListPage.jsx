@@ -3,10 +3,11 @@ import { Navigate, useNavigate, Link } from 'react-router-dom';
 import { Plus, Pencil, Trash2, Wallet, ArrowLeftRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
-import {
-    usePaymentMethods, useCreateMethod, useUpdateMethod, useDeleteMethod,
+import PageHeader from '../../components/ui/PageHeader';
+import { usePaymentMethods, useCreateMethod, useUpdateMethod, useDeleteMethod,
 } from '../../hooks/usePaymentMethods';
 import { extractErrorMessage } from '../../utils/errorMessage';
+// import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
@@ -157,23 +158,21 @@ const PaymentMethodsListPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <div className="flex items-center gap-2.5">
-                        <Wallet className="w-6 h-6 text-primary-600" />
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Payment Methods</h1>
+            <PageHeader
+                title="Payment Methods"
+                subtitle="Manage cash, mobile wallets, and other payment accounts"
+                icon={Wallet}
+                actions={
+                    <div className="flex gap-2">
+                        <Link to="/payment-methods/transfers">
+                            <Button variant="secondary" icon={ArrowLeftRight}>Transfers</Button>
+                        </Link>
+                        <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>
+                            Add Method
+                        </Button>
                     </div>
-                    <p className="text-neutral-500 mt-1">Manage cash, mobile wallets, and other payment accounts</p>
-                </div>
-                <div className="flex gap-2">
-                    <Link to="/payment-methods/transfers">
-                        <Button variant="secondary" icon={ArrowLeftRight}>Transfers</Button>
-                    </Link>
-                    <Button onClick={() => { resetForm(); setShowModal(true); }} icon={Plus}>
-                        Add Method
-                    </Button>
-                </div>
-            </div>
+                }
+            />
 
             <SearchBar onSearch={handleSearch} placeholder="Search by name..." value={searchTerm} />
 

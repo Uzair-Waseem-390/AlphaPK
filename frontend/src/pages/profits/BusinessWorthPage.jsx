@@ -1,7 +1,8 @@
-import { useMemo } from 'react';
+﻿import { useMemo } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useBusinessWorth } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import InlineAlert from '../../components/ui/InlineAlert';
 import { Wallet, ShieldAlert } from 'lucide-react';
@@ -131,13 +132,10 @@ const BusinessWorthPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                     <Wallet className="w-5 h-5 text-white" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Business Worth</h1>
-                    <p className="text-neutral-500 mt-0.5">
+                <PageHeader title="Business Worth" subtitle="
                         Everything the business owns, minus everything it owes — and how that worth is split
                         between the owner and every investor.
-                    </p>
-                </div>
+                    " />
             </div>
 
             {loading ? (

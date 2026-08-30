@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -6,6 +6,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -221,7 +222,7 @@ const ReturnsPage = () => {
         <div className="space-y-6">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Order Returns</h1>
+                    <PageHeader title="Order Returns" />
                     <p className="text-neutral-500 mt-1">
                         Manage returns for Order #{orderId}
                     </p>

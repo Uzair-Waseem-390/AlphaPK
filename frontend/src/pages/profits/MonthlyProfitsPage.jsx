@@ -1,8 +1,9 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useMonthlyProfits, useCurrentMonthProfit, useProfitFlowStats } from '../../hooks/useProfits';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import Input from '../../components/ui/Input';
@@ -91,13 +92,10 @@ const MonthlyProfitsPage = () => {
                 <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                     <TrendingUp className="w-5 h-5 text-white" />
                 </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Monthly Profits</h1>
-                    <p className="text-neutral-500 mt-0.5">
-                        "Real" profit per month — gross profit minus expenses, taxes, losses, and depreciation —
-                        split between investors and the owner.
-                    </p>
-                </div>
+                <PageHeader
+                    title="Monthly Profits"
+                    subtitle={`"Real" profit per month — gross profit minus expenses, taxes, losses, and depreciation — split between investors and the owner.`}
+                />
             </div>
 
             {/* Lifetime totals */}

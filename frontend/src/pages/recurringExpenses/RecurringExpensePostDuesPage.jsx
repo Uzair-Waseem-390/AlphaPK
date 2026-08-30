@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { CalendarCheck2, CheckCircle2, ShieldAlert } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -8,6 +8,7 @@ import { extractErrorMessage } from '../../utils/errorMessage';
 import { currentMonthLocal } from '../../utils/helpers';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Select from '../../components/ui/Select';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -135,7 +136,7 @@ const RecurringExpensePostDuesPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-1">Post Dues</h1>
+                <PageHeader title="Post Dues" />
                 <p className="text-neutral-500 mt-1 max-w-2xl">
                     Assigning a month's due never moves cash by itself — it only becomes a payable balance.
                     Record an actual payment from the Assignments page once it's paid.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Plus, Pencil, Trash2, Tag } from 'lucide-react';
 import { useCRUD } from '../../hooks/usePurchases';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -10,6 +10,7 @@ import SearchBar from '../../components/ui/SearchBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
@@ -154,10 +155,7 @@ const CategoriesPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-600 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <Tag className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Categories</h1>
-                        <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">Manage product categories</p>
-                    </div>
+                    <PageHeader title="Categories" subtitle="Manage product categories" />
                 </div>
                 {isAdmin && (
                     <Button

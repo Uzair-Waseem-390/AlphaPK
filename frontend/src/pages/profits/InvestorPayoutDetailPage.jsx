@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Trash2, Calendar, User, Clock, StickyNote, HandCoins, TrendingDown, Repeat } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { profitsApi } from '../../services/profitsApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -134,7 +135,7 @@ const InvestorPayoutDetailPage = () => {
                 <div>
                     <BackLink to="/profits/payouts">Back to Investor Payments</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investor Payout Details</h1>
+                        <PageHeader title="Investor Payout Details" />
                         {isReinvest ? <Badge variant="info">Reinvest</Badge> : <Badge variant="success">Payout</Badge>}
                     </div>
                     <p className="text-neutral-500 text-sm sm:text-base mt-1">

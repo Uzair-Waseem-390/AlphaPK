@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { Trash2, ArrowUpCircle, ArrowDownCircle, Calendar, User, Clock, FileText, TrendingUp, Database } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -6,6 +6,7 @@ import { useToast } from '../../context/ToastContext';
 import { cashManagementApi } from '../../services/cashManagementApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
 import Badge from '../../components/ui/Badge';
@@ -130,7 +131,7 @@ const InvestorTransactionDetailPage = () => {
                 <div>
                     <BackLink to={backHref}>Back to Investor</BackLink>
                     <div className="flex items-center gap-3 mt-2">
-                        <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Investor Transaction Details</h1>
+                        <PageHeader title="Investor Transaction Details" />
                         {isInvestment ? <Badge variant="success">Investment</Badge> : <Badge variant="warning">Withdrawal</Badge>}
                         {txn.is_data_entry && <Badge variant="neutral">Data Entry</Badge>}
                     </div>

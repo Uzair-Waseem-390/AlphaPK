@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { Plus, SlidersHorizontal, X, PackageSearch, Loader2 } from 'lucide-react';
+import { Plus, SlidersHorizontal, X, PackageSearch, Loader2, ShoppingCart } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { purchasesApi } from '../../services/purchasesApi';
 import Table from '../../components/ui/Table';
@@ -14,6 +14,7 @@ import OrderPaymentStatusBadge from '../../components/purchases/OrderPaymentStat
 import Pagination from '../../components/ui/Pagination';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
+import PageHeader from '../../components/ui/PageHeader';
 import { useToast } from '../../context/ToastContext';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
@@ -174,20 +175,16 @@ const PurchaseOrdersPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Purchase Orders</h1>
-                    <p className="text-neutral-500 mt-1">Create and manage purchase orders</p>
-                </div>
-                {isAdmin && (
-                    <Button
-                        onClick={() => setShowCreateModal(true)}
-                        icon={Plus}
-                    >
+            <PageHeader
+                title="Purchase Orders"
+                subtitle="Create and manage purchase orders"
+                icon={ShoppingCart}
+                actions={isAdmin && (
+                    <Button onClick={() => setShowCreateModal(true)} icon={Plus}>
                         Create Order
                     </Button>
                 )}
-            </div>
+            />
 
             {error && (
                 <InlineAlert variant="error" message={error} onRetry={fetchOrders} />

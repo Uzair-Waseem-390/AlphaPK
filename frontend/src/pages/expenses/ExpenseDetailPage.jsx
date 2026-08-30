@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import { motion } from 'framer-motion';
 import {
@@ -13,6 +13,7 @@ import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
 import EmptyState from '../../components/ui/EmptyState';
@@ -119,10 +120,7 @@ const ExpenseDetailPage = () => {
                         <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                             <Receipt className="w-5 h-5 text-white" />
                         </div>
-                        <div>
-                            <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Expense Details</h1>
-                            <p className="text-neutral-500 text-sm sm:text-base">{expense.name}</p>
-                        </div>
+                        <PageHeader title="Expense Details" subtitle="{expense.name}" />
                     </div>
                 </div>
                 {isAdmin && (

@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -11,6 +11,7 @@ import Badge from '../../components/ui/Badge';
 import InlineAlert from '../../components/ui/InlineAlert';
 import ShelfAllocationEditor from '../../components/shared/ShelfAllocationEditor';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 
 const formatCurrency = (value) => {
     const num = typeof value === 'string' ? parseFloat(value) : value;
@@ -260,7 +261,7 @@ const LostInventoryDetailPage = () => {
                 <div className="flex items-start justify-between">
                     <div>
                         <BackLink to="/purchases/lost-inventory/records">Back to Lost Inventory Records</BackLink>
-                        <h1 className="text-3xl font-bold text-neutral-900 mt-1">Lost Inventory Detail</h1>
+                        <PageHeader title="Lost Inventory Detail" />
                         <div className="flex items-center gap-3 mt-1">
                             <p className="text-neutral-500 font-mono">{record.reference_number}</p>
                             {allFound ? (

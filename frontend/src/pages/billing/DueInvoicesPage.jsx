@@ -13,6 +13,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
+import PageHeader from '../../components/ui/PageHeader';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 const DueInvoicesPage = () => {
@@ -102,15 +103,11 @@ const DueInvoicesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Due Invoices</h1>
-                <p className="text-neutral-500 mt-1">
-                    Confirmed invoices whose due date has passed and still carry a balance
-                </p>
-                <p className="text-sm text-neutral-400 mt-1">
-                    {meta.count} invoice{meta.count !== 1 ? 's' : ''} past due
-                </p>
-            </div>
+            <PageHeader
+                title="Due Invoices"
+                subtitle={`Confirmed invoices whose due date has passed · ${meta.count} past due`}
+                icon={CalendarCheck}
+            />
 
             <div className="space-y-4">
                 <div className="flex gap-4">

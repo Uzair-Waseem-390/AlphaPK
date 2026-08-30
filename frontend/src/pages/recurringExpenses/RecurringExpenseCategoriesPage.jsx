@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Plus, Pencil, Trash2, ShieldAlert, Tags } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -6,6 +6,7 @@ import { useRecurringExpenseCategories } from '../../hooks/useRecurringExpenses'
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -118,7 +119,7 @@ const RecurringExpenseCategoriesPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/recurring-expenses">Back to Recurring Expenses</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-1">Categories</h1>
+                    <PageHeader title="Categories" />
                     <p className="text-neutral-500 mt-1 max-w-xl">
                         Deleting a category only hides it from new templates — anything already assigned keeps its own frozen category name forever.
                     </p>

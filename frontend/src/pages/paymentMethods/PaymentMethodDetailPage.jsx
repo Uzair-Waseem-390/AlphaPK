@@ -1,4 +1,4 @@
-import { Navigate, useParams } from 'react-router-dom';
+﻿import { Navigate, useParams } from 'react-router-dom';
 import { Wallet, ArrowDownLeft, ArrowUpRight, ShieldCheck } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { usePaymentMethod, useMethodAllocations } from '../../hooks/usePaymentMethods';
@@ -8,6 +8,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Table from '../../components/ui/Table';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
 
@@ -98,7 +99,7 @@ const PaymentMethodDetailPage = () => {
                 <BackLink to="/payment-methods">Back to Payment Methods</BackLink>
                 <div className="flex items-center gap-2.5 mt-2">
                     <Wallet className="w-6 h-6 text-primary-600" />
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{method.name}</h1>
+                    <PageHeader title="{method.name}" />
                     {method.is_protected && (
                         <Badge variant="info" className="gap-1">
                             <ShieldCheck className="w-3 h-3" /> Protected

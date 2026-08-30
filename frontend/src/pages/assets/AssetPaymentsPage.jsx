@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Receipt, ShieldAlert, SlidersHorizontal, X, TrendingDown, TrendingUp } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +11,7 @@ import Button from '../../components/ui/Button';
 import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -111,12 +112,9 @@ const AssetPaymentsPage = () => {
                     <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
                         <Receipt className="w-5 h-5 text-white" />
                     </div>
-                    <div>
-                        <h1 className="text-3xl font-bold text-neutral-900">Asset Payments</h1>
-                        <p className="text-neutral-500 mt-0.5">
+                    <PageHeader title="Asset Payments" subtitle="
                             Every real cash movement from assets — purchases and sales — newest first.
-                        </p>
-                    </div>
+                        " />
                 </div>
             </div>
 

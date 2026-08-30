@@ -1,9 +1,10 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams, Link } from 'react-router-dom';
 import { History } from 'lucide-react';
 import { creditScoreApi } from '../../services/creditScoreApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Badge from '../../components/ui/Badge';
@@ -135,7 +136,7 @@ const CustomerCreditScorePage = () => {
             <div className="flex items-start justify-between flex-wrap gap-3">
                 <div>
                     <BackLink to={`/billing/customers/${id}`}>Back to {scoreData.customer_name}</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Credit Score</h1>
+                    <PageHeader title="Credit Score" />
                     <p className="text-neutral-500">{scoreData.customer_name} ({scoreData.customer_code})</p>
                 </div>
                 <BackLink to={`/billing/customers/${id}/credit-score/history`} direction="right">

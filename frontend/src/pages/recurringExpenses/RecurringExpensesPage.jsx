@@ -5,6 +5,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useRecurringExpenseFlowStats } from '../../hooks/useRecurringExpenses';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import Button from '../../components/ui/Button';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -88,18 +89,11 @@ const RecurringExpensesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex items-start gap-4">
-                <div className="hidden sm:flex w-12 h-12 rounded-2xl bg-gradient-to-br from-primary-700 to-accent-600 items-center justify-center flex-shrink-0 shadow-lg shadow-primary-900/20">
-                    <Repeat className="w-6 h-6 text-white" />
-                </div>
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Recurring Expenses</h1>
-                    <p className="text-neutral-500 mt-1">
-                        Salaries, rent, and anything else that must be paid every month — assign what's due,
-                        then record payments as they're actually made.
-                    </p>
-                </div>
-            </div>
+            <PageHeader
+                title="Recurring Expenses"
+                subtitle="Salaries, rent, and anything else that must be paid every month"
+                icon={Repeat}
+            />
 
             {statsLoading ? (
                 <div className="flex items-center justify-center py-8">

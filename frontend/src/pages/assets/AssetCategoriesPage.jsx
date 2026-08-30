@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { Tag, Percent, ShieldAlert, Pencil } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -6,6 +6,7 @@ import { useAssetCategories } from '../../hooks/useAssets';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Modal from '../../components/ui/Modal';
 import Input from '../../components/ui/Input';
 import Select from '../../components/ui/Select';
@@ -143,7 +144,7 @@ const AssetCategoriesPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/assets">Back to Assets</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Asset Categories</h1>
+                    <PageHeader title="Asset Categories" />
                     <p className="text-neutral-500 mt-1 max-w-2xl">
                         The valuation method (Depreciation/Revaluation/None) is locked once a category is created —
                         only the name and rate can be changed later.

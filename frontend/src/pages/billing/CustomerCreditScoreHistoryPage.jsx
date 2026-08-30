@@ -1,10 +1,11 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { History } from 'lucide-react';
 import { creditScoreApi } from '../../services/creditScoreApi';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
@@ -67,7 +68,7 @@ const CustomerCreditScoreHistoryPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to={`/billing/customers/${id}/credit-score`}>Back to Credit Score</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-2">Credit Score History</h1>
+                <PageHeader title="Credit Score History" />
                 <p className="text-neutral-500">
                     {customerLoading
                         ? 'Loading customer…'

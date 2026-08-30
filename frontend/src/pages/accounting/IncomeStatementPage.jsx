@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { AlertTriangle, FileBarChart, Printer } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -8,6 +8,7 @@ import { todayLocalDate } from '../../utils/helpers';
 import { printReport } from '../../utils/print';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 import Input from '../../components/ui/Input';
 import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
@@ -84,16 +85,10 @@ const IncomeStatementPage = () => {
             </div>
 
             <div>
-                <div className="flex items-center gap-3">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <FileBarChart className="w-5 h-5 text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Income Statement</h1>
-                </div>
-                <p className="text-neutral-500 mt-1">
+                <PageHeader title="Income Statement" subtitle="
                     Also called a Profit &amp; Loss statement — shows whether the business actually made
                     money in the period you pick, after every cost.
-                </p>
+                " />
             </div>
 
             <Card className="p-4">

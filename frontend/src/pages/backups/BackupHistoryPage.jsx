@@ -1,4 +1,4 @@
-import { useNavigate } from 'react-router-dom';
+﻿import { useNavigate } from 'react-router-dom';
 import { Archive } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useBackupHistory } from '../../hooks/useBackups';
@@ -7,6 +7,7 @@ import Badge from '../../components/ui/Badge';
 import Pagination from '../../components/ui/Pagination';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import InlineAlert from '../../components/ui/InlineAlert';
 import EmptyState from '../../components/ui/EmptyState';
 
@@ -61,7 +62,7 @@ const BackupHistoryPage = () => {
                     <div className="hidden sm:flex w-10 h-10 rounded-xl bg-primary-50 items-center justify-center flex-shrink-0">
                         <Archive className="w-5 h-5 text-primary-600" />
                     </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Backup History</h1>
+                    <PageHeader title="Backup History" />
                 </div>
                 <p className="text-neutral-500 mt-1">Every backup run ever attempted, newest first.</p>
             </div>

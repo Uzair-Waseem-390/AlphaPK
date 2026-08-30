@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams } from 'react-router-dom';
 import { ArrowRightLeft, LayoutGrid, PackageSearch } from 'lucide-react';
 import { purchasesApi } from '../../services/purchasesApi';
@@ -6,6 +6,7 @@ import { usePaginatedList } from '../../hooks/usePaginatedList';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import SearchBar from '../../components/ui/SearchBar';
 import Pagination from '../../components/ui/Pagination';
@@ -128,7 +129,7 @@ const ShelfDetailPage = () => {
                                 <LayoutGrid className="w-5 h-5 text-white" />
                             </div>
                             <div>
-                                <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">{shelf.name}</h1>
+                                <PageHeader title="{shelf.name}" />
                                 {shelf.description && (
                                     <p className="text-neutral-500 mt-0.5 text-sm sm:text-base">{shelf.description}</p>
                                 )}

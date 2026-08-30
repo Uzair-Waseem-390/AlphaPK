@@ -1,6 +1,6 @@
 import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
-import { Plus, SlidersHorizontal, X } from 'lucide-react';
+import { Plus, SlidersHorizontal, X, FileText } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { billingApi } from '../../services/billingApi';
@@ -14,6 +14,7 @@ import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
 import InlineAlert from '../../components/ui/InlineAlert';
 import ConfirmDialog from '../../components/ui/ConfirmDialog';
+import PageHeader from '../../components/ui/PageHeader';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 import { extractErrorMessage } from '../../utils/errorMessage';
 
@@ -183,18 +184,16 @@ const InvoicesPage = () => {
 
     return (
         <div className="space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
-                <div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Invoices</h1>
-                    <p className="text-neutral-500 mt-1">Manage all invoices</p>
-                </div>
-                <Button
-                    onClick={() => navigate('/billing/invoices/create')}
-                    icon={Plus}
-                >
-                    Create Invoice
-                </Button>
-            </div>
+            <PageHeader
+                title="Invoices"
+                subtitle="Manage all invoices"
+                icon={FileText}
+                actions={
+                    <Button onClick={() => navigate('/billing/invoices/create')} icon={Plus}>
+                        Create Invoice
+                    </Button>
+                }
+            />
 
             <div className="space-y-4">
                 <div className="flex gap-4">

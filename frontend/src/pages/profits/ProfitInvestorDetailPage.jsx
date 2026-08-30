@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react';
+﻿import { useState, useEffect, useCallback } from 'react';
 import { useParams } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -13,6 +13,7 @@ import Button from '../../components/ui/Button';
 import Badge from '../../components/ui/Badge';
 import Modal from '../../components/ui/Modal';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Input from '../../components/ui/Input';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
@@ -173,7 +174,7 @@ const ProfitInvestorDetailPage = () => {
 
             <div>
                 <BackLink to="/profits/investors">Back to Investors</BackLink>
-                <h1 className="text-3xl font-bold text-neutral-900 mt-2">{investor.name}</h1>
+                <PageHeader title="{investor.name}" />
                 <p className="text-neutral-500">{investor.contact_number || investor.email || '—'}</p>
             </div>
 

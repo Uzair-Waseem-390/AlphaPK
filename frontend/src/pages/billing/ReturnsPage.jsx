@@ -13,6 +13,7 @@ import FilterBar from '../../components/ui/FilterBar';
 import Pagination from '../../components/ui/Pagination';
 import EmptyState from '../../components/ui/EmptyState';
 import InlineAlert from '../../components/ui/InlineAlert';
+import PageHeader from '../../components/ui/PageHeader';
 import { usePaginatedList } from '../../hooks/usePaginatedList';
 
 const ReturnsPage = () => {
@@ -132,25 +133,11 @@ const ReturnsPage = () => {
 
     return (
         <div className="space-y-6">
-            <motion.div
-                initial={{ opacity: 0, y: -10 }}
-                animate={{ opacity: 1, y: 0 }}
-                transition={{ duration: 0.3 }}
-                className="flex items-center gap-3"
-            >
-                <div className="w-11 h-11 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-lg shadow-primary-900/20 flex-shrink-0">
-                    <RotateCcw className="w-5 h-5 text-white" />
-                </div>
-                <div>
-                    <h1 className="text-2xl sm:text-3xl font-bold text-neutral-900">Returns</h1>
-                    <p className="text-sm text-neutral-500 mt-0.5">
-                        View all customer returns across all invoices
-                        {!loading && (
-                            <span className="text-neutral-400"> &middot; {returns.length} found</span>
-                        )}
-                    </p>
-                </div>
-            </motion.div>
+            <PageHeader
+                title="Returns"
+                subtitle="View all customer returns across all invoices"
+                icon={RotateCcw}
+            />
 
             {error && <InlineAlert variant="error" message={error} onRetry={refetch} />}
 

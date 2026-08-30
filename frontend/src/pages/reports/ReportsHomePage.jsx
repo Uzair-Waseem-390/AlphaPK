@@ -3,10 +3,11 @@ import { motion } from 'framer-motion';
 import {
     Receipt, Wallet, TrendingDown, PackageX, RotateCcw, Undo2,
     TrendingUp, Tag, Calculator, Repeat, LineChart, Package, CreditCard,
-    ChevronRight,
+    ChevronRight, BarChart2,
 } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
 import Card from '../../components/ui/Card';
+import PageHeader from '../../components/ui/PageHeader';
 
 const REPORTS = [
     {
@@ -107,10 +108,11 @@ const ReportsHomePage = () => {
 
     return (
         <div className="space-y-6">
-            <div>
-                <h1 className="text-3xl font-bold text-neutral-900">Reports</h1>
-                <p className="text-neutral-500 mt-1">Business reports and analytics</p>
-            </div>
+            <PageHeader
+                title="Reports"
+                subtitle="Business reports and analytics"
+                icon={BarChart2}
+            />
 
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-5">
                 {REPORTS.map((report, index) => {

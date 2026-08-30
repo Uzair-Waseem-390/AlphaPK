@@ -1,4 +1,4 @@
-import { useState } from 'react';
+﻿import { useState } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { Undo2, Printer, SlidersHorizontal, X } from 'lucide-react';
 import { useAuth } from '../../context/AuthContext';
@@ -11,6 +11,7 @@ import Card from '../../components/ui/Card';
 import Table from '../../components/ui/Table';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import FilterBar from '../../components/ui/FilterBar';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Pagination from '../../components/ui/Pagination';
@@ -91,13 +92,7 @@ const CustomerReturnsReportPage = () => {
         <div className="space-y-6">
             <div>
                 <BackLink to="/reports">Back to Reports</BackLink>
-                <div className="flex items-center gap-3 mt-2">
-                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-primary-700 to-accent-600 flex items-center justify-center shadow-md shadow-primary-900/20 flex-shrink-0">
-                        <Undo2 className="w-5 h-5 text-white" />
-                    </div>
-                    <h1 className="text-3xl font-bold text-neutral-900">Customer Returns Report</h1>
-                </div>
-                <p className="text-neutral-500 mt-1">Accepted returns from customers for a selected date or date range</p>
+                <PageHeader title="Customer Returns Report" subtitle="Accepted returns from customers for a selected date or date range" />
             </div>
 
             <div className="space-y-4">

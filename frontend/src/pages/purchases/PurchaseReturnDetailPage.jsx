@@ -1,4 +1,4 @@
-import { useState, useEffect } from 'react';
+﻿import { useState, useEffect } from 'react';
 import { useParams, useNavigate, Link } from 'react-router-dom';
 import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
@@ -6,6 +6,7 @@ import { purchasesApi } from '../../services/purchasesApi';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import BackLink from '../../components/ui/BackLink';
+import PageHeader from '../../components/ui/PageHeader';
 import Card from '../../components/ui/Card';
 import LoadingSpinner from '../../components/ui/LoadingSpinner';
 import Badge from '../../components/ui/Badge';
@@ -310,7 +311,7 @@ const PurchaseReturnDetailPage = () => {
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
                 <div>
                     <BackLink to="/purchases/returns">Back to Returns</BackLink>
-                    <h1 className="text-3xl font-bold text-neutral-900 mt-2">Return Details</h1>
+                    <PageHeader title="Return Details" />
                     <div className="flex items-center gap-3 mt-1">
                         <p className="text-neutral-500">{returnItem.reference_number}</p>
                         {getStatusBadge(returnItem.status)}
