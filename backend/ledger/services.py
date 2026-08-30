@@ -166,6 +166,18 @@ def create_ledger_for_supplier(*, supplier) -> SupplierLedger:
     )[0]
 
 
+def sync_ledger_snapshot(*, supplier) -> None:
+    """
+    Keeps the ledger's name/code snapshot tracking the live supplier while
+    it's still active. Called by purchases.services.update_supplier every
+    time the supplier is renamed/re-coded. The snapshot only stays frozen
+    once the supplier itself is soft-deleted (nothing calls this after that).
+    """
+    SupplierLedger.objects.filter(supplier=supplier).exclude(
+        supplier_name=supplier.name, supplier_code=supplier.code,
+    ).update(supplier_name=supplier.name, supplier_code=supplier.code)
+
+
 def delete_customer_ledger(*, pk: int, user) -> None:
     """
     Soft-deletes a CustomerLedger. Only allowed once the linked customer is
@@ -201,6 +213,17 @@ def create_ledger_for_customer(*, customer) -> CustomerLedger:
             "customer_code": customer.code,
         },
     )[0]
+
+
+def sync_customer_ledger_snapshot(*, customer) -> None:
+    """
+    Keeps the ledger's name/code snapshot tracking the live customer while
+    it's still active. Called by billing.services.update_customer every
+    time the customer is renamed/re-coded. Mirrors sync_ledger_snapshot.
+    """
+    CustomerLedger.objects.filter(customer=customer).exclude(
+        customer_name=customer.name, customer_code=customer.code,
+    ).update(customer_name=customer.name, customer_code=customer.code)
 
 
 def _get_locked_customer_ledger(customer) -> CustomerLedger:

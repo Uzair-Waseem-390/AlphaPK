@@ -602,6 +602,7 @@ def create_supplier(*, name: str, code: str, user) -> Supplier:
     return supplier
 
 
+@transaction.atomic
 def update_supplier(*, pk: int, name: str = None, code: str = None, user) -> Supplier:
     from rest_framework.exceptions import ValidationError
     supplier = get_supplier_by_id(pk)
@@ -613,6 +614,14 @@ def update_supplier(*, pk: int, name: str = None, code: str = None, user) -> Sup
         supplier.name = name
     supplier.updated_by = user
     supplier.save(update_fields=["name", "code", "updated_by", "updated_at"])
+
+    # Keep the ledger's name/code snapshot in sync — it's frozen at creation
+    # for history, but must track the live supplier while the supplier is
+    # still active (found 2026-08-31: renaming/re-coding a supplier left the
+    # ledger showing its old name/code, and unreachable by ledger search).
+    from ledger.services import sync_ledger_snapshot
+    sync_ledger_snapshot(supplier=supplier)
+
     return supplier
 
 
@@ -1355,6 +1364,13 @@ def delete_supplier_payment(*, payment_id: int, user) -> None:
 
     from payment_methods.services import reverse_allocations
     reverse_allocations(payment)
+
+    # Reverse ledger entry — mirrors billing.services.delete_payment. Without
+    # this, a deleted supplier payment kept its debit entry (and baked-in
+    # snapshot balance) alive forever, showing as a still-outstanding
+    # payment on the supplier ledger (found 2026-08-31, SPY-2026-0013).
+    from ledger.services import remove_ledger_entry_for_payment
+    remove_ledger_entry_for_payment(supplier_payment=payment)
 
 
 # ---------------------------------------------------------------------------

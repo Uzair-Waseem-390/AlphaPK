@@ -342,6 +342,7 @@ def create_customer(*, name: str, code: str, address: str, mobile: str = "", use
     return customer
 
 
+@transaction.atomic
 def update_customer(
     *, pk: int, name: str = None, code: str = None,
     address: str = None, mobile: str = None, user,
@@ -361,6 +362,13 @@ def update_customer(
         customer.mobile = mobile
     customer.updated_by = user
     customer.save(update_fields=["name", "code", "address", "mobile", "updated_by", "updated_at"])
+
+    # Keep the ledger's name/code snapshot in sync with the live customer —
+    # mirrors purchases.services.update_supplier's fix (same bug, found
+    # 2026-08-31, on the supplier side first).
+    from ledger.services import sync_customer_ledger_snapshot
+    sync_customer_ledger_snapshot(customer=customer)
+
     return customer
 
 

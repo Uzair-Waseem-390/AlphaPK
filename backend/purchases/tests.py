@@ -485,6 +485,37 @@ class OrderPayableSyncTests(PurchasesTestBase):
         self.assertEqual(order.payment_status, PurchaseOrder.PaymentStatus.PARTIAL)
 
 
+class DeleteSupplierPaymentLedgerTests(PurchasesTestBase):
+    """delete_supplier_payment must remove the linked SupplierLedgerEntry —
+    found 2026-08-31 (SPY-2026-0013): a soft-deleted payment kept its debit
+    entry alive forever, still showing as outstanding on the ledger."""
+
+    def test_deleting_payment_removes_ledger_entry_and_recalculates_balance(self):
+        from ledger.models import SupplierLedgerEntry, SupplierLedgerSnapshot
+
+        product = self.make_product()
+        order = self.make_confirmed_order(product, quantity=10, unit_price="50")  # net 500
+        payment = create_supplier_payment(
+            order_id=order.id, amount=Decimal("200"), method_allocations=self.cash_split("200"),
+            payment_date=timezone.now().date(), user=self.admin,
+        )
+        ledger = self.supplier.ledger
+        year_month = timezone.now().date().strftime("%Y-%m")
+        self.assertTrue(SupplierLedgerEntry.objects.filter(supplier_payment=payment).exists())
+        self.assertEqual(
+            SupplierLedgerSnapshot.objects.get(ledger=ledger, year_month=year_month).closing_balance,
+            Decimal("300"),
+        )
+
+        delete_supplier_payment(payment_id=payment.id, user=self.admin)
+
+        self.assertFalse(SupplierLedgerEntry.objects.filter(supplier_payment=payment).exists())
+        self.assertEqual(
+            SupplierLedgerSnapshot.objects.get(ledger=ledger, year_month=year_month).closing_balance,
+            Decimal("500"),
+        )
+
+
 class PurchaseReturnRemainingQuantityTests(PurchasesTestBase):
     """
     Regression coverage for the accept_purchase_return bug fixed 2026-08-09:

@@ -5,9 +5,9 @@ from django.test import TestCase
 from rest_framework.test import APIRequestFactory, force_authenticate
 
 from billing.models import Invoice, Payment
-from billing.services import create_customer
+from billing.services import create_customer, update_customer
 from purchases.models import PurchaseOrder, SupplierPayment
-from purchases.services import create_supplier
+from purchases.services import create_supplier, update_supplier
 from users.models import User
 
 from .models import CustomerLedgerSnapshot, SupplierLedgerSnapshot
@@ -95,6 +95,31 @@ class SnapshotCorrectnessTests(LedgerTestBase):
         entry = self.add_payment("400", date(2026, 6, 20))
         remove_ledger_entry_for_payment(supplier_payment=entry.supplier_payment)
         self.assertEqual(self.snapshot("2026-06").closing_balance, Decimal("1000"))
+
+
+class LedgerSnapshotSyncTests(LedgerTestBase):
+    """update_supplier must keep SupplierLedger's name/code snapshot live
+    while the supplier is active — found 2026-08-31: renaming/re-coding a
+    supplier left its ledger showing the old name/code, and unreachable by
+    ledger search (get_all_ledgers filters on the snapshot fields)."""
+
+    def test_rename_propagates_to_ledger(self):
+        update_supplier(pk=self.supplier.id, name="Renamed Traders", user=self.admin)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.supplier_name, "Renamed Traders")
+        self.assertEqual(self.ledger.supplier_code, "ALI")
+
+    def test_recode_propagates_to_ledger(self):
+        update_supplier(pk=self.supplier.id, code="ALI2", user=self.admin)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.supplier_code, "ALI2")
+        self.assertEqual(self.ledger.supplier_name, "Ali Traders")
+
+    def test_renamed_supplier_findable_by_new_name_in_ledger_search(self):
+        from .selectors import get_all_ledgers
+        update_supplier(pk=self.supplier.id, name="Findable Traders", user=self.admin)
+        self.assertTrue(get_all_ledgers(search="Findable").filter(pk=self.ledger.pk).exists())
+        self.assertFalse(get_all_ledgers(search="Ali Traders").filter(pk=self.ledger.pk).exists())
 
 
 class LedgerDetailViewTests(LedgerTestBase):
@@ -209,6 +234,27 @@ class CustomerLedgerDirectionTests(CustomerLedgerTestBase):
         self.assertEqual(entry.credit, Decimal("400"))
         self.assertEqual(entry.debit, Decimal("0"))
         self.assertEqual(entry.entry_type, "payment")
+
+
+class CustomerLedgerSnapshotSyncTests(CustomerLedgerTestBase):
+    """Mirrors LedgerSnapshotSyncTests — same bug, same fix, customer side."""
+
+    def test_rename_propagates_to_ledger(self):
+        update_customer(pk=self.customer.id, name="Renamed Stationers", user=self.admin)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.customer_name, "Renamed Stationers")
+        self.assertEqual(self.ledger.customer_code, "BLS")
+
+    def test_recode_propagates_to_ledger(self):
+        update_customer(pk=self.customer.id, code="BLS2", user=self.admin)
+        self.ledger.refresh_from_db()
+        self.assertEqual(self.ledger.customer_code, "BLS2")
+
+    def test_renamed_customer_findable_by_new_name_in_ledger_search(self):
+        from .selectors import get_all_customer_ledgers
+        update_customer(pk=self.customer.id, name="Findable Stationers", user=self.admin)
+        self.assertTrue(get_all_customer_ledgers(search="Findable").filter(pk=self.ledger.pk).exists())
+        self.assertFalse(get_all_customer_ledgers(search="Bilal Stationers").filter(pk=self.ledger.pk).exists())
 
 
 class CustomerSnapshotCorrectnessTests(CustomerLedgerTestBase):
