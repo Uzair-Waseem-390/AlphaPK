@@ -1,4 +1,4 @@
-from decimal import Decimal
+from decimal import ROUND_HALF_UP, Decimal
 from django.db import transaction
 from django.db.models import F, Q, Sum
 from django.utils import timezone
@@ -293,14 +293,22 @@ def sync_inventory(
     the same transaction. The row lock makes old_quantity trustworthy under
     concurrency, so a transition is never counted twice.
 
-    unit_cost: pass this ONLY when quantity_delta represents new stock
+    unit_cost: pass this ONLY when quantity_delta represents (a) new stock
     entering via a real purchase at a real cost (confirm_purchase_order,
-    create_opening_stock_order) — it applies the moving-average-cost
-    formula to Inventory.avg_unit_cost in the SAME lock/save, no extra
-    query. Every other caller (sales consumption, purchase/sales returns,
-    lost/found inventory) passes nothing, so avg_unit_cost is structurally
-    untouched by anything except a genuine purchase — see Inventory.
-    avg_unit_cost's docstring for why (fixed 2026-09-14).
+    create_opening_stock_order), or (b) a purchase return being accepted —
+    both are genuine changes to what was actually paid/kept from
+    suppliers. It applies the moving-average-cost formula to
+    Inventory.avg_unit_cost in the SAME lock/save, no extra query. One
+    formula handles both directions: a purchase (quantity_delta > 0,
+    unit_cost = that purchase's own cost) and a purchase return
+    (quantity_delta < 0, unit_cost = the specific returned batch's own
+    cost) are algebraically the same expression — it adds/subtracts that
+    event's exact value contribution and re-divides by the new quantity.
+    Every other caller (sales consumption, customer returns, lost/found
+    inventory) passes nothing, so avg_unit_cost is structurally untouched
+    by anything except those two event types — see Inventory.
+    avg_unit_cost's docstring for why (fixed 2026-09-14, extended to
+    purchase returns 2026-09-15).
     """
     with transaction.atomic():
         inventory, created = (
@@ -312,12 +320,15 @@ def sync_inventory(
         inventory.quantity = max(0, inventory.quantity + quantity_delta)
         update_fields = ["quantity", "last_updated_at"]
 
-        if unit_cost is not None and quantity_delta > 0:
-            old_qty_dec = Decimal(old_quantity)
-            new_qty_dec = Decimal(quantity_delta)
-            inventory.avg_unit_cost = (
-                (inventory.avg_unit_cost * old_qty_dec) + (unit_cost * new_qty_dec)
-            ) / (old_qty_dec + new_qty_dec)
+        if unit_cost is not None and quantity_delta != 0:
+            new_qty_for_avg = old_quantity + quantity_delta
+            if new_qty_for_avg > 0:
+                inventory.avg_unit_cost = (
+                    (inventory.avg_unit_cost * Decimal(old_quantity)) + (Decimal(unit_cost) * Decimal(quantity_delta))
+                ) / Decimal(new_qty_for_avg)
+            else:
+                inventory.avg_unit_cost = Decimal("0")
+            inventory.avg_unit_cost = inventory.avg_unit_cost.quantize(Decimal("0.0001"), rounding=ROUND_HALF_UP)
             update_fields.append("avg_unit_cost")
 
         if user is not None:
@@ -1629,8 +1640,15 @@ def accept_purchase_return(*, return_id: int, user) -> PurchaseReturn:
         locked_item.returned_quantity = purchase_item.returned_quantity + qty
         locked_item.save(update_fields=["remaining_quantity", "returned_quantity"])
 
-        # Decrease inventory (global) and the specific shelf(s) it's pulled from
-        sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user)
+        # Decrease inventory (global) and the specific shelf(s) it's pulled from.
+        # A purchase return reverses part of a real purchase — the specific
+        # returned batch's own cost moves avg_unit_cost, same formula as a
+        # purchase applies in the opposite direction (see sync_inventory's
+        # docstring, fixed 2026-09-15).
+        return_unit_cost = (
+            purchase_item.total_price / purchase_item.quantity if purchase_item.quantity else purchase_item.unit_price
+        )
+        sync_inventory(product=purchase_item.product, quantity_delta=-qty, user=user, unit_cost=return_unit_cost)
         apply_shelf_allocations(
             product=purchase_item.product,
             allocations=[{"shelf": a.shelf, "quantity": a.quantity} for a in return_item.shelf_allocations.all()],
