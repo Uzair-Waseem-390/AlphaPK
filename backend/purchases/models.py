@@ -108,6 +108,9 @@ class Product(AuditMixin):
         verbose_name        = "Product"
         verbose_name_plural = "Products"
         ordering            = ["name"]
+        # Serves every "ORDER BY name, code" list (b2b shared rate list,
+        # product list) without sorting the whole table per page.
+        indexes             = [models.Index(fields=["name", "code"], name="product_name_code_idx")]
 
     def __str__(self):
         return f"{self.name} ({self.code})"

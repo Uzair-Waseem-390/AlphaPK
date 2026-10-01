@@ -134,6 +134,9 @@ import PaymentMethodsListPage from './pages/paymentMethods/PaymentMethodsListPag
 import PaymentMethodDetailPage from './pages/paymentMethods/PaymentMethodDetailPage';
 import AccountTransfersPage from './pages/paymentMethods/AccountTransfersPage';
 
+// B2B (rate-list sharing) pages
+import RateShareRequestsPage from './pages/b2b/RateShareRequestsPage';
+
 // Recurring Expenses pages
 import RecurringExpensesPage from './pages/recurringExpenses/RecurringExpensesPage';
 import RecurringExpenseCategoriesPage from './pages/recurringExpenses/RecurringExpenseCategoriesPage';
@@ -991,6 +994,15 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <BackupHistoryPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        {/* B2B Routes */}
+        <Route path="/b2b/rate-sharing" element={
+          <ProtectedRoute>
+            <Layout>
+              <RateShareRequestsPage />
             </Layout>
           </ProtectedRoute>
         } />
