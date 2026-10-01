@@ -123,7 +123,7 @@ export const navGroups = [
     },
     {
         key: 'b2b',
-        label: 'Rate Sharing',
+        label: 'B2B Partners',
         icon: Share2,
         adminOnly: true,
         items: [
