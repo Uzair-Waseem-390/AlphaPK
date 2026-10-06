@@ -128,6 +128,7 @@ export const navGroups = [
         adminOnly: true,
         items: [
             { name: 'Share Requests', path: '/b2b/rate-sharing', icon: Share2 },
+            { name: 'Purchase Requests', path: '/b2b/purchase-requests', icon: ShoppingCart },
         ],
     },
     {

@@ -57,3 +57,29 @@ def failed_auth_limit():
         return max(1, int(count)), _UNITS[unit.strip().lower()]
     except (ValueError, KeyError):
         return 10, 3600
+
+
+# ---------------------------------------------------------------------------
+# Purchase requests
+# ---------------------------------------------------------------------------
+
+MAX_REQUEST_ITEMS = 100
+
+
+def partner_base_urls():
+    """{partner COMPANY_NAME: that software's backend root URL} — used to ring its doorbell."""
+    return _parse_json_map(getattr(settings, "B2B_PARTNER_BASE_URLS", "") or "", "B2B_PARTNER_BASE_URLS")
+
+
+def customer_code_for(partner_name: str) -> str:
+    """The customer record that stands for this partner on invoices ('' when not set)."""
+    codes = getattr(settings, "B2B_PARTNER_CUSTOMER_CODES", {}) or {}
+    return (codes.get(partner_name) or "").strip()
+
+
+def timeout_seconds() -> float:
+    """Per-socket-operation timeout for one outgoing call (connect and each read), clamped to 0.5s..10s."""
+    try:
+        return min(10.0, max(0.5, float(getattr(settings, "B2B_PARTNER_TIMEOUT_SECONDS", 3))))
+    except (TypeError, ValueError):
+        return 3.0

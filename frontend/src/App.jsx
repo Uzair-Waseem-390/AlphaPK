@@ -136,6 +136,8 @@ import AccountTransfersPage from './pages/paymentMethods/AccountTransfersPage';
 
 // B2B (rate-list sharing) pages
 import RateShareRequestsPage from './pages/b2b/RateShareRequestsPage';
+import PurchaseRequestsPage from './pages/b2b/PurchaseRequestsPage';
+import PurchaseRequestDetailPage from './pages/b2b/PurchaseRequestDetailPage';
 
 // Recurring Expenses pages
 import RecurringExpensesPage from './pages/recurringExpenses/RecurringExpensesPage';
@@ -1003,6 +1005,22 @@ const AppContent = () => {
           <ProtectedRoute>
             <Layout>
               <RateShareRequestsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/b2b/purchase-requests" element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchaseRequestsPage />
+            </Layout>
+          </ProtectedRoute>
+        } />
+
+        <Route path="/b2b/purchase-requests/:id" element={
+          <ProtectedRoute>
+            <Layout>
+              <PurchaseRequestDetailPage />
             </Layout>
           </ProtectedRoute>
         } />

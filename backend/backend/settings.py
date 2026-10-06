@@ -37,6 +37,10 @@ B2B_PARTNER_BASE_URLS = os.getenv("B2B_PARTNER_BASE_URLS", "")      # {"<provide
 B2B_SIGNATURE_MAX_AGE_SECONDS = os.getenv("B2B_SIGNATURE_MAX_AGE_SECONDS", "60")   # parsed safely by b2b.config
 B2B_FAILED_AUTH_LIMIT = os.getenv("B2B_FAILED_AUTH_LIMIT", "10/hour")
 B2B_PARTNER_TIMEOUT_SECONDS = os.getenv("B2B_PARTNER_TIMEOUT_SECONDS", "3")          # parsed safely by b2b.config
+# Purchase requests: the customer record that stands for each partner on the invoices
+# this software creates when it accepts that partner's request (partner COMPANY_NAME -> code).
+ALFA_CUSTOMER_CODE = os.getenv("ALFA_CUSTOMER_CODE", "")
+B2B_PARTNER_CUSTOMER_CODES = {"ALFA": ALFA_CUSTOMER_CODE}
 
 INSTALLED_APPS = [
     'django.contrib.admin',
