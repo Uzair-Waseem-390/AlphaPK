@@ -5,6 +5,8 @@ import { useAuth } from '../../context/AuthContext';
 import { useToast } from '../../context/ToastContext';
 import { usePurchaseRequestDetail, useDecidePurchaseRequest } from '../../hooks/useB2B';
 import { billingApi } from '../../services/billingApi';
+import { b2bApi } from '../../services/b2bApi';
+import WakePartnerButton from '../../components/b2b/WakePartnerButton';
 import { extractErrorMessage } from '../../utils/errorMessage';
 import Button from '../../components/ui/Button';
 import Card from '../../components/ui/Card';
@@ -201,7 +203,11 @@ const PurchaseRequestDetailPage = () => {
                 </div>
 
                 {pending && (
-                    <div className="flex flex-wrap gap-2">
+                    <div className="flex flex-wrap items-start gap-2">
+                        <WakePartnerButton
+                            partnerLabel={request.partner_name}
+                            wake={() => b2bApi.partners.wake(request.partner_name)}
+                        />
                         <Button variant="secondary" icon={Wand2} onClick={handleAutoAllocateAll} loading={bulkAutoAllocating} disabled={mutating}>
                             Auto-Allocate All
                         </Button>

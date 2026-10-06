@@ -36,6 +36,10 @@ def cancel_path(request_uuid):
 class PurchaseRequestBase(TestCase):
     def setUp(self):
         cache.clear()
+        # Default: the partner answers its wake-up check. test_wake.py removes this stub to test the real gate.
+        awake = patch("b2b.request_services.ensure_partner_awake")
+        awake.start()
+        self.addCleanup(awake.stop)
         self.client = APIClient()
         self.admin = make_admin()
         self.category = Category.objects.create(name="Cat A")

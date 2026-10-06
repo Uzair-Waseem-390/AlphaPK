@@ -13,20 +13,24 @@ from .request_views import (
 from .views import (
     AccessRequestActionView,
     AccessRequestListView,
+    PartnerPingView,
     PartnerRateListView,
     PartnerRequestView,
+    PartnerWakeView,
 )
 
 urlpatterns = [
     # Partner-facing (signed requests from another software)
     path("partner/request/", PartnerRequestView.as_view(), name="b2b-partner-request"),
     path("partner/rate-list/", PartnerRateListView.as_view(), name="b2b-partner-rate-list"),
+    path("partner/ping/", PartnerPingView.as_view(), name="b2b-partner-ping"),
     path("partner/products/", PartnerProductSearchView.as_view(), name="b2b-partner-products"),
     path("partner/purchase-requests/", PartnerPurchaseRequestsView.as_view(), name="b2b-partner-purchase-requests"),
     path("partner/purchase-requests/decisions/", PartnerDecisionsView.as_view(), name="b2b-partner-decisions"),
     path("partner/purchase-requests/<uuid:request_uuid>/cancel/", PartnerCancelRequestView.as_view(), name="b2b-partner-cancel"),
 
     # Admin-facing (JWT, admin / superuser)
+    path("partners/<str:partner>/wake/", PartnerWakeView.as_view(), name="b2b-partner-wake"),
     path("requests/", AccessRequestListView.as_view(), name="b2b-request-list"),
     path("requests/<int:pk>/approve/", AccessRequestActionView.as_view(action="approve"), name="b2b-request-approve"),
     path("requests/<int:pk>/reject/", AccessRequestActionView.as_view(action="reject"), name="b2b-request-reject"),

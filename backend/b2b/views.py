@@ -1,3 +1,4 @@
+from django.db import connection
 from rest_framework import generics
 from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
@@ -5,6 +6,7 @@ from rest_framework.views import APIView
 
 from . import config
 from .authentication import SignedPartnerAuthentication
+from .doorbell import partner_wake_status
 from .models import PartnerRateAccess
 from .permissions import IsAdminOrSuperuser, IsSignedPartner
 from .selectors import get_partner_access, get_shared_rate_list, list_partner_requests
@@ -89,3 +91,38 @@ class AccessRequestActionView(ProviderOnlyMixin, APIView):
     def post(self, request, pk):
         access = decide_access(access_id=pk, action=self.action, user=request.user)
         return Response(PartnerAccessSerializer(access).data)
+
+
+class PartnerPingView(APIView):
+    """
+    GET /b2b/partner/ping/ — signed readiness check, used ONLY by the partner's backend
+    (never by a browser) right before it changes anything that depends on this software.
+    200 means: the app is up, the database answers, and the caller's credentials are valid.
+    """
+    authentication_classes = [SignedPartnerAuthentication]
+    permission_classes = [IsSignedPartner]
+
+    def get(self, request):
+        try:
+            with connection.cursor() as cursor:
+                cursor.execute("SELECT 1")
+        except Exception:  # noqa: BLE001 — a broken database means "not ready"
+            return Response({"ok": False}, status=503)
+        return Response({"ok": True})
+
+
+class PartnerWakeView(ProviderOnlyMixin, APIView):
+    """
+    POST /b2b/partners/<partner>/wake/ — the admin pressed "Wake up". One readiness check
+    (5s limit) of that partner's backend; the browser repeats it every few seconds, for at
+    most 90 seconds, until it answers.
+    """
+    permission_classes = [IsAdminOrSuperuser]
+
+    def post(self, request, partner):
+        if partner not in config.partner_base_urls():
+            raise NotFound()
+        status = partner_wake_status(partner)
+        if status == "awake":
+            return Response({"awake": True})
+        return Response({"awake": False, "reason": status})

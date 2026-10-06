@@ -19,7 +19,7 @@ from billing.services import confirm_invoice, create_invoice, set_invoice_item_s
 from rates.models import ProductRate
 
 from . import config
-from .doorbell import notify_partner
+from .doorbell import ensure_partner_awake, notify_partner
 from .models import PurchaseRequest, PurchaseRequestItem
 from .request_selectors import get_current_prices, get_stock_levels
 
@@ -129,8 +129,31 @@ def _lock_for_decision(request_id: int) -> PurchaseRequest:
     return request
 
 
-@transaction.atomic
+def _partner_of(request_id: int) -> str:
+    """
+    The partner to wake-check for a decision. A request that can no longer be decided gets the
+    same clear 400 as before — without costing a pointless wake-up call (the locked check inside
+    the transaction stays authoritative).
+    """
+    row = PurchaseRequest.objects.filter(pk=request_id).values_list("partner_name", "status").first()
+    if row is None:
+        raise NotFound("Request not found.")
+    partner_name, status = row
+    if status == Status.CANCELLED:
+        raise ValidationError({"status": "This request was cancelled by the partner and can no longer be decided."})
+    if status != Status.PENDING:
+        raise ValidationError({"status": f"This request is already {Status(status).label.lower()}."})
+    return partner_name
+
+
 def deny_purchase_request(*, request_id: int, user) -> PurchaseRequest:
+    """Denying tells the partner, so the partner must answer a wake-up check first — otherwise NOTHING is written."""
+    ensure_partner_awake(_partner_of(request_id))
+    return _deny_atomic(request_id=request_id, user=user)
+
+
+@transaction.atomic
+def _deny_atomic(*, request_id: int, user) -> PurchaseRequest:
     request = _lock_for_decision(request_id)
     request.status = Status.DENIED
     request.decided_at = timezone.now()
@@ -140,8 +163,18 @@ def deny_purchase_request(*, request_id: int, user) -> PurchaseRequest:
     return request
 
 
-@transaction.atomic
 def accept_purchase_request(*, request_id: int, items: list, user) -> PurchaseRequest:
+    """
+    Accepting makes the partner create its purchase order, so the partner must answer a
+    wake-up check first. If it does not, nothing is written here (no invoice, no stock
+    change, no status change) and the admin is told to wake it and retry.
+    """
+    ensure_partner_awake(_partner_of(request_id))
+    return _accept_atomic(request_id=request_id, items=items, user=user)
+
+
+@transaction.atomic
+def _accept_atomic(*, request_id: int, items: list, user) -> PurchaseRequest:
     """
     items = [{"id": <request item id>, "accepted_quantity": int >= 0,
               "shelf_allocations": [{"shelf_id": int, "quantity": int}, ...]}, ...]
