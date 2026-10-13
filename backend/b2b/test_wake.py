@@ -1,5 +1,6 @@
 """The wake-up rule: if the partner does not answer its readiness check, NOTHING is written here."""
 import json
+import threading
 import time
 from unittest.mock import patch
 from urllib import error
@@ -13,7 +14,7 @@ from rest_framework.test import APIClient
 from billing.models import Invoice
 from purchases.models import Inventory
 
-from . import doorbell
+from . import doorbell, wake
 from .models import PurchaseRequest
 from .signing import compute_signature
 from .test_requests import CUSTOMER_CODE, PurchaseRequestBase
@@ -202,6 +203,8 @@ class WakeGateTests(PurchaseRequestBase):
 @override_settings(**PROVIDER_ON, B2B_PARTNER_BASE_URLS='{"%s": "https://partner.example"}' % PARTNER)
 class WakeEndpointTests(TestCase):
     def setUp(self):
+        wake.reset()
+        self.addCleanup(wake.reset)
         self.admin = APIClient()
         self.admin.force_authenticate(make_admin())
 
@@ -209,8 +212,10 @@ class WakeEndpointTests(TestCase):
         url = f"/api/b2b/partners/{PARTNER}/wake/"
         with patch("b2b.views.partner_wake_status", return_value="awake"):
             self.assertEqual(self.admin.post(url).json(), {"awake": True})
+        wake.reset()
         with patch("b2b.views.partner_wake_status", return_value="asleep"):
             self.assertEqual(self.admin.post(url).json(), {"awake": False, "reason": "asleep"})
+        wake.reset()
         with patch("b2b.views.partner_wake_status", return_value="not_configured"):
             self.assertEqual(self.admin.post(url).json(), {"awake": False, "reason": "not_configured"})
 
@@ -276,3 +281,77 @@ class AuditHardeningTests(PurchaseRequestBase):
             client.get(PING, **signed("GET", PING, secret="wrong"))            # bad signature
             client.get(PING, **signed("GET", PING, timestamp=int(time.time()) - 3600))   # stale
         cursor.assert_not_called()
+
+
+class WakeButtonKnockTests(TestCase):
+    """A sleeping free-tier server only boots if the knock stays open, so the button holds one open in the background."""
+
+    def setUp(self):
+        wake.reset()
+        self.addCleanup(wake.reset)
+        patcher = patch.object(wake, "FIRST_ANSWER_WAIT", 0.05)
+        patcher.start()
+        self.addCleanup(patcher.stop)
+
+    def test_the_knock_waits_far_longer_than_the_five_second_gate(self):
+        seen = []
+        def check(partner, timeout):
+            seen.append(timeout)
+            return "awake"
+        self.assertEqual(wake.wake_partner(PARTNER, check), "awake")
+        self.assertEqual(seen, [wake.HOLD_SECONDS])
+        self.assertGreaterEqual(wake.HOLD_SECONDS, 60)
+
+    def test_polls_return_at_once_while_the_partner_boots_and_say_awake_when_it_does(self):
+        release, started = threading.Event(), threading.Event()
+        calls = []
+        def slow_boot(partner, timeout):
+            calls.append(timeout)
+            started.set()
+            release.wait(10)
+            return "awake"
+        begin = time.monotonic()
+        self.assertEqual(wake.wake_partner(PARTNER, slow_boot), "asleep")
+        self.assertEqual(wake.wake_partner(PARTNER, slow_boot), "asleep")
+        self.assertEqual(wake.wake_partner(PARTNER, slow_boot), "asleep")
+        self.assertLess(time.monotonic() - begin, 2)                            # nothing held the request open
+        self.assertTrue(started.wait(2))
+        self.assertEqual(len(calls), 1)                                         # exactly ONE knock in flight
+        release.set()
+        for _ in range(100):
+            if wake.wake_partner(PARTNER, slow_boot) == "awake":
+                break
+            time.sleep(0.02)
+        else:
+            self.fail("the poll never reported awake")
+        self.assertEqual(len(calls), 1)
+
+    def test_a_knock_that_timed_out_is_followed_by_a_fresh_one(self):
+        calls = []
+        def check(partner, timeout):
+            calls.append(1)
+            return "asleep"
+        wake.wake_partner(PARTNER, check)
+        wake.wake_partner(PARTNER, check)
+        self.assertEqual(len(calls), 2)
+
+    def test_a_crashing_check_reads_as_asleep_and_never_escapes(self):
+        def check(partner, timeout):
+            raise RuntimeError("boom")
+        self.assertEqual(wake.wake_partner(PARTNER, check), "asleep")
+
+    @override_settings(**PROVIDER_ON, B2B_PARTNER_BASE_URLS='{"%s": "https://partner.example"}' % PARTNER)
+    def test_the_real_check_passes_the_requested_wait_to_the_connection_and_the_gate_stays_short(self):
+        seen = []
+        class Reply:
+            status = 200
+            def read(self, n=-1): return b""
+            def __enter__(self): return self
+            def __exit__(self, *a): return False
+        def fake_open(req, timeout):
+            seen.append(timeout)
+            return Reply()
+        with patch.object(doorbell._opener, "open", fake_open):
+            self.assertEqual(doorbell.partner_wake_status(PARTNER, 85.0), "awake")
+            doorbell.ensure_partner_awake(PARTNER)
+        self.assertEqual(seen, [85.0, doorbell.WAKE_TIMEOUT_SECONDS])

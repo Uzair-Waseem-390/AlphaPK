@@ -4,7 +4,7 @@ from rest_framework.exceptions import NotFound
 from rest_framework.response import Response
 from rest_framework.views import APIView
 
-from . import config
+from . import config, wake
 from .authentication import SignedPartnerAuthentication
 from .doorbell import partner_wake_status
 from .models import PartnerRateAccess
@@ -113,16 +113,17 @@ class PartnerPingView(APIView):
 
 class PartnerWakeView(ProviderOnlyMixin, APIView):
     """
-    POST /b2b/partners/<partner>/wake/ — the admin pressed "Wake up". One readiness check
-    (5s limit) of that partner's backend; the browser repeats it every few seconds, for at
-    most 90 seconds, until it answers.
+    POST /b2b/partners/<partner>/wake/ — the admin pressed "Wake up". Answers at once with the
+    state of a readiness knock that stays open in the background (see wake.py) long enough for a
+    sleeping server to boot; the browser repeats it every few seconds, for at most 90 seconds,
+    until it answers. No request is held open and no data changes.
     """
     permission_classes = [IsAdminOrSuperuser]
 
     def post(self, request, partner):
         if partner not in config.partner_base_urls():
             raise NotFound()
-        status = partner_wake_status(partner)
+        status = wake.wake_partner(partner, partner_wake_status)
         if status == "awake":
             return Response({"awake": True})
         return Response({"awake": False, "reason": status})

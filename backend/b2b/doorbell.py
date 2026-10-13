@@ -104,9 +104,9 @@ def _signed_request(partner_name: str, method: str, path: str, body: bytes = b""
 # Wake-up check
 # ---------------------------------------------------------------------------
 
-def partner_wake_status(partner_name: str) -> str:
+def partner_wake_status(partner_name: str, timeout: float = WAKE_TIMEOUT_SECONDS) -> str:
     """
-    One signed readiness call (5s limit).
+    One signed readiness call (5s limit unless the Wake up button asks for longer).
     'awake'          HTTP 200
     'asleep'         no answer in time / connection failed / server error (it may still be waking up)
     'not_configured' it answered but refused us (401/403/404), or this software isn't set up to reach it
@@ -115,7 +115,7 @@ def partner_wake_status(partner_name: str) -> str:
     if req is None:
         return "not_configured"
     try:
-        with _opener.open(req, timeout=WAKE_TIMEOUT_SECONDS) as resp:
+        with _opener.open(req, timeout=timeout) as resp:
             resp.read(1024)
             return "awake" if resp.status == 200 else "asleep"
     except urllib_error.HTTPError as exc:
