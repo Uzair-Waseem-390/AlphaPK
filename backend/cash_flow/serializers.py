@@ -80,6 +80,11 @@ class ExpenseWriteSerializer(serializers.ModelSerializer):
         return value.strip()
 
 
+class ExpenseSummarySerializer(serializers.Serializer):
+    total_amount = serializers.DecimalField(max_digits=20, decimal_places=4)
+    count        = serializers.IntegerField()
+
+
 # ---------------------------------------------------------------------------
 # Opening/closing cash (cash-in-hand breakdown, filter-only)
 # ---------------------------------------------------------------------------
@@ -267,4 +272,4 @@ class ProfitBreakdownSerializer(serializers.Serializer):
     grand_total   = serializers.DecimalField(max_digits=18, decimal_places=4)
     total_cogs    = serializers.DecimalField(max_digits=18, decimal_places=4)
     gross_profit  = serializers.DecimalField(max_digits=18, decimal_places=4)
-    confirmed_at  = serializers.DateTimeField()
+    confirmed_at  = serializers.DateTimeField()
